@@ -66,3 +66,11 @@ PIN is never stored. Remaining PIN attempts shown where the token reports them.
 - `signdesk certs` found "DK RAHUL", issued by Verasys Sub CA 2022, via `eps2003csp11v2.dll` (auto-detected).
 - Signed `test.pdf`; Adobe Reader: **Signature is VALID**, not modified since signing,
   trust from **AATL**, certificate valid and not revoked, time +05'30', reason/location shown.
+
+## Phase 2/3 status (2026-10-20)
+
+- Desktop app built (Tauri). Windows NSIS installer + macOS dmg published to the `test-build` release.
+- macOS (Apple Silicon): app opens after `xattr -cr` + ad-hoc `codesign`; PDF viewing and box
+  placement/drag/resize confirmed by the user. Token-not-found state shown correctly (no token on Mac).
+- Pending: Windows desktop app test with the real token; Apple Developer ID secrets for notarization;
+  HyperPKI macOS driver test once the token is on the Mac.
