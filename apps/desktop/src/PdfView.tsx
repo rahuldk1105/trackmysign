@@ -32,6 +32,8 @@ interface Props {
   sizes: PageSize[];
   placement: Placement | null;
   preview: string[];
+  /** Multiplier on fit-to-width (1 = fit). */
+  zoom: number;
   onPlace: (p: Placement) => void;
 }
 
@@ -55,7 +57,7 @@ function fitFont(lines: string[], w: number, h: number): number {
 }
 const MIN_H = 30;
 
-export function PdfView({ doc, sizes, placement, preview, onPlace }: Props) {
+export function PdfView({ doc, sizes, placement, preview, zoom, onPlace }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -69,7 +71,8 @@ export function PdfView({ doc, sizes, placement, preview, onPlace }: Props) {
   }, []);
 
   const maxPageWidth = Math.max(...sizes.map((s) => s.width));
-  const scale = Math.min(1.6, Math.max(0.3, (width - 64) / maxPageWidth));
+  const fit = Math.min(1.6, Math.max(0.3, (width - 64) / maxPageWidth));
+  const scale = Math.min(4, Math.max(0.25, fit * zoom));
 
   // When a document opens, scroll so the signature box is in view.
   const scrolledFor = useRef<PDFDocumentProxy | null>(null);
