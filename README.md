@@ -12,9 +12,9 @@ Status: **test phase** — command-line tool. The desktop app (Windows, then mac
 
 ## Try it on Windows with your token
 
-1. Download `signdesk-windows-x64` from the latest successful
-   [CI run](../../actions/workflows/ci.yml) (Artifacts section) and unzip `signdesk.exe`,
-   e.g. into `Downloads`.
+1. Download `signdesk-windows-x64-signdesk.exe` from the
+   [test-build release](../../releases/tag/test-build), rename it to `signdesk.exe`
+   and put it in e.g. `Downloads`.
 2. Plug in the token, open PowerShell in that folder:
 
 ```powershell
