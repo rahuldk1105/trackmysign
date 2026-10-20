@@ -8,9 +8,18 @@ Sign PDFs with your USB DSC token (tested design: Hypersecu HyperPKI HYP2003) �
 - Visible "Digitally signed by …" box, or invisible.
 - Your PIN is never stored.
 
-Status: **test phase** — command-line tool. The desktop app (Windows, then macOS) comes next.
+Status: desktop app for Windows (installer) and macOS (dmg), plus a command-line tool.
 
-## Try it on Windows with your token
+## Install the app
+
+Download from the [test-build release](../../releases/tag/test-build):
+
+- Windows: `SignDesk-Setup-windows-x64.exe` — run it (no admin needed). If SmartScreen warns, choose *More info → Run anyway*.
+- macOS: `SignDesk-macos-arm64.dmg` — not yet notarized; right-click the app → *Open* the first time.
+
+Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`.
+
+## Command-line tool (Windows)
 
 1. Download `signdesk-windows-x64-signdesk.exe` from the
    [test-build release](../../releases/tag/test-build), rename it to `signdesk.exe`
@@ -47,6 +56,7 @@ Other options:
 
 ```
 cargo test                 # unit tests
+cd apps/desktop && npm ci && npx tauri dev   # run the desktop app
 tests/run.sh               # end-to-end: SoftHSM virtual token + generated PDFs,
                            # validated independently with pyHanko and qpdf
 ```
@@ -57,4 +67,5 @@ Layout:
 
 - `crates/signdesk-core` — PDF reader/incremental writer, CMS, PKCS#11 token access
 - `crates/signdesk-cli` — `signdesk` command
+- `apps/desktop` — Tauri desktop app (React + PDF.js front end)
 - `PLAN.md` — decisions and roadmap

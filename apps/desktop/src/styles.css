@@ -1,0 +1,370 @@
+:root {
+  --bg: #f3f4f6;
+  --panel: #ffffff;
+  --text: #111827;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --accent: #1f5fbf;
+  --accent-hover: #194f9f;
+  --ok: #15803d;
+  --bad: #b91c1c;
+  --page-shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 6px 18px rgb(0 0 0 / 0.08);
+  color-scheme: light;
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #18191c;
+    --panel: #222327;
+    --text: #e8e9ec;
+    --muted: #9ca0a8;
+    --line: #34363b;
+    --accent: #4b8ef0;
+    --accent-hover: #6aa2f4;
+    --ok: #4ade80;
+    --bad: #f87171;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+body {
+  background: var(--bg);
+  user-select: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 15px;
+}
+.doc-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.spacer {
+  flex: 1;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--panel);
+}
+.chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.chip.ok {
+  color: var(--ok);
+}
+.chip.bad {
+  color: var(--bad);
+  cursor: pointer;
+}
+
+main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.pages {
+  position: relative;
+  flex: 1;
+  overflow: auto;
+  padding: 24px 32px 48px;
+}
+.page-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 22px;
+}
+.page {
+  position: relative;
+  background: #fff;
+  box-shadow: var(--page-shadow);
+  cursor: crosshair;
+}
+.page canvas {
+  display: block;
+}
+.page-num {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sig-box {
+  position: absolute;
+  border: 1.5px solid #1f5fbf;
+  background: rgb(255 255 255 / 0.75);
+  color: #111;
+  font-family: Helvetica, Arial, sans-serif;
+  line-height: 1.2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 4px;
+  overflow: hidden;
+  cursor: move;
+  white-space: nowrap;
+  touch-action: none;
+}
+.sig-box .sig-name {
+  font-weight: 700;
+  font-size: 1.15em;
+}
+.sig-resize {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 12px;
+  height: 12px;
+  background: #1f5fbf;
+  cursor: nwse-resize;
+  border-top-left-radius: 3px;
+}
+
+aside {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+}
+aside section {
+  padding-bottom: 14px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+aside section:last-of-type {
+  border-bottom: none;
+}
+h1 {
+  font-size: 22px;
+  margin: 12px 0 6px;
+}
+h2 {
+  font-size: 15px;
+  margin: 0 0 6px;
+}
+label {
+  display: block;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 10px 0 5px;
+}
+section > label:first-child {
+  margin-top: 0;
+}
+input,
+select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  user-select: text;
+}
+input:focus,
+select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.cert {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+.cert.warn {
+  color: var(--bad);
+}
+.note {
+  font-size: 13px;
+  color: var(--ok);
+}
+
+.hint {
+  margin: 0 0 6px;
+  line-height: 1.45;
+}
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 12px;
+}
+.center {
+  text-align: center;
+}
+.error {
+  color: var(--bad);
+  margin: 8px 0 0;
+}
+
+button {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+button:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent);
+}
+button.big {
+  padding: 11px 20px;
+  font-size: 15px;
+  width: 100%;
+}
+
+.empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.drop {
+  width: min(520px, 100%);
+  padding: 48px 36px;
+  border: 2px dashed var(--line);
+  border-radius: 18px;
+  text-align: center;
+  background: var(--panel);
+  color: var(--muted);
+}
+.drop h1 {
+  color: var(--text);
+}
+.drop button {
+  width: auto;
+  margin-top: 6px;
+}
+.drop-hover .drop,
+.drop-hover .pages {
+  border-color: var(--accent);
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.35);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.modal {
+  width: min(380px, 100%);
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+}
+.modal p {
+  margin: 0;
+}
+.modal .row {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.modal .row button {
+  flex: 1;
+}
+.pin {
+  margin-top: 12px;
+  font-size: 18px;
+  letter-spacing: 0.25em;
+  text-align: center;
+}
+.done-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 4px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  color: #fff;
+  background: var(--ok);
+}
