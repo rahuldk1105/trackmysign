@@ -53,8 +53,10 @@ PIN is never stored. Remaining PIN attempts shown where the token reports them.
   already-signed, xref-stream/compressed).
 - Real-world: user runs each build on Windows with the real token and reports results.
 
-## Open item for the user
+## Token environment (confirmed on user's Windows PC)
 
-Find the PKCS#11 library installed by the Hypersecu software, e.g. search `C:\Windows\System32`
-for files like `eps2003csp11*.dll` or anything with `pkcs11`/`hyper` in the name.
-The app will also try to auto-detect it.
+- Installed: `HyperPKI_HYP2003` 1.1.25.1118 (Feitian ePass2003 rebrand)
+- PKCS#11 library (64-bit): `C:\Windows\System32\eps2003csp11v2.dll` — **use this**
+- 32-bit copy: `C:\Windows\SysWOW64\eps2003csp11v2.dll` (not used; app is 64-bit)
+- Card types registered: `HYP2003v2`, `HYP2003v2_22` (CSP "HyperPKI HYP2003 CSP India v3.0")
+- Auto-detect order: System32 `eps2003csp11v2.dll` → OpenSC `opensc-pkcs11.dll` → user-picked path
