@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test (virtual token)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Install test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y softhsm2 opensc qpdf
+          sudo usermod -aG softhsm "$USER" || true
+          pip install --break-system-packages pyhanko pyhanko-certvalidator reportlab
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo build -p signdesk
+      - name: End-to-end signing tests
+        run: sudo -E env "PATH=$PATH" tests/run.sh
+
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            bin: signdesk.exe
+            artifact: signdesk-windows-x64
+          - name: macOS
+            os: macos-latest
+            bin: signdesk
+            artifact: signdesk-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p signdesk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/release/${{ matrix.bin }}
