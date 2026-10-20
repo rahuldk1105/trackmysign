@@ -60,3 +60,9 @@ PIN is never stored. Remaining PIN attempts shown where the token reports them.
 - 32-bit copy: `C:\Windows\SysWOW64\eps2003csp11v2.dll` (not used; app is 64-bit)
 - Card types registered: `HYP2003v2`, `HYP2003v2_22` (CSP "HyperPKI HYP2003 CSP India v3.0")
 - Auto-detect order: System32 `eps2003csp11v2.dll` → OpenSC `opensc-pkcs11.dll` → user-picked path
+
+## Phase 1 result (2026-10-20) — PASSED on the real token
+
+- `signdesk certs` found "DK RAHUL", issued by Verasys Sub CA 2022, via `eps2003csp11v2.dll` (auto-detected).
+- Signed `test.pdf`; Adobe Reader: **Signature is VALID**, not modified since signing,
+  trust from **AATL**, certificate valid and not revoked, time +05'30', reason/location shown.
