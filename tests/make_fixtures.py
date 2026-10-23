@@ -38,6 +38,15 @@ for r in (0, 90, 180, 270):
     c.showPage()
 c.save()
 
+# 2b. mixed page sizes, one of them also rotated
+c = canvas.Canvas(P("mixed.pdf"))
+for size, r in ((A4, 0), ((842, 595), 0), ((612, 1008), 0), ((420, 595), 90), ((200, 150), 0)):
+    c.setPageSize(size)
+    c.setPageRotation(r)
+    text_page(c, f"{size[0]:.0f} x {size[1]:.0f} pt, /Rotate {r}", 3)
+    c.showPage()
+c.save()
+
 # 3. object streams + xref stream
 subprocess.run(["qpdf", "--object-streams=generate", P("plain.pdf"), P("objstm.pdf")], check=True)
 

@@ -32,6 +32,8 @@ export interface SignArgs {
   path: string;
   page: number;
   rect: Rect | null;
+  /** Zero-based pages that get the box; empty for just `page`. */
+  pages: number[];
   reason: string;
   location: string;
   certIndex: number;

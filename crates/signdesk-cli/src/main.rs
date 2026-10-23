@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use signdesk_core::token::{Token, TokenCert};
-use signdesk_core::{DisplayRect, SignRequest, inspect, sign_pdf, signed_path};
+use signdesk_core::{DisplayRect, SignRequest, inspect, parse_pages, sign_pdf, signed_path};
 
 #[derive(Parser)]
 #[command(name = "trackmysign", version, about = "Sign PDFs with your DSC token")]
@@ -31,6 +31,11 @@ enum Cmd {
         /// Page number (1 = first). Default: last page.
         #[arg(long)]
         page: Option<usize>,
+        /// Put the box on several pages under one signature: `all` or a list
+        /// such as `1-3,5`. --rect is measured on --page (default: the first
+        /// of these) and repeated at the same distance from the nearest corner.
+        #[arg(long)]
+        pages: Option<String>,
         /// Where on the page the box goes.
         #[arg(long, value_enum, default_value_t = Corner::BottomRight)]
         position: Corner,
@@ -157,6 +162,7 @@ fn run() -> Result<()> {
             pdf,
             out,
             page,
+            pages,
             position,
             rect,
             invisible,
@@ -167,13 +173,18 @@ fn run() -> Result<()> {
         } => {
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
             let info = inspect(&data)?;
+            let pages = match pages {
+                Some(_) if invisible => bail!("--pages needs a visible signature"),
+                Some(spec) => parse_pages(&spec, info.pages.len()).map_err(anyhow::Error::msg)?,
+                None => Vec::new(),
+            };
             let page_idx = match page {
                 Some(0) => bail!("pages are numbered from 1"),
                 Some(n) if n > info.pages.len() => {
                     bail!("the PDF has only {} page(s)", info.pages.len())
                 }
                 Some(n) => n - 1,
-                None => info.pages.len() - 1,
+                None => pages.first().copied().unwrap_or(info.pages.len() - 1),
             };
             let p = &info.pages[page_idx];
             let rect = if invisible {
@@ -208,6 +219,7 @@ fn run() -> Result<()> {
             let req = SignRequest {
                 page: page_idx,
                 rect,
+                pages,
                 reason,
                 location,
                 time: None,

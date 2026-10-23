@@ -146,6 +146,9 @@ struct SignArgs {
     path: String,
     page: usize,
     rect: Option<RectArg>,
+    /// Pages that get the box; empty for just `page`.
+    #[serde(default)]
+    pages: Vec<usize>,
     reason: Option<String>,
     location: Option<String>,
     cert_index: usize,
@@ -180,6 +183,7 @@ async fn sign(args: SignArgs) -> CmdResult<SignedDto> {
                 w: r.w,
                 h: r.h,
             }),
+            pages: args.pages,
             reason: args.reason.filter(|s| !s.trim().is_empty()),
             location: args.location.filter(|s| !s.trim().is_empty()),
             time: None,

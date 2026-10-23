@@ -27,10 +27,31 @@ export async function loadPdf(bytes: ArrayBuffer): Promise<{ doc: PDFDocumentPro
   return { doc, sizes };
 }
 
+/**
+ * The box drawn on one page moved to another: each edge keeps its distance
+ * from the nearer side of the page, clamped to fit. Mirrors `rect_on_page`
+ * in the signing engine.
+ */
+export function placeOn(p: Placement, from: PageSize, to: PageSize, page: number): Placement {
+  const w = Math.min(p.w, to.width);
+  const h = Math.min(p.h, to.height);
+  const x = p.x + p.w / 2 > from.width / 2 ? to.width - w - (from.width - p.x - p.w) : p.x;
+  const y = p.y + p.h / 2 > from.height / 2 ? to.height - h - (from.height - p.y - p.h) : p.y;
+  return {
+    page,
+    w,
+    h,
+    x: Math.min(Math.max(x, 0), to.width - w),
+    y: Math.min(Math.max(y, 0), to.height - h),
+  };
+}
+
 interface Props {
   doc: PDFDocumentProxy;
   sizes: PageSize[];
   placement: Placement | null;
+  /** Pages that get the box; null for just the placement's page. */
+  pages?: number[] | null;
   preview: string[];
   /** Multiplier on fit-to-width (1 = fit). */
   zoom: number;
@@ -63,7 +84,7 @@ function fitFont(lines: string[], w: number, h: number): number {
 }
 const MIN_H = 30;
 
-export function PdfView({ doc, sizes, placement, preview, zoom, onPlace, onScale, onPageChange, goto }: Props) {
+export function PdfView({ doc, sizes, placement, pages, preview, zoom, onPlace, onScale, onPageChange, goto }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -137,18 +158,24 @@ export function PdfView({ doc, sizes, placement, preview, zoom, onPlace, onScale
 
   return (
     <div className="pages" ref={scroller} onScroll={trackPage}>
-      {sizes.map((s, i) => (
-        <Page
-          key={i}
-          doc={doc}
-          index={i}
-          size={s}
-          scale={scale}
-          placement={placement?.page === i ? placement : null}
-          preview={preview}
-          onPlace={onPlace}
-        />
-      ))}
+      {sizes.map((s, i) => {
+        let box: Placement | null = null;
+        if (placement?.page === i) box = placement;
+        else if (placement && pages?.includes(i)) box = placeOn(placement, sizes[placement.page], s, i);
+        return (
+          <Page
+            key={i}
+            doc={doc}
+            index={i}
+            size={s}
+            scale={scale}
+            placement={box}
+            ghost={!!box && !!pages && !pages.includes(i)}
+            preview={preview}
+            onPlace={onPlace}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -159,11 +186,13 @@ interface PageProps {
   size: PageSize;
   scale: number;
   placement: Placement | null;
+  /** The box is drawn here but this page is not in the selection. */
+  ghost: boolean;
   preview: string[];
   onPlace: (p: Placement) => void;
 }
 
-function Page({ doc, index, size, scale, placement, preview, onPlace }: PageProps) {
+function Page({ doc, index, size, scale, placement, ghost, preview, onPlace }: PageProps) {
   const holder = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
@@ -255,7 +284,7 @@ function Page({ doc, index, size, scale, placement, preview, onPlace }: PageProp
         <canvas ref={canvas} style={{ width: "100%", height: "100%" }} />
         {placement && (
           <div
-            className="sig-box"
+            className={`sig-box ${ghost ? "ghost" : ""}`}
             style={{
               left: placement.x * scale,
               top: placement.y * scale,
@@ -264,7 +293,7 @@ function Page({ doc, index, size, scale, placement, preview, onPlace }: PageProp
               fontSize: fitFont(preview, placement.w, placement.h) * scale,
             }}
             onPointerDown={drag("move")}
-            title="Drag to move"
+            title={ghost ? "Not signed on this page (not in the selection). Drag to move" : "Drag to move"}
           >
             {preview.map((l, i) => (
               <div key={i} className={i === 1 ? "sig-name" : undefined}>
