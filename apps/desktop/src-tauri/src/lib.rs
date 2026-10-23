@@ -660,6 +660,11 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
         hand_over(app, pdf_args(args.into_iter().skip(1), Path::new(&cwd)));
     }));
+    // In-app updates; the front end decides when to check (settings).
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
     builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -724,5 +729,32 @@ mod tests {
             found,
             vec![dir.join("a.pdf").to_string_lossy().into_owned(), abs]
         );
+    }
+
+    /// The shape `scripts/updater-manifest.mjs` writes is what the updater accepts.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    #[test]
+    fn update_manifest_parses() {
+        let base = "https://github.com/rahuldk1105/trackmysign/releases/download/v0.2.0";
+        let manifest = serde_json::json!({
+            "version": "0.2.0",
+            "notes": "## What's Changed\n* Updates",
+            "pub_date": "2026-10-23T10:00:00Z",
+            "platforms": {
+                "windows-x86_64": { "url": format!("{base}/TrackMySign-Setup-windows-x64.exe"), "signature": "c2ln" },
+                "darwin-aarch64": { "url": format!("{base}/TrackMySign-macos-universal.app.tar.gz"), "signature": "c2ln" },
+                "darwin-x86_64": { "url": format!("{base}/TrackMySign-macos-universal.app.tar.gz"), "signature": "c2ln" }
+            }
+        });
+        let release: tauri_plugin_updater::RemoteRelease =
+            serde_json::from_value(manifest).unwrap();
+        assert_eq!(release.version.to_string(), "0.2.0");
+        assert!(release.pub_date.is_some());
+        for target in ["windows-x86_64", "darwin-aarch64", "darwin-x86_64"] {
+            let url = release.download_url(target).unwrap();
+            assert!(url.as_str().starts_with(base), "{url}");
+            assert_eq!(release.signature(target).unwrap(), "c2ln");
+        }
+        assert!(release.download_url("linux-x86_64").is_err());
     }
 }

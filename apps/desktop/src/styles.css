@@ -347,6 +347,51 @@ select {
   background: var(--surface-2);
 }
 
+.update-bar {
+  flex: none;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--line);
+}
+.update-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 4px 8px 4px 12px;
+  color: var(--text);
+}
+.update-row > .icon {
+  flex: none;
+  color: var(--bad);
+}
+.update-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+.update-progress {
+  width: 160px;
+  height: 4px;
+  background: var(--line);
+}
+.update-progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s;
+}
+.update-notes {
+  max-height: 160px;
+  overflow: auto;
+  padding: 0 12px 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
 .workspace {
   flex: 1;
   display: flex;
@@ -1202,6 +1247,10 @@ section > label:first-of-type {
 }
 .setting-row span {
   flex: 1;
+}
+.setting-row span.bad {
+  color: var(--bad);
+  user-select: text;
 }
 label.check-row {
   display: flex;
