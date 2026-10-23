@@ -22,6 +22,8 @@ problems = []
 with open(path, "rb") as f:
     r = PdfFileReader(f, strict=False)
     widget = r.root["/AcroForm"]["/Fields"][-1].get_object()
+    if "/Kids" in widget:  # one field, a widget on each page
+        widget = widget["/Kids"][0].get_object()
     im = widget["/AP"]["/N"]["/Resources"]["/XObject"]["/Im1"]
     flt = im["/Filter"]
     if kind == "jpg":

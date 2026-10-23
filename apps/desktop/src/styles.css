@@ -480,6 +480,10 @@ button.token {
   cursor: move;
   white-space: nowrap;
 }
+.sig-box.ghost {
+  border-style: dashed;
+  opacity: 0.5;
+}
 .sig-box .sig-name {
   font-weight: 700;
   font-size: 1.15em;
@@ -921,6 +925,12 @@ section > label:first-of-type {
   color: var(--text-2);
   user-select: text;
 }
+.pages-spec {
+  margin-top: 8px;
+}
+.pages-spec.invalid {
+  border-color: var(--bad);
+}
 
 .insp-foot {
   flex: none;
@@ -1089,6 +1099,45 @@ section > label:first-of-type {
 .kv dd.wrap {
   word-break: break-all;
 }
+.settings h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.driver-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 1px solid var(--line);
+}
+.driver-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.driver-list li:last-child {
+  border-bottom: 0;
+}
+.driver-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-2);
+}
+.driver-head .ok {
+  color: var(--ok);
+  font-weight: 500;
+}
+.driver-list .mono {
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+  user-select: text;
+}
 .segmented {
   display: flex;
   border: 1px solid var(--line-strong);
@@ -1125,6 +1174,28 @@ section > label:first-of-type {
 }
 .setting-row span {
   flex: 1;
+}
+label.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 4px;
+  font-size: 13px;
+  color: var(--text);
+}
+section > label.check-row:first-of-type {
+  margin-top: 0;
+}
+.check-row input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.check-row + p.small {
+  margin: 0 0 8px 22px;
 }
 .about {
   display: flex;

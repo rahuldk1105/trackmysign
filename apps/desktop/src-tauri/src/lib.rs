@@ -1,10 +1,12 @@
 //! Tauri backend: thin commands over `signdesk-core`.
 
+mod verify;
+
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use signdesk_core::token::Token;
+use signdesk_core::token::{Token, Tokens, installed_drivers};
 use signdesk_core::{
     DisplayRect, Error, ImagePosition, SignRequest, StampImage, inspect, sign_pdf, signed_path,
 };
@@ -28,6 +30,8 @@ impl From<Error> for CommandError {
             Error::PinLocked => "pinLocked",
             Error::Token(_) => "token",
             Error::Pdf(_) => "pdf",
+            Error::Timestamp(_) => "timestamp",
+            Error::Ltv(_) => "ltv",
             _ => "other",
         };
         CommandError {
@@ -51,7 +55,8 @@ type CmdResult<T> = Result<T, CommandError>;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CertDto {
-    index: usize,
+    /// SHA-256 fingerprint; picks the certificate again when signing.
+    id: String,
     name: String,
     organization: Option<String>,
     issuer: String,
@@ -59,19 +64,20 @@ struct CertDto {
     expired: bool,
     can_sign: bool,
     token_label: String,
+    driver: String,
+    driver_path: String,
 }
 
 #[tauri::command]
 async fn list_certificates() -> CmdResult<Vec<CertDto>> {
     tauri::async_runtime::spawn_blocking(|| {
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let token = Token::open_default()?;
-        let certs = token.signing_certificates()?;
+        let tokens = Tokens::open_installed()?;
+        let certs = tokens.signing_certificates()?;
         Ok(certs
             .iter()
-            .enumerate()
-            .map(|(index, c)| CertDto {
-                index,
+            .map(|c| CertDto {
+                id: c.fingerprint(),
                 name: c.summary.subject_cn.clone(),
                 organization: c.summary.organization.clone(),
                 issuer: c.summary.issuer_cn.clone(),
@@ -79,6 +85,8 @@ async fn list_certificates() -> CmdResult<Vec<CertDto>> {
                 expired: c.summary.expired,
                 can_sign: c.summary.can_sign,
                 token_label: c.token_label.clone(),
+                driver: c.driver.name.clone(),
+                driver_path: c.driver.path.to_string_lossy().into_owned(),
             })
             .collect())
     })
@@ -149,10 +157,20 @@ struct SignArgs {
     path: String,
     page: usize,
     rect: Option<RectArg>,
+    /// Pages that get the box; empty for just `page`.
+    #[serde(default)]
+    pages: Vec<usize>,
     reason: Option<String>,
     location: Option<String>,
-    cert_index: usize,
+    cert_id: String,
+    /// Driver the certificate was listed from.
+    driver_path: String,
     pin: String,
+    /// TSA URL when "Add trusted timestamp" is on.
+    #[serde(default)]
+    timestamp: Option<String>,
+    #[serde(default)]
+    ltv: bool,
     /// Show the saved signature image, and where.
     #[serde(default)]
     image: Option<ImageArg>,
@@ -182,12 +200,15 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             None => None,
         };
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let token = Token::open_default()?;
+        let token = Token::open(Path::new(&args.driver_path))?;
         let certs = token.signing_certificates()?;
-        let cert = certs.get(args.cert_index).ok_or_else(|| CommandError {
-            kind: "token",
-            message: "The selected certificate is no longer on the token.".into(),
-        })?;
+        let cert = certs
+            .iter()
+            .find(|c| c.fingerprint() == args.cert_id)
+            .ok_or_else(|| CommandError {
+                kind: "token",
+                message: "The selected certificate is no longer on the token.".into(),
+            })?;
         let mut signer = token.signer(cert, &args.pin)?;
         let req = SignRequest {
             page: args.page,
@@ -197,13 +218,13 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
                 w: r.w,
                 h: r.h,
             }),
+            pages: args.pages,
             reason: args.reason.filter(|s| !s.trim().is_empty()),
             location: args.location.filter(|s| !s.trim().is_empty()),
             image,
-            image_position: match args.image {
-                Some(ImageArg::Above) => ImagePosition::Above,
-                _ => ImagePosition::Left,
-            },
+            image_position: image_position(args.image),
+            timestamp: trimmed_url(args.timestamp),
+            ltv: args.ltv,
             ..Default::default()
         };
         let signed = sign_pdf(&data, &req, &mut signer)?;
@@ -224,6 +245,17 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
     })?
 }
 
+fn image_position(arg: Option<ImageArg>) -> ImagePosition {
+    match arg {
+        Some(ImageArg::Above) => ImagePosition::Above,
+        _ => ImagePosition::Left,
+    }
+}
+
+fn trimmed_url(url: Option<String>) -> Option<String> {
+    url.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
 /// Page for every file of a batch: `"first"`, `"last"` or a page number (1 = first).
 #[derive(Deserialize)]
 #[serde(untagged)]
@@ -239,10 +271,22 @@ struct BatchArgs {
     page: PageArg,
     /// Points from the top-left of the page; moved and shrunk to fit each page.
     rect: Option<RectArg>,
+    /// Box on every page of each file.
+    #[serde(default)]
+    all_pages: bool,
+    /// Otherwise the box goes on these pages (zero-based, those a file has),
+    /// or on just `page` when empty.
+    #[serde(default)]
+    pages: Vec<usize>,
     reason: Option<String>,
     location: Option<String>,
-    cert_index: usize,
+    cert_id: String,
+    driver_path: String,
     pin: String,
+    #[serde(default)]
+    timestamp: Option<String>,
+    #[serde(default)]
+    ltv: bool,
     #[serde(default)]
     image: Option<ImageArg>,
 }
@@ -295,16 +339,21 @@ fn sign_one(
             h,
         }
     });
+    let pages = if args.all_pages {
+        (0..pages).collect()
+    } else {
+        args.pages.iter().copied().filter(|p| *p < pages).collect()
+    };
     let req = SignRequest {
         page,
         rect,
+        pages,
         reason: args.reason.clone().filter(|s| !s.trim().is_empty()),
         location: args.location.clone().filter(|s| !s.trim().is_empty()),
         image: image.clone(),
-        image_position: match args.image {
-            Some(ImageArg::Above) => ImagePosition::Above,
-            _ => ImagePosition::Left,
-        },
+        image_position: image_position(args.image),
+        timestamp: trimmed_url(args.timestamp.clone()),
+        ltv: args.ltv,
         ..Default::default()
     };
     let signed = sign_pdf(&data, &req, signer)?;
@@ -327,12 +376,15 @@ async fn sign_batch(
             None => None,
         };
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let token = Token::open_default()?;
+        let token = Token::open(Path::new(&args.driver_path))?;
         let certs = token.signing_certificates()?;
-        let cert = certs.get(args.cert_index).ok_or_else(|| CommandError {
-            kind: "token",
-            message: "The selected certificate is no longer on the token.".into(),
-        })?;
+        let cert = certs
+            .iter()
+            .find(|c| c.fingerprint() == args.cert_id)
+            .ok_or_else(|| CommandError {
+                kind: "token",
+                message: "The selected certificate is no longer on the token.".into(),
+            })?;
         let mut signer = token.signer(cert, &args.pin)?;
         for (index, path) in args.paths.iter().enumerate() {
             let _ = progress.send(BatchProgress::Signing { index });
@@ -416,10 +468,23 @@ fn clear_signature_image(app: AppHandle) -> CmdResult<()> {
     Ok(())
 }
 
-/// Path of the PKCS#11 driver that will be used for the token, if one is installed.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DriverDto {
+    name: String,
+    path: String,
+}
+
+/// PKCS#11 drivers installed on this computer, preferred first.
 #[tauri::command]
-fn token_driver() -> Option<String> {
-    signdesk_core::token::find_module().map(|p| p.to_string_lossy().into_owned())
+fn token_drivers() -> Vec<DriverDto> {
+    installed_drivers()
+        .into_iter()
+        .map(|d| DriverDto {
+            name: d.name,
+            path: d.path.to_string_lossy().into_owned(),
+        })
+        .collect()
 }
 
 /// PDFs handed over by the system: on the command line ("Open with",
@@ -528,10 +593,11 @@ pub fn run() {
             signature_image,
             set_signature_image,
             clear_signature_image,
-            token_driver,
+            token_drivers,
             open_file,
             reveal_file,
-            open_website
+            open_website,
+            verify::verify_pdf
         ])
         .build(tauri::generate_context!())
         .expect("error while running TrackMySign")

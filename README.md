@@ -21,6 +21,30 @@ Open a PDF (or drag it into the window), click where the signature should go, pr
 
 You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows and macOS). Your default PDF viewer stays as it is.
 
+## Supported tokens
+
+Install the driver software that came with your token, then plug it in. TrackMySign
+looks for these PKCS#11 drivers, loads every one that is installed and lists the
+certificates from all of them (the settings panel shows which drivers were found):
+
+| Token | Windows (`System32` unless noted) | macOS |
+|---|---|---|
+| Hypersecu HyperPKI | `eps2003csp11v2.dll` | `/usr/local/lib/libcastle_v2*.dylib` |
+| Feitian ePass2003 | `eps2003csp11.dll` | `/usr/local/lib/libcastle.*.dylib` |
+| Watchdata ProxKey | `SignatureP11.dll` | `/usr/local/lib/wdProxKeyUsbKeyTool/libwdpkcs_Proxkey.dylib` |
+| Trust Key | `TRUSTKEYP11_ND_v34.dll` (any version) | — |
+| Longmai mToken CryptoID | `CryptoIDA_pkcs11.dll` | `libcryptoid*_pkcs11.dylib` (CryptoID tools) |
+| Watchdata | `wdpkcs.dll` | — |
+| SafeNet / Thales eToken | `eTPKCS11.dll` | `/usr/local/lib/libeTPkcs11.dylib` |
+| Gemalto IDPrime | `IDPrimePKCS11.dll`, `Program Files\Gemalto\IDGo 800 PKCS#11\IDPrimePKCS1164.dll` | `/usr/local/lib/libIDPrimePKCS11.dylib` |
+| Bit4id | `bit4xpki.dll`, `bit4ipki.dll` | `/Library/bit4id/pkcs11/`, PKIManager app |
+| OpenSC (last resort) | `Program Files\OpenSC Project\OpenSC\pkcs11\opensc-pkcs11.dll` | `/Library/OpenSC/lib/opensc-pkcs11.so` |
+
+Signing always goes through the driver the chosen certificate was read from. A driver
+that fails to load is skipped. If your token's driver lives elsewhere, point
+`TRACKMYSIGN_PKCS11_MODULE` at it (several paths separated by `;` on Windows, `:` on
+macOS), or pass `--module` to the command-line tool.
+
 ## Command-line tool (Windows)
 
 1. Download `trackmysign-windows-x64.exe` from the
@@ -32,7 +56,7 @@ You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), o
 .\trackmysign.exe certs
 ```
 
-   You should see your name, the issuing CA and the expiry date.
+   You should see your name, the issuing CA, the expiry date and the driver it was read through.
 
 3. Sign a test PDF (bottom-right of the last page by default):
 
@@ -48,14 +72,26 @@ Other options:
 
 ```powershell
 .\trackmysign.exe info file.pdf                       # pages, existing signatures
+.\trackmysign.exe verify file.pdf                     # check existing signatures
 .\trackmysign.exe sign file.pdf --page 1 --position top-right
 .\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
+.\trackmysign.exe sign file.pdf --pages all            # one signature, box on every page
+.\trackmysign.exe sign file.pdf --pages 1-3,5          # ... or on some pages
 .\trackmysign.exe sign file.pdf --invisible
 .\trackmysign.exe sign a.pdf b.pdf c.pdf               # several PDFs, one PIN entry
 .\trackmysign.exe sign file.pdf --image signature.png  # handwritten signature in the box (PNG or JPEG)
 .\trackmysign.exe sign file.pdf --image signature.png --image-position above
 .\trackmysign.exe --module C:\Windows\System32\eps2003csp11v2.dll certs   # explicit driver
+.\trackmysign.exe sign file.pdf --timestamp --ltv     # long-term validity (needs internet)
+.\trackmysign.exe sign file.pdf --timestamp=http://timestamp.sectigo.com
 ```
+
+Long-term validity is off by default, so signing works fully offline. `--timestamp`
+adds an RFC 3161 trusted timestamp (default server `http://timestamp.digicert.com`;
+only a hash of the signature is sent). `--ltv` embeds your CA's OCSP/CRL answers
+in the PDF so the signature can be validated after the certificate expires. The
+desktop app has the same options under *Settings → Long-term validity*. If a
+server cannot be reached, nothing is saved and you can sign again without it.
 
 ## Development
 
@@ -66,7 +102,8 @@ tests/run.sh               # end-to-end: SoftHSM virtual token + generated PDFs,
                            # validated independently with pyHanko and qpdf
 ```
 
-`tests/run.sh` needs `softhsm2`, `opensc`, `qpdf`, `poppler-utils` (pdftoppm), `openssl` and `pip install pyhanko reportlab`.
+`tests/run.sh` needs `softhsm2`, `opensc`, `qpdf`, `poppler-utils` (pdftoppm), `openssl`, `curl` and `pip install pyhanko reportlab`.
+The timestamp and LTV tests run a local TSA, OCSP responder and CRL server (`tests/services.py`), so no internet is needed.
 
 Layout:
 

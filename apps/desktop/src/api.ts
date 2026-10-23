@@ -4,7 +4,8 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 export interface Cert {
-  index: number;
+  /** SHA-256 fingerprint of the certificate. */
+  id: string;
   name: string;
   organization: string | null;
   issuer: string;
@@ -12,6 +13,14 @@ export interface Cert {
   expired: boolean;
   canSign: boolean;
   tokenLabel: string;
+  /** Product name of the PKCS#11 driver the certificate was read through. */
+  driver: string;
+  driverPath: string;
+}
+
+export interface Driver {
+  name: string;
+  path: string;
 }
 
 export interface PdfInfo {
@@ -35,10 +44,16 @@ export interface SignArgs {
   path: string;
   page: number;
   rect: Rect | null;
+  /** Zero-based pages that get the box; empty for just `page`. */
+  pages: number[];
   reason: string;
   location: string;
-  certIndex: number;
+  certId: string;
+  driverPath: string;
   pin: string;
+  /** RFC 3161 server, or null for no timestamp. */
+  timestamp: string | null;
+  ltv: boolean;
   image?: Exclude<ImageChoice, "off"> | null;
 }
 
@@ -47,6 +62,8 @@ export interface BatchArgs extends Omit<SignArgs, "path" | "page"> {
   paths: string[];
   /** "first", "last" or a page number (1 = first). */
   page: "first" | "last" | number;
+  /** Box on every page of each file (otherwise on `pages` that a file has). */
+  allPages: boolean;
 }
 
 export type BatchProgress =
@@ -60,7 +77,7 @@ export interface Signed {
 }
 
 export interface ApiError {
-  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "io" | "other";
+  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "io" | "timestamp" | "ltv" | "other";
   message: string;
 }
 
@@ -76,7 +93,7 @@ const mock = {
   async listCertificates(): Promise<Cert[]> {
     return [
       {
-        index: 0,
+        id: "mock",
         name: "DK RAHUL",
         organization: "Personal",
         issuer: "Verasys Sub CA 2022",
@@ -84,6 +101,8 @@ const mock = {
         expired: false,
         canSign: true,
         tokenLabel: "HYP2003",
+        driver: "Hypersecu HyperPKI",
+        driverPath: "C:\\Windows\\System32\\eps2003csp11v2.dll",
       },
     ];
   },
@@ -175,9 +194,13 @@ export async function revealFile(path: string): Promise<void> {
   if (inTauri) await invoke("reveal_file", { path });
 }
 
-/** Path of the PKCS#11 driver used for the token, or null when none is installed. */
-export async function tokenDriver(): Promise<string | null> {
-  return inTauri ? invoke("token_driver") : "C:\\Windows\\System32\\eps2003csp11v2.dll";
+/** PKCS#11 drivers installed on this computer, preferred first. */
+export async function tokenDrivers(): Promise<Driver[]> {
+  if (inTauri) return invoke("token_drivers");
+  return [
+    { name: "Hypersecu HyperPKI", path: "C:\\Windows\\System32\\eps2003csp11v2.dll" },
+    { name: "OpenSC", path: "C:\\Program Files\\OpenSC Project\\OpenSC\\pkcs11\\opensc-pkcs11.dll" },
+  ];
 }
 
 export async function openWebsite(): Promise<void> {
@@ -206,4 +229,57 @@ export async function onFileDrop(cb: (paths: string[]) => void, hover: (on: bool
       if (pdfs.length) cb(pdfs);
     }
   });
+}
+
+export interface SignatureCheck {
+  field: string;
+  status: "valid" | "invalid" | "unknown";
+  /** Why the status is not valid comes first; then other warnings. */
+  notes: string[];
+  signer: string | null;
+  organization: string | null;
+  issuer: string | null;
+  certValidFrom: string | null;
+  certValidUntil: string | null;
+  signingTime: string | null;
+  timeInValidity: boolean | null;
+  timestamped: boolean;
+  reason: string | null;
+  location: string | null;
+  subFilter: string | null;
+  digest: string | null;
+  /** What later incremental updates changed. */
+  changes: "none" | "signatures" | "form" | "content" | "unknown";
+  laterRevisions: number;
+  bytesAfter: number;
+  chain: string[];
+  trust: "cca" | "notChecked";
+}
+
+export async function verifyPdf(path: string): Promise<SignatureCheck[]> {
+  if (inTauri) return invoke("verify_pdf", { path });
+  return [
+    {
+      field: "AuditorSignature",
+      status: "valid",
+      notes: [],
+      signer: "CA AUDITOR PARTNER",
+      organization: null,
+      issuer: "Verasys Sub CA 2022",
+      certValidFrom: "01 Apr 2025",
+      certValidUntil: "31 Mar 2027",
+      signingTime: "2026.10.20 14:32:10 +05:30",
+      timeInValidity: true,
+      timestamped: false,
+      reason: "Audited",
+      location: "Chennai",
+      subFilter: "adbe.pkcs7.detached",
+      digest: "SHA-256",
+      changes: "signatures",
+      laterRevisions: 1,
+      bytesAfter: 11785,
+      chain: ["CA AUDITOR PARTNER", "Verasys Sub CA 2022", "Verasys CA 2022", "CCA India 2022"],
+      trust: "cca",
+    },
+  ];
 }

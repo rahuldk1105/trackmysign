@@ -40,6 +40,10 @@ pub struct Placement {
     pub page: usize,
     /// `None` for an invisible signature.
     pub rect: Option<DisplayRect>,
+    /// Zero-based pages that get the box; empty means just `page`. With more
+    /// than one, the signature field gets one widget per page, each placed
+    /// by [`rect_on_page`] from the box as drawn on `page`.
+    pub pages: Vec<usize>,
 }
 
 /// A PDF with the signature dictionary in place but `/Contents` still empty.
@@ -90,6 +94,33 @@ pub fn display_to_user(page: &PageInfo, r: DisplayRect) -> [f64; 4] {
     [ax.min(bx), ay.min(by), ax.max(bx), ay.max(by)]
 }
 
+/// Moves a box drawn on `from` to the same spot on `to`: each edge keeps its
+/// distance from the nearer side of the page (judged by the box centre on
+/// `from`), so a bottom-right stamp stays bottom-right on a bigger, smaller
+/// or landscape page. The result is clamped to fit `to`.
+pub fn rect_on_page(r: DisplayRect, from: &PageInfo, to: &PageInfo) -> DisplayRect {
+    let (fw, fh) = from.display_size();
+    let (tw, th) = to.display_size();
+    let w = r.w.min(tw);
+    let h = r.h.min(th);
+    let x = if r.x + r.w / 2.0 > fw / 2.0 {
+        tw - w - (fw - r.x - r.w)
+    } else {
+        r.x
+    };
+    let y = if r.y + r.h / 2.0 > fh / 2.0 {
+        th - h - (fh - r.y - r.h)
+    } else {
+        r.y
+    };
+    DisplayRect {
+        x: x.clamp(0.0, tw - w),
+        y: y.clamp(0.0, th - h),
+        w,
+        h,
+    }
+}
+
 /// PDF date string, e.g. `D:20261020143210+05'30'`.
 pub fn pdf_date(t: &DateTime<FixedOffset>) -> String {
     let off = t.offset().local_minus_utc();
@@ -128,6 +159,16 @@ pub fn prepare(
     let page = pages
         .get(placement.page)
         .ok_or(PdfError::NoSuchPage(placement.page + 1))?;
+    let mut targets = placement.pages.clone();
+    if targets.is_empty() || placement.rect.is_none() {
+        targets = vec![placement.page];
+    }
+    targets.sort_unstable();
+    targets.dedup();
+    if let Some(&p) = targets.iter().find(|&&p| p >= pages.len()) {
+        return Err(PdfError::NoSuchPage(p + 1));
+    }
+    let single = targets.len() == 1;
     let (cat_id, cat_gen) = doc.catalog_ref()?;
     let mut catalog = doc.catalog()?;
 
@@ -138,8 +179,8 @@ pub fn prepare(
         id
     };
     let sig_id = alloc();
-    let widget_id = alloc();
-    let widget_ref = Obj::Ref(widget_id, 0);
+    let field_id = alloc();
+    let field_ref = Obj::Ref(field_id, 0);
 
     // Objects to write: id -> (gn, object). BTreeMap keeps the output tidy.
     let mut objs: BTreeMap<u32, (u16, Obj)> = BTreeMap::new();
@@ -151,23 +192,31 @@ pub fn prepare(
         .find(|n| !existing.contains(n))
         .unwrap();
 
-    // --- widget + appearance --------------------------------------------
-    let mut widget = Dict::new()
-        .with("Type", Obj::name("Annot"))
-        .with("Subtype", Obj::name("Widget"))
+    // --- field + widgets ------------------------------------------------
+    // One page: the field is its own widget. Several pages: one field with a
+    // widget per page in /Kids, so viewers still show a single signature.
+    let field = Dict::new()
         .with("FT", Obj::name("Sig"))
         .with("T", text_string(&field_name))
-        .with("V", Obj::Ref(sig_id, 0))
-        .with("F", Obj::int(132))
-        .with("P", Obj::Ref(page.id.0, page.id.1));
+        .with("V", Obj::Ref(sig_id, 0));
+    let mut widgets: Vec<(&PageInfo, u32, Dict)> = Vec::new();
+    for &t in &targets {
+        let target = &pages[t];
+        let mut w = Dict::new()
+            .with("Type", Obj::name("Annot"))
+            .with("Subtype", Obj::name("Widget"));
+        if single {
+            w.0.extend(field.0.iter().cloned());
+        } else {
+            w.set("Parent", field_ref.clone());
+        }
+        w.set("F", Obj::int(132));
+        w.set("P", Obj::Ref(target.id.0, target.id.1));
+        let id = if single { field_id } else { alloc() };
+        widgets.push((target, id, w));
+    }
     match placement.rect {
         Some(r) => {
-            let user = display_to_user(page, r);
-            widget.set(
-                "Rect",
-                Obj::Array(user.iter().map(|v| Obj::real(*v)).collect()),
-            );
-            let ap_id = alloc();
             let f1 = alloc();
             let f2 = alloc();
             let mut lines = vec![
@@ -205,8 +254,6 @@ pub fn prepare(
                 aspect: img.aspect(),
                 position: fields.image_position,
             });
-            let content = appearance::content_stream_with_image(r.w, r.h, &lines, slot);
-            let m = appearance::rotation_matrix(page.rotate, r.w, r.h);
             let font = |base: &str| {
                 Obj::Dict(
                     Dict::new()
@@ -226,6 +273,7 @@ pub fn prepare(
                         .with("F2", Obj::Ref(f2, 0)),
                 ),
             );
+            // One image object, shared by the appearances on every page.
             if let Some(img) = &fields.image {
                 let im = alloc();
                 let smask = img.mask_obj().map(|m| {
@@ -239,52 +287,88 @@ pub fn prepare(
                     Obj::Dict(Dict::new().with("Im1", Obj::Ref(im, 0))),
                 );
             }
-            let ap = Dict::new()
-                .with("Type", Obj::name("XObject"))
-                .with("Subtype", Obj::name("Form"))
-                .with(
-                    "BBox",
-                    Obj::Array(vec![
-                        Obj::int(0),
-                        Obj::int(0),
-                        Obj::real(r.w),
-                        Obj::real(r.h),
-                    ]),
-                )
-                .with(
-                    "Matrix",
-                    Obj::Array(m.iter().map(|v| Obj::real(*v)).collect()),
-                )
-                .with("Resources", Obj::Dict(resources));
-            objs.insert(ap_id, (0, Obj::Stream(ap, content)));
-            widget.set("AP", Obj::Dict(Dict::new().with("N", Obj::Ref(ap_id, 0))));
+            // Each page gets its own appearance: the box may be clamped to a
+            // smaller page, and the matrix follows the page's /Rotate.
+            for (target, _, widget) in &mut widgets {
+                let r = rect_on_page(r, page, target);
+                let user = display_to_user(target, r);
+                widget.set(
+                    "Rect",
+                    Obj::Array(user.iter().map(|v| Obj::real(*v)).collect()),
+                );
+                let ap_id = alloc();
+                let content = appearance::content_stream_with_image(r.w, r.h, &lines, slot);
+                let m = appearance::rotation_matrix(target.rotate, r.w, r.h);
+                let ap = Dict::new()
+                    .with("Type", Obj::name("XObject"))
+                    .with("Subtype", Obj::name("Form"))
+                    .with(
+                        "BBox",
+                        Obj::Array(vec![
+                            Obj::int(0),
+                            Obj::int(0),
+                            Obj::real(r.w),
+                            Obj::real(r.h),
+                        ]),
+                    )
+                    .with(
+                        "Matrix",
+                        Obj::Array(m.iter().map(|v| Obj::real(*v)).collect()),
+                    )
+                    .with("Resources", Obj::Dict(resources.clone()));
+                objs.insert(ap_id, (0, Obj::Stream(ap, content)));
+                widget.set("AP", Obj::Dict(Dict::new().with("N", Obj::Ref(ap_id, 0))));
+            }
         }
         None => {
-            widget.set("Rect", Obj::Array(vec![Obj::int(0); 4]));
+            for (_, _, widget) in &mut widgets {
+                widget.set("Rect", Obj::Array(vec![Obj::int(0); 4]));
+            }
         }
     }
-    objs.insert(widget_id, (0, Obj::Dict(widget)));
+    if !single {
+        let kids = widgets.iter().map(|(_, id, _)| Obj::Ref(*id, 0)).collect();
+        objs.insert(
+            field_id,
+            (0, Obj::Dict(field.with("Kids", Obj::Array(kids)))),
+        );
+    }
+    for (_, id, widget) in &widgets {
+        objs.insert(*id, (0, Obj::Dict(widget.clone())));
+    }
 
     // --- page /Annots ---------------------------------------------------
-    let mut page_dict = page.dict.clone();
-    let mut page_changed = true;
-    match page_dict.get("Annots").cloned() {
-        Some(Obj::Ref(aid, agen)) => match doc.get(aid)? {
-            Obj::Array(mut a) => {
-                a.push(widget_ref.clone());
-                objs.insert(aid, (agen, Obj::Array(a)));
-                page_changed = false;
+    // An indirect /Annots array is updated in place and the page left alone.
+    // Pages sharing one array get all their widgets added to it.
+    let mut annot_arrays: BTreeMap<u32, (u16, Vec<Obj>)> = BTreeMap::new();
+    for (target, id, _) in &widgets {
+        let widget_ref = Obj::Ref(*id, 0);
+        let mut page_dict = target.dict.clone();
+        match page_dict.get("Annots").cloned() {
+            Some(Obj::Ref(aid, agen)) => {
+                if let Some((_, a)) = annot_arrays.get_mut(&aid) {
+                    a.push(widget_ref);
+                    continue;
+                }
+                match doc.get(aid)? {
+                    Obj::Array(mut a) => {
+                        a.push(widget_ref);
+                        annot_arrays.insert(aid, (agen, a));
+                        continue;
+                    }
+                    _ => page_dict.set("Annots", Obj::Array(vec![widget_ref])),
+                }
             }
-            _ => page_dict.set("Annots", Obj::Array(vec![widget_ref.clone()])),
-        },
-        Some(Obj::Array(mut a)) => {
-            a.push(widget_ref.clone());
-            page_dict.set("Annots", Obj::Array(a));
+            Some(Obj::Array(mut a)) => {
+                a.push(widget_ref);
+                page_dict.set("Annots", Obj::Array(a));
+            }
+            _ => page_dict.set("Annots", Obj::Array(vec![widget_ref])),
         }
-        _ => page_dict.set("Annots", Obj::Array(vec![widget_ref.clone()])),
+        objs.insert(target.id.0, (target.id.1, Obj::Dict(page_dict)));
     }
-    if page_changed {
-        objs.insert(page.id.0, (page.id.1, Obj::Dict(page_dict)));
+    for (aid, (agen, a)) in annot_arrays {
+        objs.insert(aid, (agen, Obj::Array(a)));
     }
 
     // --- AcroForm -------------------------------------------------------
@@ -292,16 +376,16 @@ pub fn prepare(
         match af.get("Fields").cloned() {
             Some(Obj::Ref(fid, fgen)) => match doc.get(fid)? {
                 Obj::Array(mut a) => {
-                    a.push(widget_ref.clone());
+                    a.push(field_ref.clone());
                     objs.insert(fid, (fgen, Obj::Array(a)));
                 }
-                _ => af.set("Fields", Obj::Array(vec![widget_ref.clone()])),
+                _ => af.set("Fields", Obj::Array(vec![field_ref.clone()])),
             },
             Some(Obj::Array(mut a)) => {
-                a.push(widget_ref.clone());
+                a.push(field_ref.clone());
                 af.set("Fields", Obj::Array(a));
             }
-            _ => af.set("Fields", Obj::Array(vec![widget_ref.clone()])),
+            _ => af.set("Fields", Obj::Array(vec![field_ref.clone()])),
         }
         let flags = af.get("SigFlags").and_then(Obj::as_i64).unwrap_or(0);
         af.set("SigFlags", Obj::int(flags | 3));
@@ -451,7 +535,7 @@ fn runs(ids: &[u32]) -> Vec<(u32, u32)> {
     out
 }
 
-fn write_xref_table(
+pub(super) fn write_xref_table(
     out: &mut Vec<u8>,
     entries: &BTreeMap<u32, XrefEntry>,
     size: u32,
@@ -481,7 +565,7 @@ fn write_xref_table(
     out.push(b'\n');
 }
 
-fn write_xref_stream(
+pub(super) fn write_xref_stream(
     out: &mut Vec<u8>,
     xid: u32,
     entries: &BTreeMap<u32, XrefEntry>,
@@ -572,6 +656,48 @@ mod tests {
         assert_eq!(display_to_user(&page(90), r), [20.0, 10.0, 70.0, 110.0]);
         assert_eq!(display_to_user(&page(180), r), [490.0, 20.0, 590.0, 70.0]);
         assert_eq!(display_to_user(&page(270), r), [530.0, 690.0, 580.0, 790.0]);
+    }
+
+    #[test]
+    fn box_keeps_its_corner_on_other_pages() {
+        let a4 = page(0);
+        let mut big = page(90);
+        big.crop_box = [0.0, 0.0, 1000.0, 1200.0];
+        let mut tiny = page(0);
+        tiny.crop_box = [0.0, 0.0, 120.0, 40.0];
+        let bottom_right = DisplayRect {
+            x: 400.0,
+            y: 700.0,
+            w: 170.0,
+            h: 55.0,
+        };
+        assert_eq!(rect_on_page(bottom_right, &a4, &a4), bottom_right);
+        // Displayed 1200 x 1000: same 30 pt / 45 pt margins from the corner.
+        assert_eq!(
+            rect_on_page(bottom_right, &a4, &big),
+            DisplayRect {
+                x: 1000.0,
+                y: 900.0,
+                w: 170.0,
+                h: 55.0
+            }
+        );
+        let top_left = DisplayRect {
+            x: 20.0,
+            y: 30.0,
+            ..bottom_right
+        };
+        assert_eq!(rect_on_page(top_left, &a4, &big), top_left);
+        // Shrunk and clamped onto a page smaller than the box.
+        assert_eq!(
+            rect_on_page(bottom_right, &a4, &tiny),
+            DisplayRect {
+                x: 0.0,
+                y: 0.0,
+                w: 120.0,
+                h: 40.0
+            }
+        );
     }
 
     #[test]

@@ -35,7 +35,7 @@ struct RsaPublicKey<'a> {
     _e: UintRef<'a>,
 }
 
-fn attr(name: &Name, oid: const_oid::ObjectIdentifier) -> Option<String> {
+pub(crate) fn attr(name: &Name, oid: const_oid::ObjectIdentifier) -> Option<String> {
     for rdn in name.0.iter() {
         for atv in rdn.0.iter() {
             if atv.oid == oid {
@@ -55,7 +55,7 @@ fn attr(name: &Name, oid: const_oid::ObjectIdentifier) -> Option<String> {
     None
 }
 
-fn to_chrono(t: x509_cert::time::Time) -> chrono::DateTime<chrono::Utc> {
+pub(crate) fn to_chrono(t: x509_cert::time::Time) -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::from_timestamp(t.to_unix_duration().as_secs() as i64, 0).unwrap_or_default()
 }
 

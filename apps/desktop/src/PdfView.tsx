@@ -55,10 +55,31 @@ export function stampLayout(w: number, h: number, img: StampImage): { image: Are
   return { image: [(w - iw) / 2, pad, iw, ih], text: [0, pad + ih, w, h - pad - ih] };
 }
 
+/**
+ * The box drawn on one page moved to another: each edge keeps its distance
+ * from the nearer side of the page, clamped to fit. Mirrors `rect_on_page`
+ * in the signing engine.
+ */
+export function placeOn(p: Placement, from: PageSize, to: PageSize, page: number): Placement {
+  const w = Math.min(p.w, to.width);
+  const h = Math.min(p.h, to.height);
+  const x = p.x + p.w / 2 > from.width / 2 ? to.width - w - (from.width - p.x - p.w) : p.x;
+  const y = p.y + p.h / 2 > from.height / 2 ? to.height - h - (from.height - p.y - p.h) : p.y;
+  return {
+    page,
+    w,
+    h,
+    x: Math.min(Math.max(x, 0), to.width - w),
+    y: Math.min(Math.max(y, 0), to.height - h),
+  };
+}
+
 interface Props {
   doc: PDFDocumentProxy;
   sizes: PageSize[];
   placement: Placement | null;
+  /** Pages that get the box; null for just the placement's page. */
+  pages?: number[] | null;
   preview: string[];
   image?: StampImage | null;
   /** Multiplier on fit-to-width (1 = fit). */
@@ -91,7 +112,7 @@ function fitFont(lines: string[], w: number, h: number, pad = boxPad(w, h)): num
 }
 const MIN_H = 30;
 
-export function PdfView({ doc, sizes, placement, preview, image, zoom, onPlace, onScale, onPageChange, goto }: Props) {
+export function PdfView({ doc, sizes, placement, pages, preview, image, zoom, onPlace, onScale, onPageChange, goto }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -165,19 +186,25 @@ export function PdfView({ doc, sizes, placement, preview, image, zoom, onPlace, 
 
   return (
     <div className="pages" ref={scroller} onScroll={trackPage}>
-      {sizes.map((s, i) => (
-        <Page
-          key={i}
-          doc={doc}
-          index={i}
-          size={s}
-          scale={scale}
-          placement={placement?.page === i ? placement : null}
-          preview={preview}
-          image={image ?? null}
-          onPlace={onPlace}
-        />
-      ))}
+      {sizes.map((s, i) => {
+        let box: Placement | null = null;
+        if (placement?.page === i) box = placement;
+        else if (placement && pages?.includes(i)) box = placeOn(placement, sizes[placement.page], s, i);
+        return (
+          <Page
+            key={i}
+            doc={doc}
+            index={i}
+            size={s}
+            scale={scale}
+            placement={box}
+            ghost={!!box && !!pages && !pages.includes(i)}
+            preview={preview}
+            image={image ?? null}
+            onPlace={onPlace}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -188,12 +215,14 @@ interface PageProps {
   size: PageSize;
   scale: number;
   placement: Placement | null;
+  /** The box is drawn here but this page is not in the selection. */
+  ghost: boolean;
   preview: string[];
   image: StampImage | null;
   onPlace: (p: Placement) => void;
 }
 
-function Page({ doc, index, size, scale, placement, preview, image, onPlace }: PageProps) {
+function Page({ doc, index, size, scale, placement, ghost, preview, image, onPlace }: PageProps) {
   const holder = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
@@ -284,11 +313,19 @@ function Page({ doc, index, size, scale, placement, preview, image, onPlace }: P
       >
         <canvas ref={canvas} style={{ width: "100%", height: "100%" }} />
         {placement && image && (
-          <ImageBox placement={placement} preview={preview} image={image} scale={scale} onMove={drag("move")} onResize={drag("resize")} />
+          <ImageBox
+            placement={placement}
+            ghost={ghost}
+            preview={preview}
+            image={image}
+            scale={scale}
+            onMove={drag("move")}
+            onResize={drag("resize")}
+          />
         )}
         {placement && !image && (
           <div
-            className="sig-box"
+            className={`sig-box ${ghost ? "ghost" : ""}`}
             style={{
               left: placement.x * scale,
               top: placement.y * scale,
@@ -297,7 +334,7 @@ function Page({ doc, index, size, scale, placement, preview, image, onPlace }: P
               fontSize: fitFont(preview, placement.w, placement.h) * scale,
             }}
             onPointerDown={drag("move")}
-            title="Drag to move"
+            title={ghost ? "Not signed on this page (not in the selection). Drag to move" : "Drag to move"}
           >
             {preview.map((l, i) => (
               <div key={i} className={i === 1 ? "sig-name" : undefined}>
@@ -315,6 +352,7 @@ function Page({ doc, index, size, scale, placement, preview, image, onPlace }: P
 
 function ImageBox(props: {
   placement: Placement;
+  ghost: boolean;
   preview: string[];
   image: StampImage;
   scale: number;
@@ -327,10 +365,10 @@ function ImageBox(props: {
   const at = ([x, y, w, h]: Area) => ({ left: x * scale, top: y * scale, width: w * scale, height: h * scale });
   return (
     <div
-      className="sig-box with-image"
+      className={`sig-box with-image ${props.ghost ? "ghost" : ""}`}
       style={{ left: p.x * scale, top: p.y * scale, width: p.w * scale, height: p.h * scale }}
       onPointerDown={props.onMove}
-      title="Drag to move"
+      title={props.ghost ? "Not signed on this page (not in the selection). Drag to move" : "Drag to move"}
     >
       <img className="sig-img" src={image.url} alt="" draggable={false} style={at(im)} />
       <div className="sig-text" style={{ ...at(text), padding: pad * scale, fontSize: fitFont(props.preview, text[2], text[3], pad) * scale }}>

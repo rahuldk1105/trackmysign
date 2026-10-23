@@ -215,6 +215,95 @@ pub fn build_signed_data(
     ci.to_der().map_err(der_err)
 }
 
+fn signed_data(cms_der: &[u8]) -> Result<SignedData, Error> {
+    let ci = ContentInfo::from_der(cms_der).map_err(der_err)?;
+    ci.content.decode_as().map_err(der_err)
+}
+
+/// The signature value of the (only) signer, as sent to a timestamp authority.
+pub fn signature_value(cms_der: &[u8]) -> Result<Vec<u8>, Error> {
+    let sd = signed_data(cms_der)?;
+    let si = sd
+        .signer_infos
+        .0
+        .get(0)
+        .ok_or_else(|| Error::Cms("no signer".into()))?;
+    Ok(si.signature.as_bytes().to_vec())
+}
+
+/// Adds an unsigned attribute (e.g. a timestamp token) to the signer. The
+/// signature itself does not change.
+pub fn add_unsigned_attr(
+    cms_der: &[u8],
+    oid: ObjectIdentifier,
+    value_der: &[u8],
+) -> Result<Vec<u8>, Error> {
+    let mut sd = signed_data(cms_der)?;
+    let mut infos = sd.signer_infos.0.into_vec();
+    let si = infos
+        .first_mut()
+        .ok_or_else(|| Error::Cms("no signer".into()))?;
+    let mut attrs = si.unsigned_attrs.take().unwrap_or_default();
+    attrs
+        .insert(attr(oid, Any::from_der(value_der).map_err(der_err)?)?)
+        .map_err(der_err)?;
+    si.unsigned_attrs = Some(attrs);
+    sd.signer_infos = SignerInfos(SetOfVec::try_from(infos).map_err(der_err)?);
+    let ci = ContentInfo {
+        content_type: rfc5911::ID_SIGNED_DATA,
+        content: Any::encode_from(&sd).map_err(der_err)?,
+    };
+    ci.to_der().map_err(der_err)
+}
+
+/// Every certificate carried by the signature: the signer's chain and those
+/// inside any timestamp token. Signer certificate first.
+pub fn embedded_certificates(cms_der: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
+    let sd = signed_data(cms_der)?;
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    let mut push = |c: Vec<u8>| {
+        if !out.contains(&c) {
+            out.push(c);
+        }
+    };
+    let certs = |sd: &SignedData| -> Result<Vec<Vec<u8>>, Error> {
+        let mut v = Vec::new();
+        for c in sd.certificates.iter().flat_map(|s| s.0.iter()) {
+            if let CertificateChoices::Certificate(c) = c {
+                v.push(c.to_der().map_err(der_err)?);
+            }
+        }
+        Ok(v)
+    };
+    let all = certs(&sd)?;
+    // Signer first, so callers can treat it specially.
+    if let Some(SignerIdentifier::IssuerAndSerialNumber(ias)) =
+        sd.signer_infos.0.get(0).map(|s| &s.sid)
+    {
+        for c in &all {
+            let cert = Certificate::from_der(c).map_err(der_err)?;
+            if cert.tbs_certificate.serial_number == ias.serial_number
+                && cert.tbs_certificate.issuer == ias.issuer
+            {
+                push(c.clone());
+            }
+        }
+    }
+    all.into_iter().for_each(&mut push);
+    for si in sd.signer_infos.0.iter() {
+        for a in si.unsigned_attrs.iter().flat_map(|s| s.iter()) {
+            if a.oid != crate::tsa::ID_AA_SIGNATURE_TIME_STAMP_TOKEN {
+                continue;
+            }
+            for v in a.values.iter() {
+                let tst = signed_data(&v.to_der().map_err(der_err)?)?;
+                certs(&tst)?.into_iter().for_each(&mut push);
+            }
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

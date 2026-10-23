@@ -10,6 +10,7 @@ use cryptoki::session::{Session, UserType};
 use cryptoki::slot::Slot;
 use cryptoki::types::AuthPin;
 use der::Decode;
+use sha2::{Digest, Sha256};
 use x509_cert::Certificate;
 
 use crate::certinfo::CertSummary;
@@ -19,49 +20,180 @@ use crate::{Error, KeyKind, Signer};
 /// Environment variable that overrides driver auto-detection.
 pub const MODULE_ENV: &str = "TRACKMYSIGN_PKCS11_MODULE";
 
-/// Known driver locations, most specific first.
-pub fn module_candidates() -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = Vec::new();
-    if let Ok(p) = std::env::var(MODULE_ENV) {
-        v.push(p.into());
-    }
+/// A PKCS#11 driver installed on this computer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Driver {
+    /// Product the driver belongs to, e.g. "Watchdata ProxKey".
+    pub name: String,
+    pub path: PathBuf,
+}
+
+/// Where token vendors install their drivers: product, folder, file name.
+/// A `*` in the file name stands for a version number that changes between
+/// releases. Vendor drivers come first; OpenSC is the last resort.
+fn known_locations() -> Vec<(&'static str, PathBuf, &'static str)> {
+    let mut v: Vec<(&'static str, PathBuf, &'static str)> = Vec::new();
     #[cfg(windows)]
     {
-        let sys = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
-        for dll in ["eps2003csp11v2.dll", "eps2003csp11.dll"] {
-            v.push(Path::new(&sys).join("System32").join(dll));
+        let win = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".into());
+        let sys = Path::new(&win).join("System32");
+        let pf = PathBuf::from(
+            std::env::var("ProgramFiles").unwrap_or_else(|_| "C:\\Program Files".into()),
+        );
+        for (name, file) in [
+            ("Hypersecu HyperPKI", "eps2003csp11v2.dll"),
+            ("Feitian ePass2003", "eps2003csp11.dll"),
+            ("Watchdata ProxKey", "SignatureP11.dll"),
+            ("Trust Key", "TRUSTKEYP11*.dll"),
+            ("Longmai mToken CryptoID", "CryptoIDA_pkcs11.dll"),
+            ("Watchdata", "wdpkcs.dll"),
+            ("SafeNet eToken", "eTPKCS11.dll"),
+            ("Gemalto IDPrime", "IDPrimePKCS11.dll"),
+            ("Bit4id", "bit4xpki.dll"),
+            ("Bit4id", "bit4ipki.dll"),
+        ] {
+            v.push((name, sys.clone(), file));
         }
-        let pf = std::env::var("ProgramFiles").unwrap_or_else(|_| "C:\\Program Files".into());
-        v.push(Path::new(&pf).join("OpenSC Project\\OpenSC\\pkcs11\\opensc-pkcs11.dll"));
+        v.push((
+            "Gemalto IDPrime",
+            pf.join("Gemalto\\IDGo 800 PKCS#11"),
+            "IDPrimePKCS1164.dll",
+        ));
+        v.push((
+            "OpenSC",
+            pf.join("OpenSC Project\\OpenSC\\pkcs11"),
+            "opensc-pkcs11.dll",
+        ));
     }
     #[cfg(target_os = "macos")]
     {
-        for dir in ["/usr/local/lib", "/Library/Frameworks", "/usr/lib"] {
-            if let Ok(rd) = std::fs::read_dir(dir) {
-                for e in rd.flatten() {
-                    let n = e.file_name().to_string_lossy().to_lowercase();
-                    if (n.contains("eps2003") || n.contains("castle") || n.contains("hyper"))
-                        && n.ends_with(".dylib")
-                    {
-                        v.push(e.path());
-                    }
-                }
-            }
+        let lib = PathBuf::from("/usr/local/lib");
+        v.push(("Hypersecu HyperPKI", lib.clone(), "libcastle_v2*.dylib"));
+        v.push(("Feitian ePass2003", lib.clone(), "libcastle.*.dylib"));
+        v.push((
+            "Feitian ePass2003",
+            "/usr/local".into(),
+            "libcastle.*.dylib",
+        ));
+        v.push((
+            "Watchdata ProxKey",
+            lib.join("wdProxKeyUsbKeyTool"),
+            "libwdpkcs_Proxkey.dylib",
+        ));
+        for dir in [
+            "/usr/local/lib",
+            "/Applications/CryptoIDEUserTools.app/Contents/lib/mac",
+            "/Applications/CryptoUserTools.app/Contents/lib/mac",
+            "/opt/CryptoIDE/lib",
+        ] {
+            v.push((
+                "Longmai mToken CryptoID",
+                dir.into(),
+                "libcryptoid*_pkcs11.dylib",
+            ));
         }
-        v.push("/Library/OpenSC/lib/opensc-pkcs11.so".into());
-        v.push("/opt/homebrew/lib/opensc-pkcs11.so".into());
-        v.push("/usr/local/lib/opensc-pkcs11.so".into());
+        v.push(("SafeNet eToken", lib.clone(), "libeTPkcs11.dylib"));
+        v.push(("Gemalto IDPrime", lib.clone(), "libIDPrimePKCS11.dylib"));
+        v.push((
+            "Bit4id",
+            "/Library/bit4id/pkcs11".into(),
+            "libbit4xpki.dylib",
+        ));
+        v.push((
+            "Bit4id",
+            "/Library/bit4id/pkcs11".into(),
+            "libbit4ipki.dylib",
+        ));
+        v.push((
+            "Bit4id",
+            "/Applications/PKIManager-bit4id.app/Contents/Resources/etc".into(),
+            "libbit4xpki.dylib",
+        ));
+        for dir in ["/Library/OpenSC/lib", "/opt/homebrew/lib", "/usr/local/lib"] {
+            v.push(("OpenSC", dir.into(), "opensc-pkcs11.so"));
+        }
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        v.push("/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so".into());
-        v.push("/usr/lib/opensc-pkcs11.so".into());
+        for dir in ["/usr/lib/x86_64-linux-gnu", "/usr/lib"] {
+            v.push(("OpenSC", dir.into(), "opensc-pkcs11.so"));
+        }
     }
     v
 }
 
-pub fn find_module() -> Option<PathBuf> {
-    module_candidates().into_iter().find(|p| p.is_file())
+/// Case-insensitive file name match with at most one `*`.
+fn name_matches(pattern: &str, name: &str) -> bool {
+    let (p, n) = (pattern.to_lowercase(), name.to_lowercase());
+    match p.split_once('*') {
+        Some((pre, suf)) => {
+            n.len() >= pre.len() + suf.len() && n.starts_with(pre) && n.ends_with(suf)
+        }
+        None => p == n,
+    }
+}
+
+/// Product name for a driver file, or its file name if it is not a known one.
+pub fn driver_name(path: &Path) -> String {
+    let file = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    known_locations()
+        .into_iter()
+        .find(|(_, _, pattern)| name_matches(pattern, &file))
+        .map(|(name, _, _)| name.to_string())
+        .unwrap_or(file)
+}
+
+/// Drivers present on this computer, preferred first. With [`MODULE_ENV`] set,
+/// only the ones it lists (separated like `PATH`).
+pub fn installed_drivers() -> Vec<Driver> {
+    if let Some(list) = std::env::var_os(MODULE_ENV).filter(|p| !p.is_empty()) {
+        return std::env::split_paths(&list)
+            .map(|path| Driver {
+                name: driver_name(&path),
+                path,
+            })
+            .collect();
+    }
+    let mut out: Vec<Driver> = Vec::new();
+    let mut seen: Vec<PathBuf> = Vec::new();
+    for (name, dir, pattern) in known_locations() {
+        let mut found: Vec<PathBuf> = if pattern.contains('*') {
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            rd.flatten()
+                .filter(|e| name_matches(pattern, &e.file_name().to_string_lossy()))
+                .map(|e| e.path())
+                .collect()
+        } else {
+            vec![dir.join(pattern)]
+        };
+        // Newest version first.
+        found.sort();
+        found.reverse();
+        for path in found.into_iter().filter(|p| p.is_file()) {
+            // The same library is often reachable through a symlink as well.
+            let real = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+            if seen.contains(&real) {
+                continue;
+            }
+            seen.push(real);
+            out.push(Driver {
+                name: name.to_string(),
+                path,
+            });
+        }
+    }
+    out
+}
+
+fn no_driver() -> Error {
+    Error::Token(
+        "No DSC token driver found. Install the software that came with your token.".into(),
+    )
 }
 
 fn ck(e: CkError) -> Error {
@@ -77,11 +209,23 @@ fn ck(e: CkError) -> Error {
 /// A certificate found on a token.
 #[derive(Debug, Clone)]
 pub struct TokenCert {
+    /// Driver the certificate was read through; sign with the same one.
+    pub driver: Driver,
     pub slot: Slot,
     pub token_label: String,
     pub ck_id: Vec<u8>,
     pub der: Vec<u8>,
     pub summary: CertSummary,
+}
+
+impl TokenCert {
+    /// SHA-256 of the certificate, in hex: identifies it across driver reloads.
+    pub fn fingerprint(&self) -> String {
+        Sha256::digest(&self.der)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -93,7 +237,7 @@ pub struct PinStatus {
 
 pub struct Token {
     ctx: Pkcs11,
-    pub module: PathBuf,
+    pub driver: Driver,
 }
 
 impl Token {
@@ -105,15 +249,11 @@ impl Token {
         }
         Ok(Token {
             ctx,
-            module: module.to_path_buf(),
+            driver: Driver {
+                name: driver_name(module),
+                path: module.to_path_buf(),
+            },
         })
-    }
-
-    pub fn open_default() -> Result<Self, Error> {
-        let m = find_module().ok_or_else(|| {
-            Error::Token("No DSC token driver found. Install the HyperPKI software or choose the driver file.".into())
-        })?;
-        Self::open(&m)
     }
 
     pub fn pin_status(&self, slot: Slot) -> Result<PinStatus, Error> {
@@ -162,6 +302,7 @@ impl Token {
                     continue;
                 };
                 out.push(TokenCert {
+                    driver: self.driver.clone(),
                     slot,
                     token_label: label.clone(),
                     ck_id: id,
@@ -239,6 +380,82 @@ impl Token {
             cert: cert.der.clone(),
             chain,
         })
+    }
+}
+
+/// Every installed driver that loaded, so certificates on tokens from
+/// different vendors can be listed side by side.
+pub struct Tokens {
+    pub tokens: Vec<Token>,
+    /// Installed drivers that failed to load.
+    pub failed: Vec<(Driver, Error)>,
+}
+
+impl Tokens {
+    /// Loads each driver; one that fails is set aside, not fatal.
+    pub fn open(drivers: &[Driver]) -> Result<Self, Error> {
+        let mut tokens = Vec::new();
+        let mut failed = Vec::new();
+        for d in drivers {
+            match Token::open(&d.path) {
+                Ok(mut t) => {
+                    t.driver.name = d.name.clone();
+                    tokens.push(t);
+                }
+                Err(e) => failed.push((d.clone(), e)),
+            }
+        }
+        if tokens.is_empty() {
+            return Err(match failed.into_iter().next() {
+                Some((_, e)) => e,
+                None => no_driver(),
+            });
+        }
+        Ok(Tokens { tokens, failed })
+    }
+
+    pub fn open_installed() -> Result<Self, Error> {
+        Self::open(&installed_drivers())
+    }
+
+    /// Signing certificates from all tokens, signing-capable first. A token
+    /// seen by two drivers (vendor and OpenSC, say) is listed once, under the
+    /// preferred driver.
+    pub fn signing_certificates(&self) -> Result<Vec<TokenCert>, Error> {
+        let mut out: Vec<TokenCert> = Vec::new();
+        let mut first_err = None;
+        let mut any_ok = false;
+        for t in &self.tokens {
+            match t.signing_certificates() {
+                Ok(certs) => {
+                    any_ok = true;
+                    for c in certs {
+                        if !out.iter().any(|o| o.der == c.der) {
+                            out.push(c);
+                        }
+                    }
+                }
+                Err(e) => {
+                    first_err.get_or_insert(e);
+                }
+            }
+        }
+        if let (false, Some(e)) = (any_ok, first_err) {
+            return Err(e);
+        }
+        out.sort_by_key(|c| (!c.summary.can_sign, c.summary.expired));
+        Ok(out)
+    }
+
+    /// Logs in through the driver `cert` was read from.
+    pub fn signer(&self, cert: &TokenCert, pin: &str) -> Result<TokenSigner, Error> {
+        self.tokens
+            .iter()
+            .find(|t| t.driver.path == cert.driver.path)
+            .ok_or_else(|| {
+                Error::Token("The token driver for this certificate is not loaded.".into())
+            })?
+            .signer(cert, pin)
     }
 }
 
@@ -322,4 +539,25 @@ impl Signer for TokenSigner {
 /// Parse helper kept here so callers need not depend on x509-cert.
 pub fn parse_certificate(der: &[u8]) -> Result<Certificate, Error> {
     Certificate::from_der(der).map_err(|e| Error::Cms(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn driver_file_names() {
+        assert!(name_matches("TRUSTKEYP11*.dll", "TrustKeyP11_ND_v34.dll"));
+        assert!(name_matches("libcastle.*.dylib", "libcastle.1.0.0.dylib"));
+        assert!(!name_matches(
+            "libcastle.*.dylib",
+            "libcastle_v2.1.0.0.dylib"
+        ));
+        assert!(name_matches("eTPKCS11.dll", "etpkcs11.dll"));
+        assert!(!name_matches("eps2003csp11.dll", "eps2003csp11v2.dll"));
+        assert_eq!(
+            driver_name(Path::new("/x/unknown-pkcs11.so")),
+            "unknown-pkcs11.so"
+        );
+    }
 }

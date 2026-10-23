@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import * as api from "./api";
-import type { ApiError, BatchProgress, Cert, ImageChoice, PdfInfo, Signed } from "./api";
+import type { ApiError, BatchProgress, Cert, Driver, ImageChoice, PdfInfo, Signed } from "./api";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
+import { SignaturesPanel } from "./SignaturesPanel";
 import { useTheme, type ThemePref } from "./theme";
 import { activePreset, describePage, fromPresetPlacement, pageChoice, toPresetPlacement, type Preset } from "./presets";
 import {
@@ -18,7 +19,6 @@ import {
   MinusIcon,
   PlusIcon,
   RefreshIcon,
-  ShieldIcon,
 } from "./icons";
 
 // ---------------------------------------------------------------- settings
@@ -29,13 +29,35 @@ interface Saved {
   certName: string;
   /** Last box, as fractions of the page, and which page counted from the end. */
   box: { fx: number; fy: number; fw: number; fh: number; fromEnd: number } | null;
+  /** Long-term validity; both need the internet, so off by default. */
+  timestamp: boolean;
+  tsaUrl: string;
+  ltv: boolean;
   presets: Preset[];
   /** Show the signature image (kept in the app's data folder) in the box. */
   image: ImageChoice;
 }
 
 const KEY = "trackmysign.settings.v1";
-const defaults: Saved = { reason: "Approved", location: "", certName: "", box: null, presets: [], image: "off" };
+const TSA_URLS = [
+  "http://timestamp.digicert.com",
+  "http://timestamp.sectigo.com",
+  "http://ts.ssl.com",
+  "http://timestamp.globalsign.com/tsa/r6advanced1",
+  "http://time.certum.pl",
+  "https://freetsa.org/tsr",
+];
+const defaults: Saved = {
+  reason: "Approved",
+  location: "",
+  certName: "",
+  box: null,
+  timestamp: false,
+  tsaUrl: TSA_URLS[0],
+  ltv: false,
+  presets: [],
+  image: "off",
+};
 
 function loadSaved(): Saved {
   try {
@@ -89,6 +111,59 @@ const MOD = isMac ? "⌘" : "Ctrl+";
 
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
 
+type PagesMode = "this" | "all" | "custom";
+
+const PAGE_MODES: { value: PagesMode; label: string }[] = [
+  { value: "this", label: "This page" },
+  { value: "all", label: "All pages" },
+  { value: "custom", label: "Custom" },
+];
+
+/** `1-3, 5` (numbered from 1) → sorted zero-based pages, or an error message. */
+function parsePages(spec: string, count: number): number[] | string {
+  const out = new Set<number>();
+  const num = (s: string) => {
+    const t = s.trim();
+    if (!/^\d+$/.test(t)) throw `"${t}" is not a page number`;
+    const n = Number(t);
+    if (n < 1) throw "Pages are numbered from 1";
+    if (n > count) throw `The PDF has only ${count} page${count > 1 ? "s" : ""}`;
+    return n - 1;
+  };
+  try {
+    for (const part of spec.split(",").filter((p) => p.trim())) {
+      const [a, b, ...rest] = part.split("-");
+      if (rest.length) throw `"${part.trim()}" is not a range`;
+      if (b === undefined) out.add(num(a));
+      else {
+        const [from, to] = [num(a), num(b)];
+        if (from > to) throw `"${part.trim()}" runs backwards`;
+        for (let i = from; i <= to; i++) out.add(i);
+      }
+    }
+  } catch (e) {
+    return String(e);
+  }
+  return out.size ? [...out].sort((x, y) => x - y) : "Enter pages, e.g. 1-3, 5";
+}
+
+/** Zero-based pages → `1-3, 5`. */
+function formatPages(list: number[]): string {
+  const runs: string[] = [];
+  for (let i = 0; i < list.length; i++) {
+    let j = i;
+    while (j + 1 < list.length && list[j + 1] === list[j] + 1) j++;
+    runs.push(j > i ? `${list[i] + 1}–${list[j] + 1}` : `${list[i] + 1}`);
+    i = j;
+  }
+  return runs.join(", ");
+}
+
+function pagesLabel(list: number[], count: number): string {
+  if (list.length === count && count > 1) return `all ${count} pages`;
+  return `page${list.length > 1 ? "s" : ""} ${formatPages(list)}`;
+}
+
 function baseName(path: string) {
   return path.split(/[\\/]/).pop() ?? path;
 }
@@ -126,13 +201,15 @@ export default function App() {
   const [certs, setCerts] = useState<Cert[] | null>(null);
   const [certError, setCertError] = useState<string | null>(null);
   const [certIndex, setCertIndex] = useState(0);
-  const [driver, setDriver] = useState<string | null | undefined>(undefined);
+  const [drivers, setDrivers] = useState<Driver[] | undefined>(undefined);
   const [doc, setDoc] = useState<Doc | null>(null);
   const [loading, setLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
   /** Several PDFs to sign in one go; the first is shown for placing the box. */
   const [batch, setBatch] = useState<string[] | null>(null);
+  const [pagesMode, setPagesMode] = useState<PagesMode>("this");
+  const [pagesSpec, setPagesSpec] = useState("");
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [hover, setHover] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -154,9 +231,9 @@ export default function App() {
   // ---- token
   const refreshCerts = useCallback(async () => {
     api
-      .tokenDriver()
-      .then(setDriver)
-      .catch(() => setDriver(null));
+      .tokenDrivers()
+      .then(setDrivers)
+      .catch(() => setDrivers([]));
     try {
       const list = (await api.listCertificates()).filter((c) => c.canSign);
       setCerts(list);
@@ -236,6 +313,8 @@ export default function App() {
       setZoom(1);
       setPage(0);
       setPlacement(initialPlacement(sizes, loadSaved()));
+      setPagesMode("this");
+      setPagesSpec("");
     } catch (e) {
       setDoc(null);
       setDocError(api.errorOf(e).message);
@@ -337,7 +416,12 @@ export default function App() {
 
   // ---- signing
   const cert = certs?.[certIndex];
-  const canSign = !!doc && !!placement && !!cert && !cert.expired && !loading;
+  // Pages that get the box; null for just the placement's page.
+  const selection: number[] | string | null =
+    pagesMode === "all" ? Array.from({ length: pages }, (_, i) => i) : pagesMode === "custom" ? parsePages(pagesSpec, pages) : null;
+  const pagesError = typeof selection === "string" ? selection : null;
+  const targetPages = Array.isArray(selection) ? selection : null;
+  const canSign = !!doc && !!placement && !!cert && !cert.expired && !loading && !pagesError;
   const dialogOpen = step.kind !== "idle" || settingsOpen;
 
   // ---- keyboard
@@ -366,8 +450,9 @@ export default function App() {
     return () => window.removeEventListener("keydown", k);
   }, []);
 
-  const doBatch = async (paths: string[], pin: string) => {
+  const doBatch = async (paths: string[], pin: string, skip?: "timestamp" | "ltv") => {
     if (!doc || !placement || !cert) return;
+    const useTs = saved.timestamp && skip !== "timestamp" && !!saved.tsaUrl.trim();
     const files: BatchItem[] = paths.map((path) => ({ path, name: baseName(path), state: "waiting" }));
     const setItem = (i: number, patch: Partial<BatchItem>) =>
       setStep((s) => (s.kind === "batch" ? { ...s, files: s.files.map((f, j) => (j === i ? { ...f, ...patch } : f)) } : s));
@@ -380,10 +465,15 @@ export default function App() {
           paths,
           page: pageChoice(placement.page, doc.sizes.length),
           rect: { x: placement.x, y: placement.y, w: placement.w, h: placement.h },
+          allPages: pagesMode === "all",
+          pages: targetPages ?? [],
           reason: saved.reason,
           location: saved.location,
-          certIndex: cert.index,
+          certId: cert.id,
+          driverPath: cert.driverPath,
           pin,
+          timestamp: useTs ? saved.tsaUrl.trim() : null,
+          ltv: saved.ltv && skip !== "ltv",
           image: stampImage?.position ?? null,
         },
         (p) => {
@@ -409,19 +499,25 @@ export default function App() {
     }
   };
 
-  const doSign = async (pin: string) => {
-    if (batch) return doBatch(batch, pin);
+  /** `skip` drops the online step that just failed, for this attempt only. */
+  const doSign = async (pin: string, skip?: "timestamp" | "ltv") => {
+    if (batch) return doBatch(batch, pin, skip);
     if (!doc || !placement || !cert) return;
+    const useTs = saved.timestamp && skip !== "timestamp" && !!saved.tsaUrl.trim();
     setStep({ kind: "signing" });
     try {
       const result = await api.sign({
         path: doc.info.path,
         page: placement.page,
         rect: { x: placement.x, y: placement.y, w: placement.w, h: placement.h },
+        pages: targetPages ?? [],
         reason: saved.reason,
         location: saved.location,
-        certIndex: cert.index,
+        certId: cert.id,
+        driverPath: cert.driverPath,
         pin,
+        timestamp: useTs ? saved.tsaUrl.trim() : null,
+        ltv: saved.ltv && skip !== "ltv",
         image: stampImage?.position ?? null,
       });
       update({ certName: cert.name });
@@ -442,6 +538,8 @@ export default function App() {
   ];
 
   const zoomPct = `${Math.round(view.scale * 100)}%`;
+  const driverPath = cert?.driverPath ?? drivers?.[0]?.path;
+  const manyDrivers = new Set(certs?.map((c) => c.driverPath)).size > 1;
 
   return (
     <div className={`app ${hover ? "drop-hover" : ""}`}>
@@ -507,6 +605,7 @@ export default function App() {
                 doc={doc.pdf}
                 sizes={doc.sizes}
                 placement={placement}
+                pages={targetPages}
                 preview={preview}
                 image={stampImage}
                 zoom={zoom}
@@ -597,6 +696,7 @@ export default function App() {
                         {certs.map((c, i) => (
                           <option key={i} value={i}>
                             {c.name} — {c.issuer}
+                            {manyDrivers ? ` (${c.driver})` : ""}
                           </option>
                         ))}
                       </select>
@@ -608,6 +708,8 @@ export default function App() {
                       <dd>{cert.issuer}</dd>
                       <dt>Valid until</dt>
                       <dd className={cert.expired ? "bad" : undefined}>{cert.validUntil}</dd>
+                      <dt>Driver</dt>
+                      <dd title={cert.driverPath}>{cert.driver}</dd>
                     </dl>
                     {cert.expired && (
                       <div className="warn-row">
@@ -687,9 +789,54 @@ export default function App() {
                     </div>
                   </>
                 )}
+                <label id="pages-label">Pages</label>
+                <div className="segmented" role="radiogroup" aria-labelledby="pages-label">
+                  {PAGE_MODES.map((m) => (
+                    <button
+                      key={m.value}
+                      role="radio"
+                      aria-checked={pagesMode === m.value}
+                      className={pagesMode === m.value ? "on" : ""}
+                      onClick={() => {
+                        setPagesMode(m.value);
+                        if (m.value === "custom" && !pagesSpec) setPagesSpec(pages > 1 ? `1-${pages}` : "1");
+                      }}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                {pagesMode === "custom" && (
+                  <input
+                    className={`pages-spec mono ${pagesError ? "invalid" : ""}`}
+                    value={pagesSpec}
+                    onChange={(e) => setPagesSpec(e.target.value)}
+                    placeholder="e.g. 1-3, 5"
+                    aria-label="Page list"
+                    aria-invalid={!!pagesError}
+                    spellCheck={false}
+                  />
+                )}
+                {pagesError ? (
+                  <p className="inline-error">
+                    <AlertIcon size={14} /> {pagesError}
+                  </p>
+                ) : (
+                  targetPages && (
+                    <p className="muted small">
+                      One signature, shown on {pagesLabel(targetPages, pages)}. The box keeps its distance from the nearest corner of each page.
+                    </p>
+                  )
+                )}
                 {batch && placement && (
                   <p className="muted small">
-                    Every document: {describePage(pageChoice(placement.page, pages)).toLowerCase()}, same position.
+                    Every document:{" "}
+                    {pagesMode === "all"
+                      ? "all pages"
+                      : targetPages
+                        ? `pages ${formatPages(targetPages)} where it has them`
+                        : describePage(pageChoice(placement.page, pages)).toLowerCase()}
+                    , same position.
                   </p>
                 )}
                 <p className="muted small">Click a page to place the signature. Drag to move; drag the corner to resize.</p>
@@ -702,14 +849,7 @@ export default function App() {
                 </button>
               </section>
 
-              {doc.info.signatures > 0 && (
-                <div className="ok-row">
-                  <ShieldIcon size={14} />
-                  <span>
-                    {doc.info.signatures} existing signature{doc.info.signatures > 1 ? "s" : ""} — kept valid
-                  </span>
-                </div>
-              )}
+              <SignaturesPanel path={doc.info.path} count={doc.info.signatures} />
             </div>
 
             <div className="insp-foot">
@@ -735,8 +875,8 @@ export default function App() {
       <footer className="statusbar">
         <TokenStatus certs={certs} error={certError} onRetry={refreshCerts} />
         <div className="spacer" />
-        <span className="mono sb-item" title={driver ?? undefined}>
-          {driver === undefined ? "" : driver ? baseName(driver) : "No PKCS#11 driver found"}
+        <span className="mono sb-item" title={driverPath}>
+          {drivers === undefined ? "" : driverPath ? baseName(driverPath) : "No PKCS#11 driver found"}
         </span>
         {doc && (
           <>
@@ -756,7 +896,7 @@ export default function App() {
           update={update}
           certs={certs}
           certError={certError}
-          driver={driver}
+          drivers={drivers}
           image={sigImage?.url ?? null}
           imageError={imageError}
           onChooseImage={chooseImage}
@@ -770,6 +910,7 @@ export default function App() {
         <PinDialog
           cert={cert}
           docName={batch ? `${batch.length} documents` : doc.info.name}
+          pages={targetPages && targetPages.length > 1 ? pagesLabel(targetPages, pages) : undefined}
           busy={step.kind === "signing"}
           error={step.kind === "pin" ? step.error : undefined}
           onCancel={() => setStep({ kind: "idle" })}
@@ -835,17 +976,21 @@ function TokenStatus({ certs, error, onRetry }: { certs: Cert[] | null; error: s
 function PinDialog(props: {
   cert: Cert;
   docName: string;
+  /** Shown when the box goes on more than one page. */
+  pages?: string;
   busy: boolean;
   error?: ApiError;
   onCancel: () => void;
-  onSubmit: (pin: string) => void;
+  onSubmit: (pin: string, skip?: "timestamp" | "ltv") => void;
 }) {
   const [pin, setPin] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  // A timestamp or revocation server failing is not a PIN problem: keep the PIN for the retry.
+  const online = props.error?.kind === "timestamp" || props.error?.kind === "ltv" ? props.error.kind : null;
   useEffect(() => {
-    if (props.error) setPin("");
+    if (props.error && !online) setPin("");
     input.current?.focus();
-  }, [props.error]);
+  }, [props.error, online]);
   const locked = props.error?.kind === "pinLocked";
   const pinError = props.error && (props.error.kind === "wrongPin" || props.error.kind === "pinLocked");
   return (
@@ -857,6 +1002,12 @@ function PinDialog(props: {
         <dd>{props.cert.tokenLabel}</dd>
         <dt>Document</dt>
         <dd className="mono ellipsis">{props.docName}</dd>
+        {props.pages && (
+          <>
+            <dt>Pages</dt>
+            <dd>{props.pages[0].toUpperCase() + props.pages.slice(1)}</dd>
+          </>
+        )}
       </dl>
       <form
         onSubmit={(e) => {
@@ -884,12 +1035,17 @@ function PinDialog(props: {
           <p className="muted small">The token locks after several wrong attempts. The PIN is never saved.</p>
         )}
         <div className="dialog-actions">
+          {online && (
+            <button type="button" className="btn ghost" onClick={() => props.onSubmit(pin, online)} disabled={!pin || props.busy}>
+              {online === "timestamp" ? "Sign without timestamp" : "Sign without revocation info"}
+            </button>
+          )}
           <div className="spacer" />
           <button type="button" className="btn" onClick={props.onCancel} disabled={props.busy}>
             Cancel
           </button>
           <button type="submit" className="btn primary" disabled={!pin || props.busy || locked}>
-            {props.busy ? "Signing…" : "Sign"}
+            {props.busy ? "Signing…" : online ? "Try again" : "Sign"}
           </button>
         </div>
       </form>
@@ -916,7 +1072,7 @@ function Settings(props: {
   update: (p: Partial<Saved>) => void;
   certs: Cert[] | null;
   certError: string | null;
-  driver: string | null | undefined;
+  drivers: Driver[] | undefined;
   image: string | null;
   imageError: string | null;
   onChooseImage: () => void;
@@ -1035,6 +1191,40 @@ function Settings(props: {
           </section>
 
           <section>
+            <h3>Long-term validity</h3>
+            <label className="check-row">
+              <input type="checkbox" checked={props.saved.timestamp} onChange={(e) => props.update({ timestamp: e.target.checked })} />
+              Add trusted timestamp
+            </label>
+            <p className="muted small">Proves when you signed, independent of this PC's clock. Sends only a hash of the signature.</p>
+            {props.saved.timestamp && (
+              <>
+                <label htmlFor="s-tsa">Timestamp server</label>
+                <input
+                  id="s-tsa"
+                  list="tsa-urls"
+                  className="mono"
+                  value={props.saved.tsaUrl}
+                  onChange={(e) => props.update({ tsaUrl: e.target.value })}
+                  placeholder={TSA_URLS[0]}
+                  spellCheck={false}
+                />
+                <datalist id="tsa-urls">
+                  {TSA_URLS.map((u) => (
+                    <option key={u} value={u} />
+                  ))}
+                </datalist>
+              </>
+            )}
+            <label className="check-row">
+              <input type="checkbox" checked={props.saved.ltv} onChange={(e) => props.update({ ltv: e.target.checked })} />
+              Embed revocation info (LTV)
+            </label>
+            <p className="muted small">Stores your CA's OCSP/CRL answers in the PDF so the signature can still be checked after the certificate expires.</p>
+            {(props.saved.timestamp || props.saved.ltv) && <p className="muted small">Needs an internet connection while signing.</p>}
+          </section>
+
+          <section>
             <h3>DSC token</h3>
             <dl className="kv">
               <dt>Status</dt>
@@ -1047,10 +1237,39 @@ function Settings(props: {
                   <dd>{cert.issuer}</dd>
                 </>
               )}
-              <dt>Driver</dt>
-              <dd className="mono wrap">{props.driver === undefined ? "…" : (props.driver ?? "Not found")}</dd>
+              {cert && (
+                <>
+                  <dt>Driver</dt>
+                  <dd>{cert.driver}</dd>
+                </>
+              )}
             </dl>
             {!cert && props.certError && <p className="muted small">{props.certError}</p>}
+            <h4>Detected drivers</h4>
+            {props.drivers === undefined ? (
+              <p className="muted small">Checking…</p>
+            ) : props.drivers.length === 0 ? (
+              <p className="muted small">None found. Install the software that came with your token.</p>
+            ) : (
+              <ul className="driver-list">
+                {props.drivers.map((d) => {
+                  const n = props.certs?.filter((c) => c.driverPath === d.path).length ?? 0;
+                  return (
+                    <li key={d.path}>
+                      <div className="driver-head">
+                        <span>{d.name}</span>
+                        {n > 0 && (
+                          <span className="ok">
+                            {n} certificate{n > 1 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
+                      <span className="mono wrap">{d.path}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
             <button className="btn" onClick={props.onRefresh}>
               <RefreshIcon size={14} /> Check again
             </button>
@@ -1064,7 +1283,10 @@ function Settings(props: {
                 <div>
                   <strong>TrackMySign</strong> <span className="mono muted">{__APP_VERSION__}</span>
                 </div>
-                <span className="muted small">Signs PDFs with your DSC. Nothing leaves this computer.</span>
+                <span className="muted small">
+                  Signs PDFs with your DSC.{" "}
+                  {props.saved.timestamp || props.saved.ltv ? "Only timestamp and revocation requests go online." : "Nothing leaves this computer."}
+                </span>
                 <button className="link" onClick={() => api.openWebsite()}>
                   sign.rahuldk.in
                 </button>
