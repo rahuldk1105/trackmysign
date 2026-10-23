@@ -3834,6 +3834,7 @@ dependencies = [
  "cms",
  "const-oid",
  "cryptoki",
+ "cryptoki-sys",
  "der",
  "flate2",
  "num-bigint",
@@ -4877,6 +4878,7 @@ dependencies = [
 name = "trackmysign-desktop"
 version = "0.1.4"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
  "signdesk-core",

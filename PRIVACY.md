@@ -1,0 +1,66 @@
+# Privacy
+
+TrackMySign signs PDFs on your own computer. There is no TrackMySign server and
+no account, and the project collects nothing about you.
+
+## The app and the command-line tool
+
+**What stays on your computer: everything, by default.** Your PDFs, the signed
+copies, your certificate and your token are only ever handled locally. The
+private key never leaves the token; the app gives the token a hash to sign
+through the driver your token's vendor installed. You can sign with the network
+cable unplugged.
+
+**Your PIN is never stored.** It is passed to the token driver for one signing
+(or one batch) and then dropped. It is not written to settings, logs or disk.
+
+**No analytics, no telemetry, no crash reports.** The app does not count users,
+does not report errors anywhere and has no tracking code.
+
+**Network requests happen only for features you turn on:**
+
+| Feature | Off by default? | What is sent, and to whom |
+|---|---|---|
+| Trusted timestamp (*Settings → Long-term validity*, CLI `--timestamp`) | Yes | A SHA-256 hash of the signature value, to the timestamp server you choose (DigiCert by default). Not the document, not your PIN. |
+| Long-term validity, LTV (*Settings → Long-term validity*, CLI `--ltv`) | Yes | OCSP requests (the issuer's identity and your certificate's serial number), CRL and issuer-certificate downloads, sent to the addresses your Certifying Authority wrote into your certificate. This is the same check Adobe Reader does when it validates a signature online. |
+| Update check | Can be turned off in *Settings* | The app checks GitHub Releases for a new version. Nothing about you or your documents is sent; GitHub sees your IP address, as with any download. |
+
+If a timestamp or LTV server cannot be reached, nothing is saved and you can
+sign again without it.
+
+Clicking a link in the app (for example to this project's website) opens it in
+your browser; the app itself does not load web pages.
+
+**What is saved locally.** Your preferences (default reason and location, saved
+presets, the last signature-box position, theme, timestamp and LTV choices) are
+kept in the app's own storage on your computer. If you add a handwritten
+signature image, a copy is kept in the app's data folder so it can be reused.
+None of it is sent anywhere.
+
+## The website (sign.rahuldk.in)
+
+The website is a static site hosted on GitHub Pages. It has no cookies, no
+analytics and no tracking. Besides its own files, it loads only:
+
+- **Google Fonts**: the stylesheet from `fonts.googleapis.com` and the font files
+  from `fonts.gstatic.com` (Archivo, IBM Plex Sans, IBM Plex Mono).
+- **GitHub API** (`api.github.com`), read-only and without any login:
+  - `/repos/rahuldk1105/trackmysign/releases/latest` for the current version
+    number and the SHA-256 checksums shown next to the downloads;
+  - `/repos/rahuldk1105/trackmysign` for the star count;
+  - `/repos/rahuldk1105/trackmysign/releases` on the changelog page, for the
+    release notes.
+
+Download buttons link to files on `github.com` (GitHub Releases). Your light or
+dark theme choice is saved in your browser's local storage (`tms-theme`) and
+never leaves it.
+
+As with any website, GitHub Pages, Google Fonts and the GitHub API receive your
+IP address and browser details when your browser contacts them; their own
+privacy policies apply to that.
+
+## Questions
+
+Open an issue at
+[github.com/rahuldk1105/trackmysign/issues](https://github.com/rahuldk1105/trackmysign/issues).
+For anything security-related, see [SECURITY.md](SECURITY.md).

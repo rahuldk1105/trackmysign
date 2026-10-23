@@ -1557,3 +1557,108 @@ details p {
 .hero-copy {
   position: relative;
 }
+
+/* changelog page (release notes rendered by changelog/releases.js) */
+.releases {
+  margin-top: 40px;
+  max-width: 1080px;
+  border-top: 1px solid var(--ink);
+}
+.releases-status {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.releases a {
+  color: var(--accent-text);
+  text-underline-offset: 3px;
+}
+.release {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  gap: 16px;
+  padding: 28px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.release-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.releases .release-tag {
+  font-size: 15px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  text-decoration: none;
+}
+.release h3 {
+  font: 700 22px/1.2 var(--f-display);
+  font-stretch: 112%;
+  letter-spacing: -0.015em;
+}
+.notes {
+  margin-top: 12px;
+  max-width: 72ch;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.notes > * + * {
+  margin-top: 10px;
+}
+.notes > :first-child {
+  margin-top: 0;
+}
+.notes h4,
+.notes h5 {
+  margin: 20px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.notes h5 {
+  font-size: 14px;
+}
+.notes ul,
+.notes ol {
+  margin-bottom: 0;
+  padding-left: 1.3em;
+}
+.notes li + li {
+  margin-top: 4px;
+}
+.notes pre {
+  margin-bottom: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  background: var(--ground);
+  border: 1px solid var(--rule);
+  font-size: 13.5px;
+}
+.notes pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.release-link {
+  margin-top: 16px;
+  font-size: 14px;
+}
+@media (max-width: 720px) {
+  .release {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+  .release-meta {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .foot-links {
+    flex-wrap: wrap;
+    gap: 8px 22px;
+  }
+}

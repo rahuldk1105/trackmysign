@@ -9,13 +9,27 @@ export interface Cert {
   name: string;
   organization: string | null;
   issuer: string;
+  validFrom: string;
   validUntil: string;
   expired: boolean;
+  /** Whole days until it expires; negative once expired. */
+  daysLeft: number;
+  /** Whole days until it becomes valid, when it is not yet (or the PC clock is wrong). */
+  startsIn: number | null;
   canSign: boolean;
   tokenLabel: string;
   /** Product name of the PKCS#11 driver the certificate was read through. */
   driver: string;
   driverPath: string;
+}
+
+/** A certificate seen on a token before, remembered for the expiry reminder. */
+export interface KnownCert {
+  id: string;
+  name: string;
+  issuer: string;
+  validUntil: string;
+  daysLeft: number;
 }
 
 export interface Driver {
@@ -76,8 +90,15 @@ export interface Signed {
   name: string;
 }
 
+/** PIN attempts as the token reports them (not every token does). */
+export interface PinStatus {
+  countLow: boolean;
+  finalTry: boolean;
+  locked: boolean;
+}
+
 export interface ApiError {
-  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "io" | "timestamp" | "ltv" | "other";
+  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "io" | "timestamp" | "ltv" | "expired" | "other";
   message: string;
 }
 
@@ -97,8 +118,11 @@ const mock = {
         name: "DK RAHUL",
         organization: "Personal",
         issuer: "Verasys Sub CA 2022",
+        validFrom: "12 Dec 2024",
         validUntil: "11 Dec 2026",
         expired: false,
+        daysLeft: 49,
+        startsIn: null,
         canSign: true,
         tokenLabel: "HYP2003",
         driver: "Hypersecu HyperPKI",
@@ -130,6 +154,10 @@ export async function listCertificates(): Promise<Cert[]> {
   return inTauri ? invoke("list_certificates") : mock.listCertificates();
 }
 
+export async function knownCertificates(): Promise<KnownCert[]> {
+  return inTauri ? invoke("known_certificates") : [];
+}
+
 export async function pdfInfo(path: string): Promise<PdfInfo> {
   if (inTauri) return invoke("pdf_info", { path });
   return { path, name: path.split(/[\\/]/).pop() ?? path, pages: [], signatures: 1 };
@@ -141,6 +169,11 @@ export async function readPdf(path: string): Promise<ArrayBuffer> {
 
 export async function sign(args: SignArgs): Promise<Signed> {
   return inTauri ? invoke("sign", { args }) : mock.sign(args);
+}
+
+export async function pinStatus(certId: string, driverPath: string): Promise<PinStatus> {
+  if (inTauri) return invoke("pin_status", { certId, driverPath });
+  return { countLow: false, finalTry: false, locked: false };
 }
 
 /** PDFs the app was started with (command line, Finder, "Sign with TrackMySign"). */
