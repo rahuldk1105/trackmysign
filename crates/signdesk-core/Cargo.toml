@@ -10,6 +10,10 @@ const-oid = { version = "0.9", features = ["db"] }
 cryptoki = "0.12.1"
 der = { version = "0.7", features = ["derive", "oid", "alloc"] }
 flate2 = "1.1.10"
-sha2 = "0.10"
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "pkcs8", "std"] }
+p384 = { version = "0.13", default-features = false, features = ["ecdsa", "pkcs8", "std"] }
+rsa = { version = "0.9", default-features = false, features = ["std", "sha2", "u64_digit"] }
+sha1 = { version = "0.10", features = ["oid"] }
+sha2 = { version = "0.10", features = ["oid"] }
 thiserror = "2.0.21"
 x509-cert = "0.2"

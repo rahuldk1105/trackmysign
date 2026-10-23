@@ -159,3 +159,56 @@ export async function onFileDrop(cb: (path: string) => void, hover: (on: boolean
     }
   });
 }
+
+export interface SignatureCheck {
+  field: string;
+  status: "valid" | "invalid" | "unknown";
+  /** Why the status is not valid comes first; then other warnings. */
+  notes: string[];
+  signer: string | null;
+  organization: string | null;
+  issuer: string | null;
+  certValidFrom: string | null;
+  certValidUntil: string | null;
+  signingTime: string | null;
+  timeInValidity: boolean | null;
+  timestamped: boolean;
+  reason: string | null;
+  location: string | null;
+  subFilter: string | null;
+  digest: string | null;
+  /** What later incremental updates changed. */
+  changes: "none" | "signatures" | "form" | "content" | "unknown";
+  laterRevisions: number;
+  bytesAfter: number;
+  chain: string[];
+  trust: "cca" | "notChecked";
+}
+
+export async function verifyPdf(path: string): Promise<SignatureCheck[]> {
+  if (inTauri) return invoke("verify_pdf", { path });
+  return [
+    {
+      field: "AuditorSignature",
+      status: "valid",
+      notes: [],
+      signer: "CA AUDITOR PARTNER",
+      organization: null,
+      issuer: "Verasys Sub CA 2022",
+      certValidFrom: "01 Apr 2025",
+      certValidUntil: "31 Mar 2027",
+      signingTime: "2026.10.20 14:32:10 +05:30",
+      timeInValidity: true,
+      timestamped: false,
+      reason: "Audited",
+      location: "Chennai",
+      subFilter: "adbe.pkcs7.detached",
+      digest: "SHA-256",
+      changes: "signatures",
+      laterRevisions: 1,
+      bytesAfter: 11785,
+      chain: ["CA AUDITOR PARTNER", "Verasys Sub CA 2022", "Verasys CA 2022", "CCA India 2022"],
+      trust: "cca",
+    },
+  ];
+}

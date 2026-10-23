@@ -70,6 +70,7 @@ Other options:
 
 ```powershell
 .\trackmysign.exe info file.pdf                       # pages, existing signatures
+.\trackmysign.exe verify file.pdf                     # check existing signatures
 .\trackmysign.exe sign file.pdf --page 1 --position top-right
 .\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
 .\trackmysign.exe sign file.pdf --pages all            # one signature, box on every page
