@@ -202,7 +202,7 @@ async fn sign(args: SignArgs) -> CmdResult<SignedDto> {
     })?
 }
 
-/// A PDF passed on the command line ("Open with SignDesk", drag onto the icon).
+/// A PDF passed on the command line ("Open with TrackMySign", drag onto the icon).
 #[tauri::command]
 fn startup_file() -> Option<String> {
     std::env::args()
@@ -241,5 +241,5 @@ pub fn run() {
             reveal_file
         ])
         .run(tauri::generate_context!())
-        .expect("error while running SignDesk");
+        .expect("error while running TrackMySign");
 }

@@ -3366,16 +3366,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "signdesk"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "rpassword",
- "signdesk-core",
-]
-
-[[package]]
 name = "signdesk-core"
 version = "0.1.0"
 dependencies = [
@@ -3388,19 +3378,6 @@ dependencies = [
  "sha2",
  "thiserror 2.0.21",
  "x509-cert",
-]
-
-[[package]]
-name = "signdesk-desktop"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "signdesk-core",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
 ]
 
 [[package]]
@@ -4291,6 +4268,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "trackmysign"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "rpassword",
+ "signdesk-core",
+ "tauri-winres",
+]
+
+[[package]]
+name = "trackmysign-desktop"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "signdesk-core",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
 ]
 
 [[package]]

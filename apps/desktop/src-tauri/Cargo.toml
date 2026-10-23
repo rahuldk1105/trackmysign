@@ -1,12 +1,12 @@
 [package]
-name = "signdesk-desktop"
+name = "trackmysign-desktop"
 version = "0.1.0"
-description = "SignDesk — sign PDFs with your DSC token"
+description = "TrackMySign — sign PDFs with your DSC token"
 authors = ["DK Rahul"]
 edition = "2024"
 
 [lib]
-name = "signdesk_desktop_lib"
+name = "trackmysign_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

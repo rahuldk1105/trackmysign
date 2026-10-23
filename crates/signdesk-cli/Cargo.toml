@@ -1,7 +1,11 @@
 [package]
-name = "signdesk"
+name = "trackmysign"
 version = "0.1.0"
 edition = "2024"
+description = "TrackMySign command-line PDF signer"
+
+[build-dependencies]
+tauri-winres = "0.3"
 
 [dependencies]
 anyhow = "1.0.104"
