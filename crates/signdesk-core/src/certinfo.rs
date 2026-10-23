@@ -55,11 +55,52 @@ pub(crate) fn attr(name: &Name, oid: const_oid::ObjectIdentifier) -> Option<Stri
     None
 }
 
+/// Where a certificate stands on a given day.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Validity {
+    /// Starts in `days` whole days (0: later today).
+    NotYetValid { days: i64 },
+    /// `days_left` whole days until it expires (0: within the next 24 hours).
+    Valid { days_left: i64 },
+    /// Expired `days` whole days ago (0: within the last 24 hours).
+    Expired { days: i64 },
+}
+
+/// Whole days from `now` until `t`, rounded down; negative once `t` has passed.
+pub fn days_until(now: chrono::DateTime<chrono::Utc>, t: chrono::DateTime<chrono::Utc>) -> i64 {
+    (t - now).num_seconds().div_euclid(86_400)
+}
+
+/// Validity of a certificate valid from `not_before` to `not_after` at `now`.
+pub fn validity_at(
+    not_before: chrono::DateTime<chrono::Utc>,
+    not_after: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Validity {
+    if now > not_after {
+        Validity::Expired {
+            days: days_until(not_after, now),
+        }
+    } else if now < not_before {
+        Validity::NotYetValid {
+            days: days_until(now, not_before),
+        }
+    } else {
+        Validity::Valid {
+            days_left: days_until(now, not_after),
+        }
+    }
+}
+
 pub(crate) fn to_chrono(t: x509_cert::time::Time) -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::from_timestamp(t.to_unix_duration().as_secs() as i64, 0).unwrap_or_default()
 }
 
 impl CertSummary {
+    pub fn validity(&self) -> Validity {
+        validity_at(self.not_before, self.not_after, chrono::Utc::now())
+    }
+
     pub fn from_der(der: &[u8]) -> Result<Self, Error> {
         let c = Certificate::from_der(der).map_err(|e| Error::Cms(e.to_string()))?;
         let tbs = &c.tbs_certificate;
@@ -122,5 +163,59 @@ impl CertSummary {
             subject_der: tbs.subject.to_der().unwrap_or_default(),
             issuer_der: tbs.issuer.to_der().unwrap_or_default(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+
+    fn at(y: i32, m: u32, d: u32, h: u32) -> chrono::DateTime<Utc> {
+        Utc.with_ymd_and_hms(y, m, d, h, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn days_round_down() {
+        let end = at(2026, 11, 20, 12);
+        assert_eq!(days_until(at(2026, 11, 10, 12), end), 10);
+        assert_eq!(days_until(at(2026, 11, 10, 13), end), 9);
+        assert_eq!(days_until(at(2026, 11, 20, 11), end), 0);
+        assert_eq!(days_until(at(2026, 11, 20, 13), end), -1);
+        assert_eq!(days_until(at(2026, 11, 22, 12), end), -2);
+    }
+
+    #[test]
+    fn validity_states() {
+        let (from, until) = (at(2025, 1, 1, 0), at(2027, 1, 1, 0));
+        assert_eq!(
+            validity_at(from, until, at(2026, 12, 2, 0)),
+            Validity::Valid { days_left: 30 }
+        );
+        assert_eq!(
+            validity_at(from, until, at(2026, 12, 31, 23)),
+            Validity::Valid { days_left: 0 }
+        );
+        assert_eq!(
+            validity_at(from, until, until),
+            Validity::Valid { days_left: 0 }
+        );
+        assert_eq!(
+            validity_at(from, until, at(2027, 1, 1, 1)),
+            Validity::Expired { days: 0 }
+        );
+        assert_eq!(
+            validity_at(from, until, at(2027, 2, 1, 0)),
+            Validity::Expired { days: 31 }
+        );
+        assert_eq!(
+            validity_at(from, until, at(2024, 12, 29, 0)),
+            Validity::NotYetValid { days: 3 }
+        );
+        // Across a leap day.
+        assert_eq!(
+            validity_at(at(2024, 1, 1, 0), at(2024, 3, 1, 0), at(2024, 2, 28, 0)),
+            Validity::Valid { days_left: 2 }
+        );
     }
 }

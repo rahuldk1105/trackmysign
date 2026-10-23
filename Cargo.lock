@@ -4575,6 +4575,7 @@ dependencies = [
 name = "trackmysign-desktop"
 version = "0.1.4"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
  "signdesk-core",

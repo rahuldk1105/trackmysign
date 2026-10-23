@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import * as api from "./api";
-import type { ApiError, BatchProgress, Cert, Driver, ImageChoice, PdfInfo, PinStatus, Signed } from "./api";
+import type { ApiError, BatchProgress, Cert, Driver, ImageChoice, KnownCert, PdfInfo, PinStatus, Signed } from "./api";
+import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, remindAbout, today, type ReminderDays } from "./expiry";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
 import { SignaturesPanel } from "./SignaturesPanel";
 import { useTheme, type ThemePref } from "./theme";
@@ -36,6 +37,10 @@ interface Saved {
   presets: Preset[];
   /** Show the signature image (kept in the app's data folder) in the box. */
   image: ImageChoice;
+  /** Remind this many days before the DSC expires; 0 for never. */
+  expiryReminder: ReminderDays;
+  /** Day the reminder for certificates not plugged in was dismissed. */
+  reminderDismissed: string;
 }
 
 const KEY = "trackmysign.settings.v1";
@@ -57,12 +62,15 @@ const defaults: Saved = {
   ltv: false,
   presets: [],
   image: "off",
+  expiryReminder: 30,
+  reminderDismissed: "",
 };
 
 function loadSaved(): Saved {
   try {
     const s: Saved = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
     if (!Array.isArray(s.presets)) s.presets = [];
+    if (!REMINDER_CHOICES.some((c) => c.value === s.expiryReminder)) s.expiryReminder = defaults.expiryReminder;
     return s;
   } catch {
     return defaults;
@@ -201,6 +209,8 @@ export default function App() {
   const [certs, setCerts] = useState<Cert[] | null>(null);
   const [certError, setCertError] = useState<string | null>(null);
   const [certIndex, setCertIndex] = useState(0);
+  /** Certificates seen before, for the reminder while the token is out. */
+  const [known, setKnown] = useState<KnownCert[]>([]);
   const [drivers, setDrivers] = useState<Driver[] | undefined>(undefined);
   const [doc, setDoc] = useState<Doc | null>(null);
   const [loading, setLoading] = useState(false);
@@ -246,6 +256,10 @@ export default function App() {
       setCerts([]);
       setCertError(api.errorOf(e).message);
     }
+    api
+      .knownCertificates()
+      .then(setKnown)
+      .catch(() => setKnown([]));
   }, []);
 
   useEffect(() => {
@@ -422,6 +436,13 @@ export default function App() {
   const pagesError = typeof selection === "string" ? selection : null;
   const targetPages = Array.isArray(selection) ? selection : null;
   const canSign = !!doc && !!placement && !!cert && !cert.expired && !loading && !pagesError;
+  const certTone = cert ? expiryTone(cert.daysLeft, saved.expiryReminder) : null;
+  // Certificates to renew soon: those on the token, or those seen before while it is out.
+  const reminders =
+    certs && saved.reminderDismissed !== today()
+      ? (certs.length ? certs : known).filter((k) => remindAbout(k.daysLeft, saved.expiryReminder))
+      : [];
+  const dismissReminders = () => update({ reminderDismissed: today() });
   const dialogOpen = step.kind !== "idle" || settingsOpen;
 
   // ---- keyboard
@@ -499,7 +520,7 @@ export default function App() {
         return;
       }
       setStep({ kind: "pin", error: err });
-      if (err.kind === "token") refreshCerts();
+      if (err.kind === "token" || err.kind === "expired") refreshCerts();
     }
   };
 
@@ -529,7 +550,7 @@ export default function App() {
     } catch (e) {
       const err = api.errorOf(e);
       setStep({ kind: "pin", error: err });
-      if (err.kind === "token") refreshCerts();
+      if (err.kind === "token" || err.kind === "expired") refreshCerts();
     }
   };
 
@@ -635,6 +656,13 @@ export default function App() {
                       <AlertIcon size={14} /> {docError}
                     </p>
                   )}
+                  {reminders.length > 0 && (
+                    <div className="reminders">
+                      {reminders.map((k) => (
+                        <ReminderRow key={k.id} cert={k} remind={saved.expiryReminder} onDismiss={dismissReminders} />
+                      ))}
+                    </div>
+                  )}
                   <ul className="facts">
                     <li>
                       <CheckIcon size={13} /> Original file is never modified
@@ -711,21 +739,47 @@ export default function App() {
                       <dt>Issuer</dt>
                       <dd>{cert.issuer}</dd>
                       <dt>Valid until</dt>
-                      <dd className={cert.expired ? "bad" : undefined}>{cert.validUntil}</dd>
+                      <dd className={certTone === "expired" || certTone === "urgent" ? "bad" : undefined}>
+                        {cert.validUntil} <span className="muted">· {daysLeftText(cert.daysLeft)}</span>
+                      </dd>
                       <dt>Driver</dt>
                       <dd title={cert.driverPath}>{cert.driver}</dd>
                     </dl>
-                    {cert.expired && (
+                    {cert.expired ? (
                       <div className="warn-row">
                         <AlertIcon size={14} />
                         <div>
                           <strong>Certificate expired</strong>
-                          <span>Renew your DSC to sign documents.</span>
+                          <span>
+                            It expired on {cert.validUntil}. A signature made with an expired DSC is not valid, so signing is off. Renew your DSC with
+                            your provider.
+                          </span>
+                        </div>
+                      </div>
+                    ) : certTone ? (
+                      <div className={certTone === "soon" ? "warn-row calm" : "warn-row"}>
+                        <AlertIcon size={14} />
+                        <div>
+                          <strong>{expiryText(cert.daysLeft)}</strong>
+                          <span>Renew your DSC with your provider before {cert.validUntil} to keep signing without a break.</span>
+                        </div>
+                      </div>
+                    ) : null}
+                    {cert.startsIn !== null && (
+                      <div className="warn-row calm">
+                        <AlertIcon size={14} />
+                        <div>
+                          <strong>Certificate not yet valid</strong>
+                          <span>
+                            It becomes valid on {cert.validFrom}. Check this computer's date and time; a signature made before then may not be accepted.
+                          </span>
                         </div>
                       </div>
                     )}
                   </>
                 )}
+                {!cert &&
+                  reminders.map((k) => <ReminderRow key={k.id} cert={k} remind={saved.expiryReminder} onDismiss={dismissReminders} />)}
               </section>
 
               <section>
@@ -878,6 +932,24 @@ export default function App() {
 
       <footer className="statusbar">
         <TokenStatus certs={certs} error={certError} onRetry={refreshCerts} />
+        {cert && (certTone || cert.startsIn !== null) ? (
+          <span
+            className={`sb-item expiry ${certTone === "urgent" || certTone === "expired" ? "bad" : "calm"}`}
+            title={`${cert.name} · valid until ${cert.validUntil}`}
+          >
+            {certTone ? expiryText(cert.daysLeft) : "Certificate not yet valid"}
+          </span>
+        ) : (
+          reminders.length > 0 && (
+            <span
+              className={`sb-item expiry ${reminders.some((k) => expiryTone(k.daysLeft, saved.expiryReminder) !== "soon") ? "bad" : "calm"}`}
+              title={reminders.map((k) => `${k.name} · valid until ${k.validUntil}`).join("\n")}
+            >
+              {reminders[0].name}: {expiryText(reminders[0].daysLeft).toLowerCase()}
+              {reminders.length > 1 ? ` (+${reminders.length - 1})` : ""}
+            </span>
+          )
+        )}
         <div className="spacer" />
         <span className="mono sb-item" title={driverPath}>
           {drivers === undefined ? "" : driverPath ? baseName(driverPath) : "No PKCS#11 driver found"}
@@ -956,6 +1028,29 @@ export default function App() {
 }
 
 // -------------------------------------------------------------- components
+
+/** A certificate seen before, not plugged in now, that is about to expire or has. */
+function ReminderRow({ cert, remind, onDismiss }: { cert: KnownCert; remind: ReminderDays; onDismiss: () => void }) {
+  const tone = expiryTone(cert.daysLeft, remind);
+  return (
+    <div className={tone === "soon" ? "warn-row calm" : "warn-row"}>
+      <AlertIcon size={14} />
+      <div>
+        <strong>
+          {cert.name}: {expiryText(cert.daysLeft).toLowerCase()}
+        </strong>
+        <span>
+          {tone === "expired"
+            ? `Your DSC from ${cert.issuer} expired on ${cert.validUntil}. Signatures made with it are not valid; renew it with your provider.`
+            : `Your DSC from ${cert.issuer} is valid until ${cert.validUntil}. Renew it with your provider to keep signing without a break.`}
+        </span>
+        <button className="link" onClick={onDismiss}>
+          Dismiss for today
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function TokenStatus({ certs, error, onRetry }: { certs: Cert[] | null; error: string | null; onRetry: () => void }) {
   if (certs === null)
@@ -1244,6 +1339,28 @@ function Settings(props: {
           </section>
 
           <section>
+            <h3>Expiry reminder</h3>
+            <div className="segmented" role="radiogroup" aria-label="Expiry reminder">
+              {REMINDER_CHOICES.map((c) => (
+                <button
+                  key={c.value}
+                  role="radio"
+                  aria-checked={props.saved.expiryReminder === c.value}
+                  className={props.saved.expiryReminder === c.value ? "on" : ""}
+                  onClick={() => props.update({ expiryReminder: c.value, reminderDismissed: "" })}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <p className="muted small">
+              {props.saved.expiryReminder
+                ? `Reminds you to renew your DSC ${props.saved.expiryReminder} days before it expires, also when the token is not plugged in.`
+                : "No reminder. An expired certificate still cannot be used to sign."}
+            </p>
+          </section>
+
+          <section>
             <h3>DSC token</h3>
             <dl className="kv">
               <dt>Status</dt>
@@ -1254,6 +1371,10 @@ function Settings(props: {
                 <>
                   <dt>Issuer</dt>
                   <dd>{cert.issuer}</dd>
+                  <dt>Valid until</dt>
+                  <dd className={cert.expired ? "bad" : undefined}>
+                    {cert.validUntil} · {daysLeftText(cert.daysLeft)}
+                  </dd>
                 </>
               )}
               {cert && (
