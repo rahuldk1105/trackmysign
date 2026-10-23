@@ -33,7 +33,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
-      - run: cargo build -p signdesk
+      - run: cargo build -p trackmysign
       - name: End-to-end signing tests
         run: sudo -E env "PATH=$PATH" tests/run.sh
 
@@ -45,18 +45,18 @@ jobs:
         include:
           - name: Windows
             os: windows-latest
-            bin: signdesk.exe
-            artifact: signdesk-windows-x64
+            bin: trackmysign.exe
+            artifact: trackmysign-windows-x64.exe
           - name: macOS
             os: macos-latest
-            bin: signdesk
-            artifact: signdesk-macos-arm64
+            bin: trackmysign
+            artifact: trackmysign-macos-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p signdesk
+      - run: cargo build --release -p trackmysign
       - uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
@@ -69,11 +69,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp "target/release/${{ matrix.bin }}" "${{ matrix.artifact }}-${{ matrix.bin }}"
+          cp "target/release/${{ matrix.bin }}" "${{ matrix.artifact }}"
           gh release view test-build >/dev/null 2>&1 || \
             gh release create test-build --prerelease --target "$GITHUB_SHA" \
-              --title "SignDesk test build" --notes "Latest build from ${GITHUB_REF_NAME}. For testing only."
-          gh release upload test-build "${{ matrix.artifact }}-${{ matrix.bin }}" --clobber
+              --title "TrackMySign test build" --notes "Latest build from ${GITHUB_REF_NAME}. For testing only."
+          gh release upload test-build "${{ matrix.artifact }}" --clobber
 
   desktop:
     name: Desktop app ${{ matrix.name }}
@@ -83,24 +83,42 @@ jobs:
         include:
           - name: Windows
             os: windows-latest
-            bundles: nsis
+            rust-targets: ""
+            build-args: --bundles nsis
             file: target/release/bundle/nsis/*.exe
-            asset: SignDesk-Setup-windows-x64.exe
+            assets: TrackMySign-Setup-windows-x64.exe
           - name: macOS
             os: macos-latest
-            bundles: dmg
-            file: target/release/bundle/dmg/*.dmg
-            asset: SignDesk-macos-arm64.dmg
+            # One dmg for Apple Silicon and Intel Macs. Intel also matters on
+            # Apple Silicon: a token driver shipped only as an x86_64 .dylib
+            # loads if the app is started under Rosetta.
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            build-args: --bundles dmg --target universal-apple-darwin
+            file: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            # The arm64 name is kept so existing download links keep working.
+            assets: TrackMySign-macos-universal.dmg TrackMySign-macos-arm64.dmg
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # Developer ID signing + notarization, only once the secrets exist.
-      - name: Enable Apple signing
+      - name: Prepare config overrides
+        shell: bash
+        run: |
+          # Forward slashes work for bash, PowerShell and the Tauri CLI alike.
+          dir="${RUNNER_TEMP//\\//}/tauri-config"
+          mkdir -p "$dir"
+          echo "TAURI_CONFIG_DIR=$dir" >> "$GITHUB_ENV"
+
+      # ---- macOS: Developer ID signing + notarization, only once the secrets exist.
+      # Tauri reads these exact variable names. APPLE_PASSWORD is an
+      # app-specific password from account.apple.com, not the Apple ID password.
+      - name: Configure macOS signing
         if: runner.os == 'macOS'
         shell: bash
         env:
@@ -113,25 +131,119 @@ jobs:
         run: |
           if [ -n "$APPLE_CERTIFICATE" ]; then
             for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+              if [ -z "$(printenv "$v")" ]; then
+                echo "::warning::Secret $v is not set"
+                continue
+              fi
               { echo "$v<<__EOF__"; printenv "$v"; echo "__EOF__"; } >> "$GITHUB_ENV"
             done
-            echo "Apple signing enabled"
+            echo "Apple signing enabled (hardened runtime + entitlements.plist)"
           else
-            echo "No Apple secrets set: building an unsigned app"
+            # Ad-hoc signature: without one, macOS on Apple Silicon reports the
+            # downloaded app as "damaged" instead of offering "Open Anyway".
+            echo '{"bundle":{"macOS":{"signingIdentity":"-","hardenedRuntime":false}}}' \
+              > "$TAURI_CONFIG_DIR/20-macos-adhoc.json"
+            echo "No Apple secrets set: building an ad-hoc signed, un-notarized app"
           fi
+
+      # Retina dmg background: a two-resolution TIFF that Finder understands.
+      - name: Prepare dmg background
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          bg=apps/desktop/src-tauri/icons/installer
+          tiffutil -cathidpicheck "$bg/dmg-background.png" "$bg/dmg-background@2x.png" \
+            -out "$RUNNER_TEMP/dmg-background.tiff"
+          printf '{"bundle":{"macOS":{"dmg":{"background":"%s"}}}}\n' "$RUNNER_TEMP/dmg-background.tiff" \
+            > "$TAURI_CONFIG_DIR/10-dmg-background.json"
+
+      # ---- Windows: optional Authenticode signing. Option A, Azure Trusted Signing
+      # (Microsoft's "Artifact Signing"), used when all six AZURE_* secrets exist.
+      - name: Configure Windows signing (Azure Trusted Signing)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_CERTIFICATE_PROFILE: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+        run: |
+          if [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_CLIENT_SECRET" ] || [ -z "$AZURE_TENANT_ID" ] \
+             || [ -z "$AZURE_SIGNING_ENDPOINT" ] || [ -z "$AZURE_SIGNING_ACCOUNT" ] || [ -z "$AZURE_CERTIFICATE_PROFILE" ]; then
+            echo "Azure Trusted Signing not configured"
+            exit 0
+          fi
+          cargo install trusted-signing-cli --locked
+          for v in AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID; do
+            { echo "$v<<__EOF__"; printenv "$v"; echo "__EOF__"; } >> "$GITHUB_ENV"
+          done
+          jq -n --arg e "$AZURE_SIGNING_ENDPOINT" --arg a "$AZURE_SIGNING_ACCOUNT" --arg c "$AZURE_CERTIFICATE_PROFILE" \
+            '{bundle:{windows:{signCommand:{cmd:"trusted-signing-cli",args:["-e",$e,"-a",$a,"-c",$c,"-d","TrackMySign","%1"]}}}}' \
+            > "$TAURI_CONFIG_DIR/30-windows-sign.json"
+          echo "WINDOWS_SIGNED=1" >> "$GITHUB_ENV"
+          echo "Windows signing enabled (Azure Trusted Signing)"
+
+      # Option B, a code-signing certificate exported as a .pfx file
+      # (WINDOWS_CERTIFICATE = base64 of the .pfx). Used only if option A is not set.
+      - name: Configure Windows signing (.pfx certificate)
+        if: runner.os == 'Windows' && env.WINDOWS_SIGNED != '1'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            Write-Output "No Windows signing secrets set: building an unsigned installer"
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "signing-cert.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $pw = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+          Remove-Item $pfx
+          $cfg = @{ bundle = @{ windows = @{
+            certificateThumbprint = $cert.Thumbprint
+            digestAlgorithm = "sha256"
+            timestampUrl = "http://timestamp.digicert.com"
+            tsp = $true
+          } } } | ConvertTo-Json -Depth 5
+          Set-Content -Path (Join-Path $env:TAURI_CONFIG_DIR "30-windows-sign.json") -Value $cfg -Encoding utf8NoBOM
+          Write-Output "Windows signing enabled (certificate $($cert.Subject))"
+
       - name: Build installer
         working-directory: apps/desktop
+        shell: bash
+        env:
+          # Tauri skips the Finder layout step (dmg background, icon positions)
+          # when CI is set; the macOS runners can run it.
+          TAURI_BUNDLER_DMG_IGNORE_CI: "true"
         run: |
           npm ci
-          npx tauri build --bundles ${{ matrix.bundles }}
+          args=()
+          for f in "$TAURI_CONFIG_DIR"/*.json; do
+            [ -e "$f" ] && args+=(--config "$f")
+          done
+          if npx tauri build ${{ matrix.build-args }} "${args[@]}"; then
+            exit 0
+          fi
+          if [ "$RUNNER_OS" != "macOS" ]; then
+            exit 1
+          fi
+          # Finder automation occasionally times out on hosted runners.
+          echo "::warning::dmg layout step failed; retrying without the custom Finder layout"
+          TAURI_BUNDLER_DMG_IGNORE_CI=false npx tauri build ${{ matrix.build-args }} "${args[@]}"
       - name: Publish to the "test-build" pre-release
         if: github.event_name != 'pull_request'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp ${{ matrix.file }} "${{ matrix.asset }}"
           gh release view test-build >/dev/null 2>&1 || \
             gh release create test-build --prerelease --target "$GITHUB_SHA" \
-              --title "SignDesk test build" --notes "Latest build from ${GITHUB_REF_NAME}. For testing only."
-          gh release upload test-build "${{ matrix.asset }}" --clobber
+              --title "TrackMySign test build" --notes "Latest build from ${GITHUB_REF_NAME}. For testing only."
+          for asset in ${{ matrix.assets }}; do
+            cp ${{ matrix.file }} "$asset"
+            gh release upload test-build "$asset" --clobber
+          done
