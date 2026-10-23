@@ -24,6 +24,7 @@ use x509_cert::ext::pkix::{BasicConstraints, SubjectKeyIdentifier};
 use x509_cert::spki::SubjectPublicKeyInfoOwned;
 use x509_cert::time::Time;
 
+use crate::pdf::docmdp::{self, DocMdp};
 use crate::pdf::fields::text;
 use crate::pdf::object::{Dict, Obj, is_ws};
 use crate::pdf::reader::{Document, XrefEntry, find};
@@ -113,6 +114,8 @@ pub struct SignatureReport {
     /// Incremental updates appended after the signed revision.
     pub later_revisions: usize,
     pub changes: Changes,
+    /// Set for a certification signature: the changes it allows afterwards.
+    pub certification: Option<DocMdp>,
 }
 
 impl SignatureReport {
@@ -127,12 +130,34 @@ impl SignatureReport {
 
 /// Checks every signed signature field, in signing order.
 pub fn verify(input: &[u8]) -> Result<Vec<SignatureReport>, Error> {
-    let doc = Document::parse(input)?;
+    verify_with_password(input, None)
+}
+
+/// [`verify`] for a password-protected PDF.
+pub fn verify_with_password(
+    input: &[u8],
+    password: Option<&str>,
+) -> Result<Vec<SignatureReport>, Error> {
+    let doc = Document::open(input, password)?;
     let mut out: Vec<SignatureReport> = signature_fields(&doc)?
         .into_iter()
         .map(|(field, sig)| check(input, &doc, field, &sig))
         .collect();
     out.sort_by_key(|r| r.signed_len);
+    // Form filling and comments are not told apart, so only "no changes"
+    // is held to: no later signature and no form or content change.
+    let ends: Vec<usize> = out.iter().map(|r| r.signed_len).collect();
+    for r in &mut out {
+        if r.certification == Some(DocMdp::NoChanges)
+            && r.status == Status::Valid
+            && (matches!(r.changes, Changes::FormOrAnnotations | Changes::Content)
+                || ends.iter().any(|&e| e > r.signed_len))
+        {
+            r.notes.push(
+                "The document was changed after it was certified with no changes allowed.".into(),
+            );
+        }
+    }
     Ok(out)
 }
 
@@ -278,6 +303,7 @@ fn check(data: &[u8], doc: &Document, field: String, sig: &Dict) -> SignatureRep
         file_len: data.len(),
         later_revisions: 0,
         changes: Changes::Unknown,
+        certification: docmdp::of_signature(doc, sig),
     };
     match check_signature(data, sig, &mut r) {
         Ok(()) => r.status = Status::Valid,
@@ -864,7 +890,8 @@ fn later_changes(data: &[u8], doc: &Document, end: usize) -> (usize, Changes) {
         revisions += 1;
         i += p + 5;
     }
-    let changes = Document::parse(&data[..end])
+    let changes = doc
+        .revision(&data[..end])
         .ok()
         .and_then(|rev| compare(doc, &rev))
         .unwrap_or(Changes::Unknown);
@@ -1482,6 +1509,107 @@ mod tests {
         }
         assert!(sign("/Ff 64 /DigestMethod [/SHA256 /SHA512]").is_ok());
         assert!(sign("/Ff 8 /Reasons [(Approved)]").is_ok());
+    }
+
+    #[test]
+    fn certifying_into_a_locked_field() {
+        let req = SignRequest {
+            field: Some("approvals.director".into()),
+            certify: Some(DocMdp::FormFilling),
+            time: Some(DateTime::parse_from_rfc3339(LATER).unwrap()),
+            ..Default::default()
+        };
+        let pdf = sign_pdf(&empty_field_pdf(), &req, &mut SoftSigner::rsa()).unwrap();
+        let r = &verify(&pdf).unwrap()[0];
+        assert_eq!(r.status, Status::Valid, "{:?}", r.notes);
+        assert_eq!(r.field, "approvals.director");
+        assert_eq!(r.certification, Some(DocMdp::FormFilling));
+        assert_eq!(
+            crate::inspect(&pdf).unwrap().certified,
+            Some(DocMdp::FormFilling)
+        );
+        // DocMDP and the field's FieldMDP side by side.
+        let doc = Document::parse(&pdf).unwrap();
+        let Some(Obj::Ref(sig, _)) = doc.get(6).unwrap().as_dict().unwrap().get("V").cloned()
+        else {
+            panic!("field has no /V");
+        };
+        let sig = doc.get(sig).unwrap();
+        let methods: Vec<Obj> = sig
+            .as_dict()
+            .unwrap()
+            .get("Reference")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                r.as_dict()
+                    .unwrap()
+                    .get("TransformMethod")
+                    .cloned()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(methods, [Obj::name("DocMDP"), Obj::name("FieldMDP")]);
+    }
+
+    fn certified(pdf: &[u8], level: DocMdp) -> Result<Vec<u8>, Error> {
+        let req = SignRequest {
+            certify: Some(level),
+            time: Some(DateTime::parse_from_rfc3339(LATER).unwrap()),
+            ..Default::default()
+        };
+        sign_pdf(pdf, &req, &mut SoftSigner::rsa())
+    }
+
+    #[test]
+    fn certification_is_reported_and_allows_approvals() {
+        let cert = certified(&plain_pdf(), DocMdp::FormFilling).unwrap();
+        assert_eq!(
+            crate::inspect(&cert).unwrap().certified,
+            Some(DocMdp::FormFilling)
+        );
+        let r = &verify(&cert).unwrap()[0];
+        assert_eq!(r.status, Status::Valid, "{:?}", r.notes);
+        assert_eq!(r.certification, Some(DocMdp::FormFilling));
+        let twice = signed(&cert, &mut SoftSigner::ec(), LATER);
+        let r = verify(&twice).unwrap();
+        assert_eq!(r[0].certification, Some(DocMdp::FormFilling));
+        assert_eq!(r[0].changes, Changes::Signatures);
+        assert!(r[0].notes.is_empty(), "{:?}", r[0].notes);
+        assert_eq!(r[1].certification, None);
+        assert_eq!(r[1].status, Status::Valid);
+    }
+
+    #[test]
+    fn no_changes_certification_refuses_signatures() {
+        let cert = certified(&plain_pdf(), DocMdp::NoChanges).unwrap();
+        assert_eq!(
+            verify(&cert).unwrap()[0].certification,
+            Some(DocMdp::NoChanges)
+        );
+        let req = SignRequest::default();
+        let e = sign_pdf(&cert, &req, &mut SoftSigner::ec()).unwrap_err();
+        assert!(matches!(e, Error::NotPermitted(_)), "{e}");
+        // A change made anyway is pointed out.
+        let forced = append_update(&cert, &[(4, b"<< /Length 0 >>\nstream\n\nendstream")]);
+        let r = &verify(&forced).unwrap()[0];
+        assert!(
+            r.notes.iter().any(|n| n.contains("certified")),
+            "{:?}",
+            r.notes
+        );
+    }
+
+    #[test]
+    fn only_the_first_signature_certifies() {
+        let once = signed(&plain_pdf(), &mut SoftSigner::rsa(), LATER);
+        let e = certified(&once, DocMdp::Annotations).unwrap_err();
+        assert!(matches!(e, Error::NotPermitted(_)), "{e}");
+        let cert = certified(&plain_pdf(), DocMdp::Annotations).unwrap();
+        assert!(certified(&cert, DocMdp::Annotations).is_err());
+        assert!(crate::check_permitted(&cert, None).is_ok());
     }
 
     #[test]

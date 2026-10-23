@@ -1,14 +1,17 @@
 //! `trackmysign` command-line tool — the test-phase front end for the core library.
 
-use std::path::PathBuf;
+use std::io::IsTerminal;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
+use signdesk_core::certinfo::Validity;
 use signdesk_core::token::{Driver, TokenCert, Tokens, driver_name};
 use signdesk_core::verify::{Changes, SignatureReport, Status, Trust};
 use signdesk_core::{
-    DEFAULT_TSA_URL, DisplayRect, Error, ImagePosition, SignRequest, StampImage, inspect,
-    parse_pages, sign_pdf, signed_path, verify,
+    DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, ImagePosition, PdfError, PdfInfo, SignRequest,
+    StampImage, check_permitted_with_password, inspect_with_password, parse_pages, sign_pdf,
+    signed_path, verify_with_password,
 };
 
 #[derive(Parser)]
@@ -18,6 +21,11 @@ struct Cli {
     /// or the ones listed in TRACKMYSIGN_PKCS11_MODULE.
     #[arg(long, global = true)]
     module: Option<PathBuf>,
+    /// Password of a protected PDF: the user (open) password, or the owner
+    /// (permissions) password when the PDF does not allow signing. Asked
+    /// for when needed and not given.
+    #[arg(long, global = true, env = "TRACKMYSIGN_PDF_PASSWORD", hide_env = true)]
+    password: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -77,6 +85,14 @@ enum Cmd {
         /// Embed revocation info (OCSP/CRL) for long-term validation (needs the internet).
         #[arg(long)]
         ltv: bool,
+        /// Sign even if the certificate has expired. The signature will not be
+        /// accepted as valid.
+        #[arg(long)]
+        allow_expired: bool,
+        /// Certify the document (first signature only) and set what may change
+        /// afterwards: nothing, form filling and signing, or also comments.
+        #[arg(long, value_enum, value_name = "ALLOWED")]
+        certify: Option<Certify>,
         /// PIN (for scripted tests only; normally you are prompted).
         #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
         pin: Option<String>,
@@ -92,6 +108,31 @@ enum Corner {
     BottomLeft,
     TopRight,
     TopLeft,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Certify {
+    None,
+    Forms,
+    Annotations,
+}
+
+impl From<Certify> for DocMdp {
+    fn from(c: Certify) -> Self {
+        match c {
+            Certify::None => DocMdp::NoChanges,
+            Certify::Forms => DocMdp::FormFilling,
+            Certify::Annotations => DocMdp::Annotations,
+        }
+    }
+}
+
+fn describe_certification(p: DocMdp) -> &'static str {
+    match p {
+        DocMdp::NoChanges => "no changes allowed",
+        DocMdp::FormFilling => "form filling and signing allowed",
+        DocMdp::Annotations => "form filling, signing and comments allowed",
+    }
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -123,11 +164,50 @@ struct Job {
     page: usize,
     pages: Vec<usize>,
     rect: Option<DisplayRect>,
+    password: Option<String>,
 }
 
-/// Reads `pdf` and works out the page index, the extra pages and the box for it.
+/// Runs `f` on a PDF, asking for its password on the terminal when it has
+/// one and --password was not given. Returns the password that worked.
+fn with_password<T>(
+    pdf: &Path,
+    given: Option<&str>,
+    f: impl Fn(Option<&str>) -> Result<T, Error>,
+) -> Result<(T, Option<String>)> {
+    match f(given) {
+        Err(Error::Pdf(PdfError::PasswordRequired)) if std::io::stdin().is_terminal() => {
+            let pw = rpassword::prompt_password(format!("Password for {}: ", pdf.display()))?;
+            Ok((f(Some(&pw))?, Some(pw)))
+        }
+        Err(e @ Error::Pdf(PdfError::PasswordRequired)) => bail!("{e} (--password)"),
+        r => Ok((r?, given.map(str::to_string))),
+    }
+}
+
+/// A PDF read, unlocked and checked that it may be signed.
+struct Opened {
+    data: Vec<u8>,
+    info: PdfInfo,
+    password: Option<String>,
+}
+
+fn open_for_signing(pdf: &Path, password: Option<&str>, certify: Option<DocMdp>) -> Result<Opened> {
+    let data = std::fs::read(pdf).with_context(|| format!("reading {}", pdf.display()))?;
+    let (info, password) = with_password(pdf, password, |pw| inspect_with_password(&data, pw))?;
+    if !info.signing_allowed {
+        bail!("{} (--password)", PdfError::SigningNotAllowed);
+    }
+    check_permitted_with_password(&data, password.as_deref(), certify)?;
+    Ok(Opened {
+        data,
+        info,
+        password,
+    })
+}
+
+/// Works out the page index, the extra pages and the box for an opened PDF.
 fn read_and_place(
-    pdf: &PathBuf,
+    opened: Opened,
     page: Option<usize>,
     pages: Option<&str>,
     position: Corner,
@@ -135,8 +215,11 @@ fn read_and_place(
     invisible: bool,
     field: Option<&str>,
 ) -> Result<Job> {
-    let data = std::fs::read(pdf).with_context(|| format!("reading {}", pdf.display()))?;
-    let info = inspect(&data)?;
+    let Opened {
+        data,
+        info,
+        password,
+    } = opened;
     if let Some(name) = field {
         if !info.empty_fields.iter().any(|f| f.name == name) {
             let names: Vec<&str> = info.empty_fields.iter().map(|f| f.name.as_str()).collect();
@@ -153,6 +236,7 @@ fn read_and_place(
             page: 0,
             pages: Vec::new(),
             rect: None,
+            password,
         });
     }
     let pages = match pages {
@@ -188,6 +272,7 @@ fn read_and_place(
         page: page_idx,
         pages,
         rect,
+        password,
     })
 }
 
@@ -201,14 +286,37 @@ fn open_tokens(module: &Option<PathBuf>) -> Result<Tokens> {
     })
 }
 
+fn days(n: i64) -> String {
+    if n == 1 {
+        "1 day".into()
+    } else {
+        format!("{n} days")
+    }
+}
+
+/// "expires in 12 days", "EXPIRED 3 days ago", "NOT YET VALID (starts in 2 days)".
+fn validity_text(v: Validity) -> String {
+    match v {
+        Validity::Valid { days_left: 0 } => "expires in less than a day".into(),
+        Validity::Valid { days_left } => format!("expires in {}", days(days_left)),
+        Validity::Expired { days: 0 } => "EXPIRED today".into(),
+        Validity::Expired { days: n } => format!("EXPIRED {} ago", days(n)),
+        Validity::NotYetValid { days: 0 } => "NOT YET VALID (starts later today)".into(),
+        Validity::NotYetValid { days: n } => format!("NOT YET VALID (starts in {})", days(n)),
+    }
+}
+
 fn describe(i: usize, c: &TokenCert) -> String {
     let s = &c.summary;
+    let validity = s.validity();
     let mut flags = Vec::new();
     if !s.can_sign {
         flags.push("encryption only");
     }
-    if s.expired {
-        flags.push("EXPIRED");
+    match validity {
+        Validity::Expired { .. } => flags.push("EXPIRED"),
+        Validity::NotYetValid { .. } => flags.push("NOT YET VALID"),
+        Validity::Valid { .. } => {}
     }
     let flags = if flags.is_empty() {
         String::new()
@@ -216,7 +324,7 @@ fn describe(i: usize, c: &TokenCert) -> String {
         format!("  [{}]", flags.join(", "))
     };
     format!(
-        "{i}. {}{}\n   Issued by: {}\n   Valid until: {}\n   Token: {}\n   Driver: {}{}",
+        "{i}. {}{}\n   Issued by: {}\n   Valid until: {} ({})\n   Token: {}\n   Driver: {}{}",
         s.subject_cn,
         s.organization
             .as_ref()
@@ -224,6 +332,7 @@ fn describe(i: usize, c: &TokenCert) -> String {
             .unwrap_or_default(),
         s.issuer_cn,
         s.not_after.format("%d %b %Y"),
+        validity_text(validity),
         c.token_label,
         c.driver.name,
         flags
@@ -276,6 +385,12 @@ fn describe_signature(r: &SignatureReport) -> String {
     }
     if r.timestamped {
         line("Timestamp", "attached (not verified)".into());
+    }
+    if let Some(p) = r.certification {
+        line(
+            "Certifies",
+            format!("level {}, {}", p.level(), describe_certification(p)),
+        );
     }
     if let Some(v) = &r.reason {
         line("Reason", v.clone());
@@ -359,7 +474,9 @@ fn run() -> Result<()> {
         }
         Cmd::Info { pdf } => {
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
-            let info = inspect(&data)?;
+            let (info, _) = with_password(&pdf, cli.password.as_deref(), |pw| {
+                inspect_with_password(&data, pw)
+            })?;
             println!("Pages: {}", info.pages.len());
             for (i, p) in info.pages.iter().enumerate() {
                 println!(
@@ -393,6 +510,23 @@ fn run() -> Result<()> {
                 };
                 println!("  {}: {place}", f.name);
             }
+            if let Some(p) = info.certified {
+                println!(
+                    "Certified: level {}, {}",
+                    p.level(),
+                    describe_certification(p)
+                );
+            }
+            if info.encrypted {
+                println!(
+                    "Password-protected{}",
+                    if info.signing_allowed {
+                        ""
+                    } else {
+                        "; signing not allowed without the owner password"
+                    }
+                );
+            }
         }
         Cmd::Sign {
             pdfs,
@@ -410,8 +544,11 @@ fn run() -> Result<()> {
             cert,
             timestamp,
             ltv,
+            allow_expired,
+            certify,
             pin,
         } => {
+            let certify = certify.map(DocMdp::from);
             if out.is_some() && pdfs.len() > 1 {
                 bail!("--out works with a single PDF; signed copies go next to each original");
             }
@@ -439,15 +576,18 @@ fn run() -> Result<()> {
             // Read and place everything first, so problems show before the PIN prompt.
             let mut jobs = Vec::new();
             for pdf in &pdfs {
-                match read_and_place(
-                    pdf,
-                    page,
-                    pages.as_deref(),
-                    position,
-                    rect,
-                    invisible,
-                    field.as_deref(),
-                ) {
+                let password = cli.password.as_deref();
+                match open_for_signing(pdf, password, certify).and_then(|opened| {
+                    read_and_place(
+                        opened,
+                        page,
+                        pages.as_deref(),
+                        position,
+                        rect,
+                        invisible,
+                        field.as_deref(),
+                    )
+                }) {
                     Ok(job) => jobs.push((pdf, job)),
                     Err(e) => report(pdf, e)?,
                 }
@@ -463,6 +603,23 @@ fn run() -> Result<()> {
                 .with_context(|| format!("no certificate #{cert}; run `trackmysign certs`"))?;
             if !chosen.summary.can_sign {
                 bail!("certificate #{cert} is for encryption only; pick the signing certificate");
+            }
+            match chosen.summary.validity() {
+                v @ Validity::Expired { .. } if !allow_expired => bail!(
+                    "certificate #{cert} {} (valid until {}). A signature made with it is not \
+                     valid; renew your DSC. Use --allow-expired to sign anyway.",
+                    validity_text(v).to_lowercase(),
+                    chosen.summary.not_after.format("%d %b %Y")
+                ),
+                Validity::Expired { .. } => eprintln!(
+                    "Warning: certificate #{cert} has expired; the signature will not be valid."
+                ),
+                v @ Validity::NotYetValid { .. } => eprintln!(
+                    "Warning: certificate #{cert} is {}; check this computer's clock. \
+                     The signature may not be accepted as valid.",
+                    validity_text(v).to_lowercase()
+                ),
+                Validity::Valid { .. } => {}
             }
             println!("Signing as: {}", chosen.summary.subject_cn);
             let pin = match pin {
@@ -485,10 +642,14 @@ fn run() -> Result<()> {
                     timestamp: timestamp.clone(),
                     ltv,
                     field: field.clone(),
+                    password: job.password,
+                    certify,
                     ..Default::default()
                 };
                 let out = out.clone().unwrap_or_else(|| signed_path(pdf));
                 let done = match sign_pdf(&job.data, &req, &mut signer) {
+                    // Stop the batch: another attempt could lock the token.
+                    Err(e @ (Error::WrongPin { .. } | Error::PinLocked)) => return Err(e.into()),
                     Err(e @ Error::Timestamp(_)) => Err(anyhow::anyhow!(
                         "{e}\nNothing was saved. Run again without --timestamp to sign without one."
                     )),
@@ -512,7 +673,9 @@ fn run() -> Result<()> {
         }
         Cmd::Verify { pdf } => {
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
-            let reports = verify(&data)?;
+            let (reports, _) = with_password(&pdf, cli.password.as_deref(), |pw| {
+                verify_with_password(&data, pw)
+            })?;
             if reports.is_empty() {
                 println!("No signatures found.");
             }
@@ -528,4 +691,26 @@ fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validity_wording() {
+        let t = |v| validity_text(v);
+        assert_eq!(t(Validity::Valid { days_left: 12 }), "expires in 12 days");
+        assert_eq!(t(Validity::Valid { days_left: 1 }), "expires in 1 day");
+        assert_eq!(
+            t(Validity::Valid { days_left: 0 }),
+            "expires in less than a day"
+        );
+        assert_eq!(t(Validity::Expired { days: 3 }), "EXPIRED 3 days ago");
+        assert_eq!(t(Validity::Expired { days: 0 }), "EXPIRED today");
+        assert_eq!(
+            t(Validity::NotYetValid { days: 2 }),
+            "NOT YET VALID (starts in 2 days)"
+        );
+    }
 }

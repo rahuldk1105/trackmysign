@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest something TrackMySign should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task, not the solution. For example "sign 40 board resolutions at month end".
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you'd like it to work. Mention other tools if they do it well.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Desktop app
+        - Command-line tool
+        - Website
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, sample layouts, filing requirements (MCA, GST, Income Tax...).

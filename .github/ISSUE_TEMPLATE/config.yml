@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/rahuldk1105/trackmysign/security/advisories/new
+    about: Report security problems privately, not as a public issue.
+  - name: Download and help
+    url: https://sign.rahuldk.in
+    about: Downloads, supported tokens and answers to common questions.

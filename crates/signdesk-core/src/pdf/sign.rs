@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, FixedOffset};
 
 use super::appearance::{self, Face, ImageSlot, Line};
+use super::docmdp::DocMdp;
 use super::object::{Dict, Obj, write_obj};
 use super::reader::{Document, PageInfo, PdfError, Result, XrefEntry};
 use crate::image::{ImagePosition, StampImage};
@@ -34,6 +35,8 @@ pub struct SignatureFields {
     pub image_position: ImagePosition,
     /// A timestamp will be added (some fields require one).
     pub timestamp: bool,
+    /// Make this the certification signature, allowing only these changes.
+    pub certify: Option<DocMdp>,
 }
 
 #[derive(Debug, Clone)]
@@ -314,7 +317,23 @@ pub fn prepare(
     fields: &SignatureFields,
     reserved: usize,
 ) -> Result<Prepared> {
-    let doc = Document::parse(input)?;
+    prepare_with_password(input, None, placement, fields, reserved)
+}
+
+/// [`prepare`] for a password-protected PDF. The update is encrypted with
+/// the document's key, except the signature's `/Contents`, which the
+/// standard keeps in the clear.
+pub fn prepare_with_password(
+    input: &[u8],
+    password: Option<&str>,
+    placement: &Placement,
+    fields: &SignatureFields,
+    reserved: usize,
+) -> Result<Prepared> {
+    let doc = Document::open(input, password)?;
+    if doc.crypt.as_ref().is_some_and(|c| !c.may_sign()) {
+        return Err(PdfError::SigningNotAllowed);
+    }
     let pages = doc.pages()?;
     if let Some(name) = &placement.field {
         return prepare_field(&doc, &pages, name, fields, reserved);
@@ -433,6 +452,9 @@ pub fn prepare(
         af.set("SigFlags", Obj::int(flags | 3));
         Ok(())
     };
+    // The catalog itself changes only for an inline /AcroForm, a new one,
+    // or a certification.
+    let mut catalog_changed = false;
     match catalog.get("AcroForm").cloned() {
         Some(Obj::Ref(afid, afgen)) if doc.get(afid)?.as_dict().is_some() => {
             let mut af = doc.get(afid)?.as_dict().cloned().unwrap();
@@ -442,7 +464,7 @@ pub fn prepare(
         Some(Obj::Dict(mut af)) => {
             add_field(&mut af, &mut objs)?;
             catalog.set("AcroForm", Obj::Dict(af));
-            objs.insert(cat_id, (cat_gen, Obj::Dict(catalog)));
+            catalog_changed = true;
         }
         _ => {
             let afid = take(&mut next);
@@ -450,8 +472,16 @@ pub fn prepare(
             add_field(&mut af, &mut objs)?;
             objs.insert(afid, (0, Obj::Dict(af)));
             catalog.set("AcroForm", Obj::Ref(afid, 0));
-            objs.insert(cat_id, (cat_gen, Obj::Dict(catalog)));
+            catalog_changed = true;
         }
+    }
+    // --- certification ----------------------------------------------------
+    if fields.certify.is_some() {
+        certify_catalog(&doc, &mut catalog, sig_id)?;
+        catalog_changed = true;
+    }
+    if catalog_changed {
+        objs.insert(cat_id, (cat_gen, Obj::Dict(catalog)));
     }
 
     let sig = sig_dict(fields, "adbe.pkcs7.detached", None);
@@ -548,6 +578,7 @@ fn prepare_field(
 
     // --- AcroForm /SigFlags ----------------------------------------------
     let mut catalog = doc.catalog()?;
+    let mut catalog_changed = false;
     let with_flags = |mut af: Dict| {
         let flags = af.get("SigFlags").and_then(Obj::as_i64).unwrap_or(0);
         (flags & 3 != 3).then(|| {
@@ -564,18 +595,38 @@ fn prepare_field(
         Some(Obj::Dict(af)) => {
             if let Some(af) = with_flags(af) {
                 catalog.set("AcroForm", Obj::Dict(af));
-                objs.insert(cat_id, (cat_gen, Obj::Dict(catalog)));
+                catalog_changed = true;
             }
         }
         _ => {}
+    }
+    if fields.certify.is_some() {
+        certify_catalog(doc, &mut catalog, sig_id)?;
+        catalog_changed = true;
+    }
+    if catalog_changed {
+        objs.insert(cat_id, (cat_gen, Obj::Dict(catalog)));
     }
 
     let sig = sig_dict(fields, format.sub_filter, reference);
     write_update(doc, sig_id, sig, objs, next, reserved)
 }
 
+/// Points the catalog's `/Perms /DocMDP` at the signature. `/Perms` keeps
+/// any other entries (such as usage rights) and gets an inline copy if it
+/// was indirect.
+fn certify_catalog(doc: &Document, catalog: &mut Dict, sig_id: u32) -> Result<()> {
+    let mut perms = match catalog.get("Perms") {
+        Some(p) => doc.resolve(p)?.as_dict().cloned().unwrap_or_default(),
+        None => Dict::new(),
+    };
+    perms.set("DocMDP", Obj::Ref(sig_id, 0));
+    catalog.set("Perms", Obj::Dict(perms));
+    Ok(())
+}
+
 /// The signature dictionary, without `/ByteRange` and `/Contents`.
-fn sig_dict(fields: &SignatureFields, sub_filter: &str, reference: Option<Obj>) -> Dict {
+fn sig_dict(fields: &SignatureFields, sub_filter: &str, field_lock: Option<Obj>) -> Dict {
     let mut sig = Dict::new()
         .with("Type", Obj::name("Sig"))
         .with("Filter", Obj::name("Adobe.PPKLite"))
@@ -588,8 +639,20 @@ fn sig_dict(fields: &SignatureFields, sub_filter: &str, reference: Option<Obj>) 
     if let Some(l) = fields.location.as_ref().filter(|s| !s.is_empty()) {
         sig.set("Location", text_string(l));
     }
-    if let Some(r) = reference {
-        sig.set("Reference", r);
+    // DocMDP for a certification, FieldMDP for a field's lock; both may apply.
+    let mut refs = Vec::new();
+    for r in fields
+        .certify
+        .map(DocMdp::reference)
+        .into_iter()
+        .chain(field_lock)
+    {
+        if let Obj::Array(a) = r {
+            refs.extend(a);
+        }
+    }
+    if !refs.is_empty() {
+        sig.set("Reference", Obj::Array(refs));
     }
     sig.set(
         "Prop_Build",
@@ -606,7 +669,7 @@ fn sig_dict(fields: &SignatureFields, sub_filter: &str, reference: Option<Obj>) 
 fn write_update(
     doc: &Document,
     sig_id: u32,
-    sig: Dict,
+    mut sig: Dict,
     objs: Objects,
     next: u32,
     reserved: usize,
@@ -621,6 +684,11 @@ fn write_update(
     // Signature dictionary first, with fixed-width placeholders.
     offsets.insert(sig_id, (out.len(), 0));
     out.extend_from_slice(format!("{sig_id} 0 obj\n<<").as_bytes());
+    if let Some(c) = &doc.crypt
+        && let Obj::Dict(d) = c.encrypt(sig_id, 0, &Obj::Dict(sig.clone()))
+    {
+        sig = d;
+    }
     for (k, v) in &sig.0 {
         super::object::write_name(&mut out, k);
         out.push(b' ');
@@ -638,16 +706,11 @@ fn write_update(
     let contents_end = out.len();
     out.extend_from_slice(b"\n>>\nendobj\n");
 
-    for (id, (gn, obj)) in &objs {
-        offsets.insert(*id, (out.len(), *gn));
-        out.extend_from_slice(format!("{id} {gn} obj\n").as_bytes());
-        write_obj(&mut out, obj);
-        out.extend_from_slice(b"\nendobj\n");
-    }
+    write_objects(&mut out, doc, &objs, &mut offsets);
 
     let mut trailer = Dict::new();
     trailer.set("Root", Obj::Ref(cat_id, cat_gen));
-    for key in ["Info", "ID"] {
+    for key in ["Info", "ID", "Encrypt"] {
         if let Some(v) = doc.trailer.get(key) {
             trailer.set(key, v.clone());
         }
@@ -701,6 +764,24 @@ fn write_update(
         byte_range: [0, contents_start, contents_end, rest],
         reserved,
     })
+}
+
+/// Writes `objs` (encrypted when the document is) and records their offsets.
+pub(super) fn write_objects(
+    out: &mut Vec<u8>,
+    doc: &Document,
+    objs: &BTreeMap<u32, (u16, Obj)>,
+    offsets: &mut BTreeMap<u32, (usize, u16)>,
+) {
+    for (id, (gn, obj)) in objs {
+        offsets.insert(*id, (out.len(), *gn));
+        out.extend_from_slice(format!("{id} {gn} obj\n").as_bytes());
+        match &doc.crypt {
+            Some(c) => write_obj(out, &c.encrypt(*id, *gn, obj)),
+            None => write_obj(out, obj),
+        }
+        out.extend_from_slice(b"\nendobj\n");
+    }
 }
 
 /// Consecutive runs of object ids, for xref subsections / `/Index`.

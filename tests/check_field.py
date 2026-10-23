@@ -1,13 +1,15 @@
 """Check a signature made into an existing empty signature field.
 
 Usage: python3 tests/check_field.py [--rotate N] [--subfilter S] [--lock FIELD]
-                                    <original.pdf> <signed.pdf> <field> <trust-root.pem>...
+                                    [--certify N] [--password PW] <original.pdf> <signed.pdf> <field> <trust-root.pem>...
 Checks: the newest signature is in <field> (fully qualified name), valid and
 trusted; no field was added; the field's widget kept its /Rect and other
 entries and got an appearance whose box, turned by /Matrix, fills the /Rect
 (--rotate: the expected rotation, counterclockwise); --subfilter: the
 signature's /SubFilter; --lock: the signature carries the field's lock as a
-FieldMDP reference including FIELD, and filling FIELD afterwards breaks it.
+FieldMDP reference including FIELD, and filling FIELD afterwards breaks it;
+--certify: the signature also certifies with DocMDP level N (otherwise it
+must not certify); --password: open an encrypted PDF with it.
 """
 import io
 import logging
@@ -39,7 +41,7 @@ def all_fields(r):
 
     def walk(ref, parent):
         d = ref.get_object()
-        n = d.get("/T")
+        n = d["/T"] if "/T" in d else None
         full = f"{parent}.{n}" if parent and n is not None else (str(n) if n is not None else parent)
         kids = list(d["/Kids"]) if "/Kids" in d else []
         sub = [k for k in kids if "/T" in k.get_object()]
@@ -56,14 +58,20 @@ def all_fields(r):
     return out
 
 
+def opened(data):
+    r = PdfFileReader(io.BytesIO(data), strict=False)
+    if r.encrypted:
+        r.decrypt(opts.get("password", ""))
+    return r
+
+
 def by_name(r):
     return {n: (d, w) for n, d, w in all_fields(r)}
 
 
-with open(orig_path, "rb") as f:
-    before = by_name(PdfFileReader(f, strict=False))
+before = by_name(opened(open(orig_path, "rb").read()))
 signed = open(signed_path, "rb").read()
-r = PdfFileReader(io.BytesIO(signed), strict=False)
+r = opened(signed)
 after = by_name(r)
 if sorted(after) != sorted(before):
     problems.append(f"fields changed: {sorted(before)} -> {sorted(after)}")
@@ -77,6 +85,10 @@ else:
     print(f"  {name}: intact={st.intact} valid={st.valid} trusted={st.trusted} subfilter={newest.sig_object['/SubFilter']}")
     if not (st.intact and st.valid and st.trusted):
         problems.append(f"{name}: not intact/valid/trusted")
+    level = newest.docmdp_level
+    want = int(opts["certify"]) if "certify" in opts else None
+    if (level.value if level else None) != want:
+        problems.append(f"certification is {level}, expected {want}")
     if "subfilter" in opts and newest.sig_object["/SubFilter"] != "/" + opts["subfilter"]:
         problems.append(f"/SubFilter is {newest.sig_object['/SubFilter']}, expected {opts['subfilter']}")
 
@@ -117,6 +129,8 @@ else:
             print(f"  lock carried: {mdp.action.name} {mdp.fields}")
             # Fill the locked field afterwards: the signature must object.
             w = IncrementalPdfFileWriter(io.BytesIO(signed))
+            if w.prev.encrypted:
+                w.encrypt(opts["password"])
             fd = next(f.get_object() for f in w.root["/AcroForm"]["/Fields"] if f.get_object().get("/T") == opts["lock"])
             fd["/V"] = generic.TextStringObject("Changed after signing")
             w.update_container(fd)

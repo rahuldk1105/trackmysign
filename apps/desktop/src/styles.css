@@ -347,6 +347,51 @@ select {
   background: var(--surface-2);
 }
 
+.update-bar {
+  flex: none;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--line);
+}
+.update-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 4px 8px 4px 12px;
+  color: var(--text);
+}
+.update-row > .icon {
+  flex: none;
+  color: var(--bad);
+}
+.update-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+.update-progress {
+  width: 160px;
+  height: 4px;
+  background: var(--line);
+}
+.update-progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s;
+}
+.update-notes {
+  max-height: 160px;
+  overflow: auto;
+  padding: 0 12px 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
 .workspace {
   flex: 1;
   display: flex;
@@ -738,6 +783,30 @@ section > label:first-of-type {
   color: var(--ok);
   flex: none;
 }
+/* Worth knowing, nothing wrong yet: e.g. the DSC expires within a month. */
+.warn-row.calm {
+  border-left-color: var(--accent-text);
+  background: var(--accent-soft);
+}
+.warn-row.calm > .icon,
+.warn-row.calm strong {
+  color: var(--accent-text);
+}
+:root[data-theme="dark"] .warn-row.calm {
+  border-left-color: var(--line-strong);
+}
+.reminders {
+  margin-top: 18px;
+}
+.sb-item.expiry {
+  font-weight: 500;
+}
+.sb-item.expiry.calm {
+  color: var(--accent-text);
+}
+.sb-item.expiry.bad {
+  color: var(--bad);
+}
 
 .stamp-preview {
   margin-top: 12px;
@@ -1092,6 +1161,12 @@ section > label:first-of-type {
 .pin.invalid {
   border-color: var(--bad);
 }
+.pdf-password {
+  height: 36px;
+}
+.pdf-password.invalid {
+  border-color: var(--bad);
+}
 .dialog-body form p {
   margin: 8px 0 0;
 }
@@ -1228,11 +1303,12 @@ section > label:first-of-type {
 .segmented button:last-child {
   border-right: 0;
 }
-.segmented button:hover:not(.on):not(:disabled) {
-  background: var(--surface-2);
-}
 .segmented button:disabled {
   color: var(--muted);
+  opacity: 0.6;
+}
+.segmented button:hover:not(.on):not(:disabled) {
+  background: var(--surface-2);
 }
 .segmented button.on {
   background: var(--accent);
@@ -1249,6 +1325,10 @@ section > label:first-of-type {
 }
 .setting-row span {
   flex: 1;
+}
+.setting-row span.bad {
+  color: var(--bad);
+  user-select: text;
 }
 label.check-row {
   display: flex;

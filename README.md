@@ -6,7 +6,8 @@ Sign PDFs with your USB DSC token (tested design: Hypersecu HyperPKI HYP2003) �
   signatures already on the document (auditor, CA, co-director) stay valid.
 - Standard `adbe.pkcs7.detached` / SHA-256 signatures that Adobe Reader validates.
 - Visible "Digitally signed by …" box, or invisible.
-- Your PIN is never stored.
+- Your PIN is never stored. Tokens whose key asks for the PIN on every
+  signature work too, batches included, with the PIN entered once.
 
 Status: desktop app for Windows (installer) and macOS (dmg), plus a command-line tool.
 
@@ -23,6 +24,19 @@ Forms from banks and government offices often come with empty signature fields. 
 highlighted on the page and listed in the side panel: click one and the signature fills that field.
 
 You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows and macOS). Your default PDF viewer stays as it is.
+
+### Updates
+
+On launch the app asks GitHub whether a newer release is out (it fetches
+`latest.json` from the latest release; nothing about you or your documents is sent).
+If there is one, a bar offers **Install and restart**: the update is downloaded,
+checked against the signing key built into the app, installed and the app
+reopens. Turn the check off, or check by hand, under *Settings → Updates*.
+
+Releases: CI signs the update files when the `TAURI_SIGNING_PRIVATE_KEY` and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets are set (public key in
+`tauri.conf.json`), and attaches `latest.json` only to tagged releases, never to
+`test-build`. The tag must match the version in `tauri.conf.json` (`v0.1.5` ↔ `0.1.5`).
 
 ## Supported tokens
 
@@ -59,7 +73,7 @@ macOS), or pass `--module` to the command-line tool.
 .\trackmysign.exe certs
 ```
 
-   You should see your name, the issuing CA, the expiry date and the driver it was read through.
+   You should see your name, the issuing CA, the expiry date (with the days left) and the driver it was read through.
 
 3. Sign a test PDF (bottom-right of the last page by default):
 
@@ -88,6 +102,8 @@ Other options:
 .\trackmysign.exe --module C:\Windows\System32\eps2003csp11v2.dll certs   # explicit driver
 .\trackmysign.exe sign file.pdf --timestamp --ltv     # long-term validity (needs internet)
 .\trackmysign.exe sign file.pdf --timestamp=http://timestamp.sectigo.com
+.\trackmysign.exe sign file.pdf --password "secret"  # password-protected PDF
+.\trackmysign.exe sign file.pdf --certify forms       # certify as the author (first signature only)
 ```
 
 Long-term validity is off by default, so signing works fully offline. `--timestamp`
@@ -96,6 +112,23 @@ only a hash of the signature is sent). `--ltv` embeds your CA's OCSP/CRL answers
 in the PDF so the signature can be validated after the certificate expires. The
 desktop app has the same options under *Settings → Long-term validity*. If a
 server cannot be reached, nothing is saved and you can sign again without it.
+
+An expired certificate is refused, since a signature made with it is not valid
+(`--allow-expired` signs anyway, with a warning). The desktop app reminds you to
+renew 30 days ahead (15, 60 or off under *Settings → Expiry reminder*), also
+when the token is not plugged in, and turns signing off once the DSC has expired.
+
+Password-protected PDFs (RC4, AES-128 and AES-256) can be signed too; the signed copy
+keeps the same password and restrictions. Most of them only restrict editing and open
+without a password. If a PDF needs one, the app asks for it (the command-line tool
+asks too, or takes `--password`); it is never stored. If the PDF's security settings
+do not allow signing, give its owner (permissions) password instead.
+
+`--certify none|forms|annotations` makes the signature a certification (author)
+signature that says what may change afterwards: nothing, form filling and
+signing, or also comments. Only an unsigned document can be certified, and a
+document certified with `none` cannot be signed again. In the desktop app this
+is *Signature type → Certify* in the side panel.
 
 ## Development
 
@@ -115,3 +148,12 @@ Layout:
 - `crates/signdesk-cli` — `trackmysign` command
 - `apps/desktop` — Tauri desktop app (React + PDF.js front end)
 - `PLAN.md` — decisions and roadmap
+
+## Project
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — building, tests, code style, adding a token driver
+- [PRIVACY.md](PRIVACY.md) — nothing leaves your computer except optional timestamp/LTV requests and the update check
+- [SECURITY.md](SECURITY.md) — reporting vulnerabilities privately
+- [CHANGELOG.md](CHANGELOG.md) — changes in each release, also on [sign.rahuldk.in/changelog](https://sign.rahuldk.in/changelog/)
+
+MIT licence, see [LICENSE](LICENSE).

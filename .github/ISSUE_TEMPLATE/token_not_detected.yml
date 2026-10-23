@@ -1,0 +1,72 @@
+name: Token not detected
+description: Your DSC token or its certificate doesn't show up.
+title: "Token not detected: "
+labels: [token]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        TrackMySign finds tokens through the PKCS#11 driver their vendor installs. If yours isn't found, the driver's file path is usually all that's needed to add it.
+        **Never paste your PIN or certificate file.** Blank out your name in screenshots.
+  - type: input
+    id: token
+    attributes:
+      label: Token make and model
+      description: As printed on the token or its box.
+      placeholder: Watchdata ProxKey
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: TrackMySign version
+      placeholder: v0.1.4
+    validations:
+      required: true
+  - type: input
+    id: software
+    attributes:
+      label: Token software installed
+      description: Name and version of the driver or utility you installed for the token (from the vendor or your CA).
+      placeholder: ProxKey Tool 1.0.0.5
+    validations:
+      required: true
+  - type: textarea
+    id: driver
+    attributes:
+      label: Driver file path
+      description: |
+        The PKCS#11 driver the token software installed.
+        Windows: look in `C:\Windows\System32` for a recently added `.dll` with "p11", "pkcs11" or the vendor's name in it.
+        macOS: look in `/usr/local/lib` or inside the vendor's app for a `.dylib`.
+        If you're not sure, list the candidates you found.
+      placeholder: C:\Windows\System32\SignatureP11.dll
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: drivers
+    attributes:
+      label: What TrackMySign shows
+      description: Settings → DSC token → Detected drivers, or the output of `trackmysign certs` (blank out your name).
+      render: text
+  - type: textarea
+    id: module
+    attributes:
+      label: Does it work with the driver given explicitly?
+      description: |
+        Optional. With the command-line tool: `trackmysign --module "<driver file path>" certs`.
+        Paste the output, with your name blanked out.
+      render: text

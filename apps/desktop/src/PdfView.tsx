@@ -17,8 +17,8 @@ export interface PageSize {
 }
 
 /** Loads a PDF and reports page sizes in points (as displayed, rotation applied). */
-export async function loadPdf(bytes: ArrayBuffer): Promise<{ doc: PDFDocumentProxy; sizes: PageSize[] }> {
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes) }).promise;
+export async function loadPdf(bytes: ArrayBuffer, password?: string): Promise<{ doc: PDFDocumentProxy; sizes: PageSize[] }> {
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), password }).promise;
   const sizes: PageSize[] = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const vp = (await doc.getPage(i)).getViewport({ scale: 1 });

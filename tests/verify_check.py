@@ -1,10 +1,11 @@
 """Compare `trackmysign verify` with pyHanko's validation of the same file.
 
-Usage: python3 tests/verify_check.py <trackmysign> <signed.pdf> <valid|invalid> <trust-root.pem>...
+Usage: python3 tests/verify_check.py [--password=PW] <trackmysign> <signed.pdf> <valid|invalid> <trust-root.pem>...
 Checks, per signature field: same fields found, VALID exactly when pyHanko
 says intact + valid, whole-document coverage when pyHanko says ENTIRE_FILE,
-and "content changed" only when pyHanko reports modifications beyond
-annotations. `invalid` expects every signature to be INVALID.
+"content changed" only when pyHanko reports modifications beyond
+annotations (judged as Acrobat does, see acrobat_policy.py), and the same
+certification (DocMDP) level. `invalid` expects every signature to be INVALID.
 """
 import logging
 import re
@@ -12,17 +13,23 @@ import subprocess
 import sys
 
 from pyhanko.keys import load_cert_from_pemder
+from pyhanko.pdf_utils.crypt import AuthStatus
 from pyhanko.pdf_utils.reader import PdfFileReader
 from pyhanko.sign.diff_analysis import ModificationLevel
 from pyhanko.sign.validation import validate_pdf_signature
 from pyhanko_certvalidator import ValidationContext
 
-binary, path, expect, *roots = sys.argv[1:]
+from acrobat_policy import ACROBAT_POLICY
+
+args = sys.argv[1:]
+password = next((a.split("=", 1)[1] for a in args if a.startswith("--password=")), None)
+binary, path, expect, *roots = [a for a in args if not a.startswith("--password=")]
+pw_arg = [f"--password={password}"] if password is not None else []
 # pyHanko logs its diff analysis of modified files; only the results matter here.
 logging.disable(logging.CRITICAL)
 problems = []
 
-run = subprocess.run([binary, "verify", path], capture_output=True, text=True)
+run = subprocess.run([binary, "verify", *pw_arg, path], capture_output=True, text=True)
 ours = {}
 for block in re.split(r"\n(?=\S)", run.stdout.strip()):
     head, *rest = block.splitlines()
@@ -40,11 +47,23 @@ vc = ValidationContext(trust_roots=[load_cert_from_pemder(r) for r in roots], al
 with open(path, "rb") as f:
     r = PdfFileReader(f, strict=False)
     theirs = {}
-    for s in r.embedded_signatures:
-        st = validate_pdf_signature(s, vc)
+    readable = not r.encrypted or r.decrypt(password or "").status != AuthStatus.FAILED
+    levels = {}
+    for s in r.embedded_signatures if readable else []:
+        st = validate_pdf_signature(s, vc, diff_policy=ACROBAT_POLICY)
         theirs[s.field_name] = st
+        levels[s.field_name] = s.docmdp_level.value if s.docmdp_level else None
 
-if sorted(ours) != sorted(theirs):
+if not readable:
+    # pyHanko does not read the deprecated AES-256 revision 5: compare with
+    # the expectation instead.
+    print("  pyHanko cannot open this encryption")
+    if not ours:
+        problems.append("no signatures found")
+    for name, (status, _) in ours.items():
+        if (status == "VALID") != (expect == "valid"):
+            problems.append(f"{name}: {status}, expected {expect}")
+elif sorted(ours) != sorted(theirs):
     problems.append(f"fields differ: ours {sorted(ours)}, pyHanko {sorted(theirs)}")
 
 for name, st in theirs.items():
@@ -65,6 +84,10 @@ for name, st in theirs.items():
     other = st.modification_level is not None and st.modification_level > ModificationLevel.ANNOTATIONS
     if ("CONTENT CHANGED" in coverage) != other:
         problems.append(f"{name}: coverage '{coverage}' but pyHanko modifications {st.modification_level}")
+    m = re.match(r"level (\d)", fields.get("Certifies", ""))
+    level = int(m.group(1)) if m else None
+    if level != levels[name]:
+        problems.append(f"{name}: certification level {level} but pyHanko {levels[name]}")
 
 if problems:
     print("FAIL verify", path)

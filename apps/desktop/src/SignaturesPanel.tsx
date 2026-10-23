@@ -13,8 +13,14 @@ function verdict(s: SignatureCheck): { tone: Tone; label: string } {
   if (s.status === "invalid") return { tone: "bad", label: "Invalid signature" };
   if (s.status === "unknown") return { tone: "neutral", label: "Could not be verified" };
   if (s.changes === "content") return { tone: "bad", label: "Document changed after signing" };
-  return { tone: "ok", label: "Valid signature" };
+  return { tone: "ok", label: s.certification ? "Valid certification" : "Valid signature" };
 }
+
+const ALLOWED: Record<NonNullable<SignatureCheck["certification"]>, string> = {
+  1: "no changes allowed",
+  2: "form filling and signing allowed",
+  3: "form filling, signing and comments allowed",
+};
 
 function coverage(s: SignatureCheck): string {
   const later = `${s.laterRevisions} later revision${s.laterRevisions === 1 ? "" : "s"}`;
@@ -47,6 +53,14 @@ function SignatureItem({ s }: { s: SignatureCheck }) {
           {s.signer ?? "Unknown"}
           {s.organization && <span className="sig-org"> · {s.organization}</span>}
         </dd>
+        {s.certification && (
+          <>
+            <dt>Certifies</dt>
+            <dd>
+              Level {s.certification}, {ALLOWED[s.certification]}
+            </dd>
+          </>
+        )}
         {s.issuer && (
           <>
             <dt>Issuer</dt>
@@ -133,7 +147,7 @@ function SignatureItem({ s }: { s: SignatureCheck }) {
   );
 }
 
-export function SignaturesPanel({ path, count }: { path: string; count: number }) {
+export function SignaturesPanel({ path, password, count }: { path: string; password?: string; count: number }) {
   const [checks, setChecks] = useState<SignatureCheck[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -142,13 +156,13 @@ export function SignaturesPanel({ path, count }: { path: string; count: number }
     setChecks(null);
     setError(null);
     api
-      .verifyPdf(path)
+      .verifyPdf(path, password)
       .then((c) => live && setChecks(c))
       .catch((e) => live && setError(api.errorOf(e).message));
     return () => {
       live = false;
     };
-  }, [path]);
+  }, [path, password]);
 
   if (count === 0 && (checks === null || checks.length === 0)) return null;
   return (
@@ -171,7 +185,11 @@ export function SignaturesPanel({ path, count }: { path: string; count: number }
           ))}
         </ul>
       )}
-      <p className="muted small">Signing again keeps existing signatures valid.</p>
+      <p className="muted small">
+        {checks?.some((c) => c.certification === 1)
+          ? "The author allowed no changes: signing again would invalidate the certification."
+          : "Signing again keeps existing signatures valid."}
+      </p>
     </section>
   );
 }

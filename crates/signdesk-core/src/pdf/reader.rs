@@ -6,14 +6,23 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 use std::rc::Rc;
 
+use super::crypt::Crypt;
 use super::object::{Dict, Lexer, Obj, Parser, Tok, is_ws};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PdfError {
     #[error("not a PDF file")]
     NotPdf,
-    #[error("this PDF is password-protected/encrypted; remove the protection first")]
-    Encrypted,
+    #[error("this PDF is encrypted in a way TrackMySign cannot open: {0}")]
+    Encrypted(String),
+    #[error("this PDF is password-protected; enter its password to open it")]
+    PasswordRequired,
+    #[error("the PDF password is not correct")]
+    WrongPassword,
+    #[error(
+        "this PDF's security settings do not allow signing; enter its owner (permissions) password to sign it"
+    )]
+    SigningNotAllowed,
     #[error("could not read PDF structure: {0}")]
     Malformed(String),
     #[error("page {0} does not exist")]
@@ -75,11 +84,39 @@ pub struct Document<'a> {
     pub xref_is_stream: bool,
     /// The cross-reference data was unusable and rebuilt by scanning the file.
     pub repaired: bool,
+    /// Set for password-protected files: objects read are decrypted, and
+    /// objects written to an update must be encrypted with it.
+    pub crypt: Option<Crypt>,
     objstm_cache: RefCell<HashMap<u32, Rc<ObjStm>>>,
+}
+
+/// How to unlock an encrypted file.
+enum Unlock<'p> {
+    Password(Option<&'p str>),
+    /// The key of a later revision of the same file.
+    Known(&'p Crypt),
 }
 
 impl<'a> Document<'a> {
     pub fn parse(data: &'a [u8]) -> Result<Self> {
+        Self::open(data, None)
+    }
+
+    /// Like [`Document::parse`], unlocking an encrypted file with `password`
+    /// (owner or user). Without one, the empty password is tried.
+    pub fn open(data: &'a [u8], password: Option<&str>) -> Result<Self> {
+        Self::load(data, Unlock::Password(password))
+    }
+
+    /// An earlier revision (a prefix) of this file, with the same key.
+    pub fn revision<'b>(&self, data: &'b [u8]) -> Result<Document<'b>> {
+        match &self.crypt {
+            Some(c) => Document::load(data, Unlock::Known(c)),
+            None => Document::parse(data),
+        }
+    }
+
+    fn load(data: &'a [u8], unlock: Unlock) -> Result<Self> {
         let head = &data[..data.len().min(1024)];
         if find(head, b"%PDF-").is_none() {
             return Err(PdfError::NotPdf);
@@ -91,15 +128,50 @@ impl<'a> Document<'a> {
             startxref: 0,
             xref_is_stream: false,
             repaired: false,
+            crypt: None,
             objstm_cache: RefCell::new(HashMap::new()),
         };
-        if doc.load_xref().is_err() || !doc.looks_sane() {
-            doc.reconstruct()?;
+        let loaded = doc.load_xref().is_ok();
+        if loaded {
+            doc.unlock(&unlock)?;
         }
-        if doc.trailer.get("Encrypt").is_some() {
-            return Err(PdfError::Encrypted);
+        if !loaded || !doc.looks_sane() {
+            doc.reconstruct(&unlock)?;
         }
         Ok(doc)
+    }
+
+    /// Reads `/Encrypt` from the trailer and derives the file key.
+    fn unlock(&mut self, how: &Unlock) -> Result<()> {
+        self.crypt = None;
+        self.objstm_cache.borrow_mut().clear();
+        let Some(enc) = self.trailer.get("Encrypt").cloned() else {
+            return Ok(());
+        };
+        let dict = self
+            .resolve(&enc)?
+            .as_dict()
+            .cloned()
+            .ok_or_else(|| PdfError::Malformed("unreadable /Encrypt dictionary".into()))?;
+        let mut crypt = match how {
+            Unlock::Known(c) => (*c).clone(),
+            Unlock::Password(pw) => {
+                let id0 = match self.trailer.get("ID").and_then(Obj::as_array) {
+                    Some(a) => match a.first() {
+                        Some(Obj::Str(s)) => s.clone(),
+                        _ => Vec::new(),
+                    },
+                    None => Vec::new(),
+                };
+                Crypt::open(&dict, &id0, *pw)?
+            }
+        };
+        crypt.encrypt_id = match enc {
+            Obj::Ref(id, _) => Some(id),
+            _ => None,
+        };
+        self.crypt = Some(crypt);
+        Ok(())
     }
 
     /// One past the highest object number in use.
@@ -269,8 +341,10 @@ impl<'a> Document<'a> {
     }
 
     /// Rebuild the cross-reference by scanning for `N G obj`.
-    fn reconstruct(&mut self) -> Result<()> {
+    fn reconstruct(&mut self, unlock: &Unlock) -> Result<()> {
         self.xref.clear();
+        self.crypt = None;
+        self.objstm_cache.borrow_mut().clear();
         self.repaired = true;
         let d = self.data;
         let mut i = 0;
@@ -284,7 +358,6 @@ impl<'a> Document<'a> {
                 self.xref.insert(id, XrefEntry::Offset(start, gn));
             }
         }
-        // Compressed objects: pull in entries from any object streams found.
         let ids: Vec<(u32, usize)> = self
             .xref
             .iter()
@@ -294,17 +367,11 @@ impl<'a> Document<'a> {
             })
             .collect();
         let mut trailer: Option<Dict> = None;
+        let mut objstms = Vec::new();
         for (id, off) in ids {
             if let Ok((_, Obj::Stream(sd, _))) = self.parse_indirect_at(off) {
                 if sd.get("Type").is_some_and(|t| t.is_name("ObjStm")) {
-                    if let Ok(stm) = self.load_objstm(id) {
-                        for (idx, (oid, _)) in stm.offsets.iter().enumerate() {
-                            self.xref.entry(*oid).or_insert(XrefEntry::InStream {
-                                container: id,
-                                index: idx as u32,
-                            });
-                        }
-                    }
+                    objstms.push(id);
                 } else if sd.get("Type").is_some_and(|t| t.is_name("XRef"))
                     && sd.get("Root").is_some()
                 {
@@ -321,6 +388,22 @@ impl<'a> Document<'a> {
                 && td.get("Root").is_some()
             {
                 trailer = Some(td);
+            }
+        }
+        // The key is needed to read object streams in an encrypted file.
+        if let Some(t) = &trailer {
+            self.trailer = t.clone();
+            self.unlock(unlock)?;
+        }
+        // Compressed objects: pull in entries from any object streams found.
+        for id in objstms {
+            if let Ok(stm) = self.load_objstm(id) {
+                for (idx, (oid, _)) in stm.offsets.iter().enumerate() {
+                    self.xref.entry(*oid).or_insert(XrefEntry::InStream {
+                        container: id,
+                        index: idx as u32,
+                    });
+                }
             }
         }
         let mut trailer = match trailer {
@@ -397,6 +480,16 @@ impl<'a> Document<'a> {
         Ok(((id, gn), obj))
     }
 
+    /// [`Self::parse_indirect_at`], decrypted. Objects inside object streams
+    /// are not encrypted on their own: the stream around them is.
+    fn object_at(&self, off: usize) -> Result<((u32, u16), Obj)> {
+        let ((id, gn), obj) = self.parse_indirect_at(off)?;
+        match &self.crypt {
+            Some(c) if c.encrypt_id != Some(id) => Ok(((id, gn), c.decrypt(id, gn, obj))),
+            _ => Ok(((id, gn), obj)),
+        }
+    }
+
     fn stream_body(&self, dict: &Dict, start: usize, self_id: u32) -> Result<Vec<u8>> {
         let len = match dict.get("Length") {
             Some(Obj::Ref(id, _)) if *id != self_id => self.get(*id).ok().and_then(|o| o.as_i64()),
@@ -431,7 +524,7 @@ impl<'a> Document<'a> {
     pub fn get(&self, id: u32) -> Result<Obj> {
         match self.xref.get(&id) {
             Some(XrefEntry::Offset(off, _)) => {
-                let ((found, _), obj) = self.parse_indirect_at(*off)?;
+                let ((found, _), obj) = self.object_at(*off)?;
                 if found != id {
                     return Err(PdfError::Malformed(format!(
                         "xref for object {id} points at object {found}"
@@ -479,7 +572,7 @@ impl<'a> Document<'a> {
             Some(XrefEntry::Offset(off, _)) => *off,
             _ => return Err(PdfError::Malformed(format!("object stream {id} not found"))),
         };
-        let (_, obj) = self.parse_indirect_at(off)?;
+        let (_, obj) = self.object_at(off)?;
         let Obj::Stream(dict, raw) = obj else {
             return Err(PdfError::Malformed(format!(
                 "object {id} is not an object stream"

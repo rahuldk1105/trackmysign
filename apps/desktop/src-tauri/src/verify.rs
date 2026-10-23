@@ -31,6 +31,8 @@ pub struct SignatureDto {
     chain: Vec<String>,
     /// "cca" | "notChecked"
     trust: &'static str,
+    /// DocMDP level (1-3) of a certification signature.
+    certification: Option<u8>,
 }
 
 impl From<&SignatureReport> for SignatureDto {
@@ -81,15 +83,16 @@ impl From<&SignatureReport> for SignatureDto {
                 Trust::CcaIndia => "cca",
                 Trust::NotChecked => "notChecked",
             },
+            certification: r.certification.map(|p| p.level()),
         }
     }
 }
 
 #[tauri::command]
-pub async fn verify_pdf(path: String) -> CmdResult<Vec<SignatureDto>> {
+pub async fn verify_pdf(path: String, password: Option<String>) -> CmdResult<Vec<SignatureDto>> {
     tauri::async_runtime::spawn_blocking(move || {
         let data = std::fs::read(&path)?;
-        let reports = signdesk_core::verify(&data)?;
+        let reports = signdesk_core::verify_with_password(&data, password.as_deref())?;
         Ok(reports.iter().map(SignatureDto::from).collect())
     })
     .await

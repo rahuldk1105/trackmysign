@@ -16,10 +16,11 @@ use chrono::{DateTime, FixedOffset, Local};
 use sha2::{Digest, Sha256};
 
 pub use image::{ImagePosition, StampImage};
+pub use pdf::docmdp::DocMdp;
 pub use pdf::reader::PdfError;
 pub use pdf::sign::{DisplayRect, Placement};
 pub use tsa::DEFAULT_TSA_URL;
-pub use verify::{SignatureReport, verify};
+pub use verify::{SignatureReport, verify, verify_with_password};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyKind {
@@ -58,6 +59,9 @@ pub enum Error {
     Timestamp(String),
     #[error("Could not embed revocation info (LTV): {0}")]
     Ltv(String),
+    /// The document's existing signatures rule this signature out.
+    #[error("{0}")]
+    NotPermitted(String),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -81,6 +85,46 @@ pub struct SignRequest {
     /// Sign into this empty signature field (fully qualified name, as in
     /// [`PdfInfo::empty_fields`]); `page`, `rect` and `pages` are then unused.
     pub field: Option<String>,
+    /// Password of a protected PDF (owner or user). Without one, the empty
+    /// user password is tried. Never stored.
+    pub password: Option<String>,
+    /// Certify the document (an author signature) instead of approving it.
+    pub certify: Option<DocMdp>,
+}
+
+/// Whether `input` may get a signature: a certification only on a document
+/// without signatures, and nothing on one certified with "no changes".
+pub fn check_permitted(input: &[u8], certify: Option<DocMdp>) -> Result<(), Error> {
+    check_permitted_with_password(input, None, certify)
+}
+
+/// [`check_permitted`] for a password-protected PDF.
+pub fn check_permitted_with_password(
+    input: &[u8],
+    password: Option<&str>,
+    certify: Option<DocMdp>,
+) -> Result<(), Error> {
+    let doc = pdf::reader::Document::open(input, password)?;
+    let signatures = pdf::fields::signature_fields(&doc, &doc.pages()?)?
+        .iter()
+        .filter(|f| f.signed)
+        .count();
+    let certified = pdf::docmdp::of_document(&doc)?;
+    if certify.is_some() && (signatures > 0 || certified.is_some()) {
+        return Err(Error::NotPermitted(
+            "Only the first signature can certify a document, and this one is already signed. \
+             Sign it as an approval signature instead."
+                .into(),
+        ));
+    }
+    if certified == Some(DocMdp::NoChanges) {
+        return Err(Error::NotPermitted(
+            "The document is certified with no changes allowed. \
+             Another signature would invalidate the certification."
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Signs `input` and returns the complete new file.
@@ -89,6 +133,8 @@ pub fn sign_pdf(
     req: &SignRequest,
     signer: &mut dyn Signer,
 ) -> Result<Vec<u8>, Error> {
+    let password = req.password.as_deref();
+    check_permitted_with_password(input, password, req.certify)?;
     let summary = certinfo::CertSummary::from_der(signer.certificate())?;
     let time = req.time.unwrap_or_else(|| Local::now().fixed_offset());
     let fields = pdf::sign::SignatureFields {
@@ -99,6 +145,7 @@ pub fn sign_pdf(
         image: req.image.clone(),
         image_position: req.image_position,
         timestamp: req.timestamp.is_some(),
+        certify: req.certify,
     };
     let placement = Placement {
         page: req.page,
@@ -110,7 +157,7 @@ pub fn sign_pdf(
     if req.timestamp.is_some() {
         reserve += tsa::TOKEN_RESERVE;
     }
-    let prepared = pdf::sign::prepare(input, &placement, &fields, reserve)?;
+    let prepared = pdf::sign::prepare_with_password(input, password, &placement, &fields, reserve)?;
     let mut h = Sha256::new();
     for part in prepared.signed_parts() {
         h.update(part);
@@ -129,8 +176,9 @@ pub fn sign_pdf(
     let data = ltv::collect(&cms)?;
     let mut contents = cms;
     contents.resize(reserved, 0);
-    Ok(pdf::dss::append(
+    Ok(pdf::dss::append_with_password(
         &signed,
+        password,
         &pdf::dss::Validation {
             contents: &contents,
             certs: &data.certs,
@@ -162,11 +210,22 @@ pub struct EmptyField {
 pub struct PdfInfo {
     pub pages: Vec<PageSize>,
     pub signatures: usize,
+    /// Password-protected (possibly with an empty user password).
+    pub encrypted: bool,
+    /// The security settings, or the password given, allow adding a signature.
+    pub signing_allowed: bool,
+    /// Set when the document is certified.
+    pub certified: Option<DocMdp>,
     pub empty_fields: Vec<EmptyField>,
 }
 
 pub fn inspect(input: &[u8]) -> Result<PdfInfo, Error> {
-    let doc = pdf::reader::Document::parse(input)?;
+    inspect_with_password(input, None)
+}
+
+/// [`inspect`] for a password-protected PDF.
+pub fn inspect_with_password(input: &[u8], password: Option<&str>) -> Result<PdfInfo, Error> {
+    let doc = pdf::reader::Document::open(input, password)?;
     let page_info = doc.pages()?;
     let pages = page_info
         .iter()
@@ -204,6 +263,9 @@ pub fn inspect(input: &[u8]) -> Result<PdfInfo, Error> {
     Ok(PdfInfo {
         pages,
         signatures,
+        encrypted: doc.crypt.is_some(),
+        signing_allowed: doc.crypt.as_ref().is_none_or(|c| c.may_sign()),
+        certified: pdf::docmdp::of_document(&doc)?,
         empty_fields,
     })
 }

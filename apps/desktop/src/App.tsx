@@ -1,9 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import * as api from "./api";
-import type { ApiError, BatchProgress, Cert, Driver, EmptyField, ImageChoice, PdfInfo, Signed } from "./api";
+import type {
+  ApiError,
+  BatchProgress,
+  Cert,
+  CertifyLevel,
+  Driver,
+  EmptyField,
+  ImageChoice,
+  KnownCert,
+  PdfInfo,
+  PinStatus,
+  Signed,
+} from "./api";
+import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, remindAbout, today, type ReminderDays } from "./expiry";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
 import { SignaturesPanel } from "./SignaturesPanel";
+import { UpdateBanner } from "./UpdateBanner";
+import { useUpdater, type UpdateState } from "./updater";
 import { useTheme, type ThemePref } from "./theme";
 import { activePreset, describePage, fromPresetPlacement, pageChoice, toPresetPlacement, type Preset } from "./presets";
 import {
@@ -16,6 +31,7 @@ import {
   FitWidthIcon,
   FolderIcon,
   GearIcon,
+  LockIcon,
   MinusIcon,
   PlusIcon,
   RefreshIcon,
@@ -36,6 +52,12 @@ interface Saved {
   presets: Preset[];
   /** Show the signature image (kept in the app's data folder) in the box. */
   image: ImageChoice;
+  /** Remind this many days before the DSC expires; 0 for never. */
+  expiryReminder: ReminderDays;
+  /** Day the reminder for certificates not plugged in was dismissed. */
+  reminderDismissed: string;
+  /** Look for a new version on launch. */
+  autoUpdate: boolean;
 }
 
 const KEY = "trackmysign.settings.v1";
@@ -57,12 +79,16 @@ const defaults: Saved = {
   ltv: false,
   presets: [],
   image: "off",
+  expiryReminder: 30,
+  reminderDismissed: "",
+  autoUpdate: true,
 };
 
 function loadSaved(): Saved {
   try {
     const s: Saved = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
     if (!Array.isArray(s.presets)) s.presets = [];
+    if (!REMINDER_CHOICES.some((c) => c.value === s.expiryReminder)) s.expiryReminder = defaults.expiryReminder;
     return s;
   } catch {
     return defaults;
@@ -112,6 +138,12 @@ const MOD = isMac ? "⌘" : "Ctrl+";
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
 
 type PagesMode = "this" | "all" | "custom";
+
+const CERTIFY_LEVELS: { value: CertifyLevel; label: string; help: string }[] = [
+  { value: 1, label: "No changes", help: "Any later change, even another signature, invalidates the certification." },
+  { value: 2, label: "Form fill & sign", help: "Others can still fill in forms and sign." },
+  { value: 3, label: "+ Comments", help: "Others can still fill in forms, sign and add comments." },
+];
 
 const PAGE_MODES: { value: PagesMode; label: string }[] = [
   { value: "this", label: "This page" },
@@ -178,6 +210,16 @@ interface Doc {
   info: PdfInfo;
   pdf: PDFDocumentProxy;
   sizes: PageSize[];
+  /** What the PDF was unlocked with; in memory only, gone with the document. */
+  password?: string;
+}
+
+/** A protected PDF waiting for its password; `owner` when it is open but may not be signed. */
+interface Unlock {
+  path: string;
+  name: string;
+  owner: boolean;
+  error?: string;
 }
 
 interface BatchItem {
@@ -201,10 +243,13 @@ export default function App() {
   const [certs, setCerts] = useState<Cert[] | null>(null);
   const [certError, setCertError] = useState<string | null>(null);
   const [certIndex, setCertIndex] = useState(0);
+  /** Certificates seen before, for the reminder while the token is out. */
+  const [known, setKnown] = useState<KnownCert[]>([]);
   const [drivers, setDrivers] = useState<Driver[] | undefined>(undefined);
   const [doc, setDoc] = useState<Doc | null>(null);
   const [loading, setLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
+  const [unlock, setUnlock] = useState<Unlock | null>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
   /** Empty signature field to sign into instead of a free box. */
   const [field, setField] = useState<EmptyField | null>(null);
@@ -212,6 +257,8 @@ export default function App() {
   const [batch, setBatch] = useState<string[] | null>(null);
   const [pagesMode, setPagesMode] = useState<PagesMode>("this");
   const [pagesSpec, setPagesSpec] = useState("");
+  /** Certify (an author signature) instead of approving; per document. */
+  const [certify, setCertify] = useState<CertifyLevel | null>(null);
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [hover, setHover] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -222,6 +269,7 @@ export default function App() {
   const [theme, setTheme] = useTheme();
   const [sigImage, setSigImage] = useState<{ url: string; aspect: number } | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const updater = useUpdater(saved.autoUpdate);
 
   const update = (patch: Partial<Saved>) =>
     setSaved((s) => {
@@ -248,6 +296,10 @@ export default function App() {
       setCerts([]);
       setCertError(api.errorOf(e).message);
     }
+    api
+      .knownCertificates()
+      .then(setKnown)
+      .catch(() => setKnown([]));
   }, []);
 
   useEffect(() => {
@@ -303,28 +355,53 @@ export default function App() {
   }, [certs, busy, refreshCerts]);
 
   // ---- documents
-  const openPath = useCallback(async (path: string) => {
+  const openPath = useCallback(async (path: string, password?: string) => {
     setLoading(true);
     setDocError(null);
     setStep({ kind: "idle" });
     try {
-      const [info, bytes] = await Promise.all([api.pdfInfo(path), api.readPdf(path)]);
-      const { doc: pdf, sizes } = await loadPdf(bytes);
+      const [info, bytes] = await Promise.all([api.pdfInfo(path, password), api.readPdf(path)]);
+      const { doc: pdf, sizes } = await loadPdf(bytes, password);
       if (!info.pages.length) info.pages = sizes;
-      setDoc({ info, pdf, sizes });
+      setUnlock(null);
+      setDoc({ info, pdf, sizes, password });
       setZoom(1);
       setPage(0);
       setPlacement(initialPlacement(sizes, loadSaved()));
       setField(null);
       setPagesMode("this");
       setPagesSpec("");
+      setCertify(null);
     } catch (e) {
+      const err = api.errorOf(e);
       setDoc(null);
-      setDocError(api.errorOf(e).message);
+      if (err.kind === "password") {
+        setUnlock({ path, name: baseName(path), owner: false, error: password === undefined ? undefined : err.message });
+      } else {
+        setUnlock(null);
+        setDocError(err.message);
+      }
     } finally {
       setLoading(false);
     }
   }, []);
+
+  /** The owner password lifts the restrictions of a PDF that is already open. */
+  const unlockOwner = async (password: string) => {
+    if (!doc) return;
+    try {
+      const info = await api.pdfInfo(doc.info.path, password);
+      if (!info.signingAllowed) {
+        setUnlock((u) => u && { ...u, error: "This password opens the PDF but does not allow signing. Enter the owner password." });
+        return;
+      }
+      setDoc({ ...doc, info: { ...info, pages: doc.info.pages }, password });
+      setUnlock(null);
+    } catch (e) {
+      const err = api.errorOf(e);
+      setUnlock((u) => u && { ...u, error: err.message });
+    }
+  };
 
   const openFiles = useCallback(
     (paths: string[]) => {
@@ -443,8 +520,19 @@ export default function App() {
   const emptyFields = batch ? [] : (doc?.info.emptyFields ?? []);
   const pagesError = typeof selection === "string" ? selection : null;
   const targetPages = Array.isArray(selection) ? selection : null;
-  const canSign = !!doc && !!placement && !!cert && !cert.expired && !loading && !pagesError;
-  const dialogOpen = step.kind !== "idle" || settingsOpen;
+  // Only the first signature certifies; "no changes" rules out any further one.
+  const canCertify = !!doc && doc.info.signatures === 0 && doc.info.certified === null;
+  const locked = doc?.info.certified === 1;
+  const canSign =
+    !!doc && doc.info.signingAllowed && !!placement && !!cert && !cert.expired && !loading && !pagesError && !locked && (!certify || canCertify);
+  const certTone = cert ? expiryTone(cert.daysLeft, saved.expiryReminder) : null;
+  // Certificates to renew soon: those on the token, or those seen before while it is out.
+  const reminders =
+    certs && saved.reminderDismissed !== today()
+      ? (certs.length ? certs : known).filter((k) => remindAbout(k.daysLeft, saved.expiryReminder))
+      : [];
+  const dismissReminders = () => update({ reminderDismissed: today() });
+  const dialogOpen = step.kind !== "idle" || settingsOpen || !!unlock;
 
   // ---- keyboard
   const keys = useRef({ pick, zoomBy, dialogOpen, hasDoc: !!doc });
@@ -480,6 +568,7 @@ export default function App() {
       setStep((s) => (s.kind === "batch" ? { ...s, files: s.files.map((f, j) => (j === i ? { ...f, ...patch } : f)) } : s));
     // The PIN dialog stays up until the token has accepted the PIN.
     let started = false;
+    let finished = 0;
     setStep({ kind: "signing" });
     try {
       await api.signBatch(
@@ -497,6 +586,8 @@ export default function App() {
           timestamp: useTs ? saved.tsaUrl.trim() : null,
           ltv: saved.ltv && skip !== "ltv",
           image: stampImage?.position ?? null,
+          password: doc.password ?? null,
+          certify,
         },
         (p) => {
           if (!started) {
@@ -506,18 +597,21 @@ export default function App() {
           if (p.state === "signing") setItem(p.index, { state: "signing" });
           else if (p.state === "done") setItem(p.index, { state: "done", output: p.output, signedName: p.name });
           else setItem(p.index, { state: "failed", message: p.message });
+          if (p.state !== "signing") finished++;
         },
       );
       update({ certName: cert.name });
       setStep((s) => (s.kind === "batch" ? { ...s, running: false } : s));
     } catch (e) {
       const err = api.errorOf(e);
-      if (started) {
+      // A key that wants the PIN for every signature only checks it at the first file.
+      const pinRefused = err.kind === "wrongPin" || err.kind === "pinLocked";
+      if (started && !(pinRefused && finished === 0)) {
         setStep((s) => (s.kind === "batch" ? { ...s, running: false, error: err.message } : s));
         return;
       }
       setStep({ kind: "pin", error: err });
-      if (err.kind === "token") refreshCerts();
+      if (err.kind === "token" || err.kind === "expired") refreshCerts();
     }
   };
 
@@ -542,13 +636,15 @@ export default function App() {
         ltv: saved.ltv && skip !== "ltv",
         image: stampImage?.position ?? null,
         field: field?.name ?? null,
+        password: doc.password ?? null,
+        certify,
       });
       update({ certName: cert.name });
       setStep({ kind: "done", result });
     } catch (e) {
       const err = api.errorOf(e);
       setStep({ kind: "pin", error: err });
-      if (err.kind === "token") refreshCerts();
+      if (err.kind === "token" || err.kind === "expired") refreshCerts();
     }
   };
 
@@ -620,6 +716,8 @@ export default function App() {
         </button>
       </header>
 
+      <UpdateBanner state={updater.state} busy={step.kind === "signing" || (step.kind === "batch" && step.running)} onInstall={updater.install} onDismiss={updater.dismiss} />
+
       <div className="workspace">
         <main className="viewer">
           {doc ? (
@@ -656,6 +754,13 @@ export default function App() {
                     <p className="inline-error">
                       <AlertIcon size={14} /> {docError}
                     </p>
+                  )}
+                  {reminders.length > 0 && (
+                    <div className="reminders">
+                      {reminders.map((k) => (
+                        <ReminderRow key={k.id} cert={k} remind={saved.expiryReminder} onDismiss={dismissReminders} />
+                      ))}
+                    </div>
                   )}
                   <ul className="facts">
                     <li>
@@ -733,21 +838,47 @@ export default function App() {
                       <dt>Issuer</dt>
                       <dd>{cert.issuer}</dd>
                       <dt>Valid until</dt>
-                      <dd className={cert.expired ? "bad" : undefined}>{cert.validUntil}</dd>
+                      <dd className={certTone === "expired" || certTone === "urgent" ? "bad" : undefined}>
+                        {cert.validUntil} <span className="muted">· {daysLeftText(cert.daysLeft)}</span>
+                      </dd>
                       <dt>Driver</dt>
                       <dd title={cert.driverPath}>{cert.driver}</dd>
                     </dl>
-                    {cert.expired && (
+                    {cert.expired ? (
                       <div className="warn-row">
                         <AlertIcon size={14} />
                         <div>
                           <strong>Certificate expired</strong>
-                          <span>Renew your DSC to sign documents.</span>
+                          <span>
+                            It expired on {cert.validUntil}. A signature made with an expired DSC is not valid, so signing is off. Renew your DSC with
+                            your provider.
+                          </span>
+                        </div>
+                      </div>
+                    ) : certTone ? (
+                      <div className={certTone === "soon" ? "warn-row calm" : "warn-row"}>
+                        <AlertIcon size={14} />
+                        <div>
+                          <strong>{expiryText(cert.daysLeft)}</strong>
+                          <span>Renew your DSC with your provider before {cert.validUntil} to keep signing without a break.</span>
+                        </div>
+                      </div>
+                    ) : null}
+                    {cert.startsIn !== null && (
+                      <div className="warn-row calm">
+                        <AlertIcon size={14} />
+                        <div>
+                          <strong>Certificate not yet valid</strong>
+                          <span>
+                            It becomes valid on {cert.validFrom}. Check this computer's date and time; a signature made before then may not be accepted.
+                          </span>
                         </div>
                       </div>
                     )}
                   </>
                 )}
+                {!cert &&
+                  reminders.map((k) => <ReminderRow key={k.id} cert={k} remind={saved.expiryReminder} onDismiss={dismissReminders} />)}
               </section>
 
               <section>
@@ -820,6 +951,62 @@ export default function App() {
                   </p>
                 </section>
               )}
+
+              <section>
+                <h3>Signature type</h3>
+                <div className="segmented" role="radiogroup" aria-label="Signature type">
+                  <button role="radio" aria-checked={!certify} className={!certify ? "on" : ""} onClick={() => setCertify(null)}>
+                    Approval
+                  </button>
+                  <button
+                    role="radio"
+                    aria-checked={!!certify}
+                    className={certify ? "on" : ""}
+                    onClick={() => setCertify(certify ?? 2)}
+                    disabled={!canCertify}
+                  >
+                    Certify
+                  </button>
+                </div>
+                {certify && canCertify && (
+                  <>
+                    <label id="certify-label">Allowed after certifying</label>
+                    <div className="segmented" role="radiogroup" aria-labelledby="certify-label">
+                      {CERTIFY_LEVELS.map((l) => (
+                        <button
+                          key={l.value}
+                          role="radio"
+                          aria-checked={certify === l.value}
+                          className={certify === l.value ? "on" : ""}
+                          onClick={() => setCertify(l.value)}
+                        >
+                          {l.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="muted small">
+                      {CERTIFY_LEVELS.find((l) => l.value === certify)?.help}
+                      {batch && " Already signed documents in the batch are skipped."}
+                    </p>
+                  </>
+                )}
+                {locked ? (
+                  <div className="warn-row">
+                    <AlertIcon size={14} />
+                    <div>
+                      <strong>Certified, no changes allowed</strong>
+                      <span>Another signature would invalidate the author's certification.</span>
+                    </div>
+                  </div>
+                ) : doc.info.certified ? (
+                  <p className="muted small">
+                    Certified by its author; {doc.info.certified === 3 ? "form filling, signing and comments" : "form filling and signing"}{" "}
+                    still allowed.
+                  </p>
+                ) : (
+                  !canCertify && <p className="muted small">Only the first signature can certify a document, and this one is already signed.</p>
+                )}
+              </section>
 
               <section>
                 <h3>Placement</h3>
@@ -918,7 +1105,27 @@ export default function App() {
                 )}
               </section>
 
-              <SignaturesPanel path={doc.info.path} count={doc.info.signatures} />
+              {doc.info.encrypted && (
+                <section>
+                  <h3>Protection</h3>
+                  {doc.info.signingAllowed ? (
+                    <p className="muted small">Password-protected. The signed copy keeps the same password and restrictions.</p>
+                  ) : (
+                    <div className="warn-row">
+                      <LockIcon size={14} />
+                      <div>
+                        <strong>Signing not allowed</strong>
+                        <span>The PDF's security settings do not allow signing without the owner password.</span>
+                        <button className="link" onClick={() => setUnlock({ path: doc.info.path, name: doc.info.name, owner: true })}>
+                          Enter owner password…
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              <SignaturesPanel path={doc.info.path} password={doc.password} count={doc.info.signatures} />
             </div>
 
             <div className="insp-foot">
@@ -943,6 +1150,24 @@ export default function App() {
 
       <footer className="statusbar">
         <TokenStatus certs={certs} error={certError} onRetry={refreshCerts} />
+        {cert && (certTone || cert.startsIn !== null) ? (
+          <span
+            className={`sb-item expiry ${certTone === "urgent" || certTone === "expired" ? "bad" : "calm"}`}
+            title={`${cert.name} · valid until ${cert.validUntil}`}
+          >
+            {certTone ? expiryText(cert.daysLeft) : "Certificate not yet valid"}
+          </span>
+        ) : (
+          reminders.length > 0 && (
+            <span
+              className={`sb-item expiry ${reminders.some((k) => expiryTone(k.daysLeft, saved.expiryReminder) !== "soon") ? "bad" : "calm"}`}
+              title={reminders.map((k) => `${k.name} · valid until ${k.validUntil}`).join("\n")}
+            >
+              {reminders[0].name}: {expiryText(reminders[0].daysLeft).toLowerCase()}
+              {reminders.length > 1 ? ` (+${reminders.length - 1})` : ""}
+            </span>
+          )
+        )}
         <div className="spacer" />
         <span className="mono sb-item" title={driverPath}>
           {drivers === undefined ? "" : driverPath ? baseName(driverPath) : "No PKCS#11 driver found"}
@@ -971,6 +1196,8 @@ export default function App() {
           onChooseImage={chooseImage}
           onRemoveImage={removeImage}
           onRefresh={refreshCerts}
+          updateState={updater.state}
+          onCheckUpdate={updater.check}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -985,6 +1212,16 @@ export default function App() {
           error={step.kind === "pin" ? step.error : undefined}
           onCancel={() => setStep({ kind: "idle" })}
           onSubmit={doSign}
+        />
+      )}
+
+      {unlock && (
+        <PasswordDialog
+          key={`${unlock.path}:${unlock.owner}`}
+          unlock={unlock}
+          busy={loading}
+          onCancel={() => setUnlock(null)}
+          onSubmit={(pw) => (unlock.owner ? unlockOwner(pw) : openPath(unlock.path, pw))}
         />
       )}
 
@@ -1023,6 +1260,29 @@ export default function App() {
 
 // -------------------------------------------------------------- components
 
+/** A certificate seen before, not plugged in now, that is about to expire or has. */
+function ReminderRow({ cert, remind, onDismiss }: { cert: KnownCert; remind: ReminderDays; onDismiss: () => void }) {
+  const tone = expiryTone(cert.daysLeft, remind);
+  return (
+    <div className={tone === "soon" ? "warn-row calm" : "warn-row"}>
+      <AlertIcon size={14} />
+      <div>
+        <strong>
+          {cert.name}: {expiryText(cert.daysLeft).toLowerCase()}
+        </strong>
+        <span>
+          {tone === "expired"
+            ? `Your DSC from ${cert.issuer} expired on ${cert.validUntil}. Signatures made with it are not valid; renew it with your provider.`
+            : `Your DSC from ${cert.issuer} is valid until ${cert.validUntil}. Renew it with your provider to keep signing without a break.`}
+        </span>
+        <button className="link" onClick={onDismiss}>
+          Dismiss for today
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TokenStatus({ certs, error, onRetry }: { certs: Cert[] | null; error: string | null; onRetry: () => void }) {
   if (certs === null)
     return (
@@ -1056,14 +1316,25 @@ function PinDialog(props: {
   onSubmit: (pin: string, skip?: "timestamp" | "ltv") => void;
 }) {
   const [pin, setPin] = useState("");
+  const [status, setStatus] = useState<PinStatus | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    api.pinStatus(props.cert.id, props.cert.driverPath).then(setStatus, () => setStatus(null));
+  }, [props.cert.id, props.cert.driverPath]);
   // A timestamp or revocation server failing is not a PIN problem: keep the PIN for the retry.
   const online = props.error?.kind === "timestamp" || props.error?.kind === "ltv" ? props.error.kind : null;
   useEffect(() => {
     if (props.error && !online) setPin("");
     input.current?.focus();
   }, [props.error, online]);
-  const locked = props.error?.kind === "pinLocked";
+  const locked = props.error?.kind === "pinLocked" || (!props.error && !!status?.locked);
+  const warning = status?.locked
+    ? "The token PIN is locked. Contact your DSC provider to unlock it."
+    : status?.finalTry
+      ? "One attempt left before the token locks!"
+      : status?.countLow
+        ? "Careful: few attempts left before the token locks."
+        : null;
   const pinError = props.error && (props.error.kind === "wrongPin" || props.error.kind === "pinLocked");
   return (
     <Modal title="Enter token PIN" onClose={props.busy ? undefined : props.onCancel}>
@@ -1109,6 +1380,10 @@ function PinDialog(props: {
           <p className="inline-error">
             <AlertIcon size={14} /> {props.error.message}
           </p>
+        ) : warning ? (
+          <p className="inline-error">
+            <AlertIcon size={14} /> {warning}
+          </p>
         ) : (
           <p className="muted small">The token locks after several wrong attempts. The PIN is never saved.</p>
         )}
@@ -1131,6 +1406,63 @@ function PinDialog(props: {
   );
 }
 
+function PasswordDialog(props: { unlock: Unlock; busy: boolean; onCancel: () => void; onSubmit: (password: string) => void }) {
+  const { unlock } = props;
+  const [password, setPassword] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (unlock.error) setPassword("");
+    input.current?.focus();
+  }, [unlock.error]);
+  return (
+    <Modal title={unlock.owner ? "Enter owner password" : "Password required"} icon={<LockIcon size={16} />} onClose={props.busy ? undefined : props.onCancel}>
+      <dl className="kv compact">
+        <dt>Document</dt>
+        <dd className="mono ellipsis">{unlock.name}</dd>
+      </dl>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (password && !props.busy) props.onSubmit(password);
+        }}
+      >
+        <label htmlFor="pdf-password">{unlock.owner ? "Owner (permissions) password" : "Password"}</label>
+        <input
+          id="pdf-password"
+          ref={input}
+          type="password"
+          className={`pdf-password ${unlock.error ? "invalid" : ""}`}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={props.busy}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        {unlock.error ? (
+          <p className="inline-error">
+            <AlertIcon size={14} /> {unlock.error}
+          </p>
+        ) : (
+          <p className="muted small">
+            {unlock.owner
+              ? "The document's author set restrictions that prevent signing. The password is not saved."
+              : "This PDF is password-protected. The password is not saved."}
+          </p>
+        )}
+        <div className="dialog-actions">
+          <div className="spacer" />
+          <button type="button" className="btn" onClick={props.onCancel} disabled={props.busy}>
+            Cancel
+          </button>
+          <button type="submit" className="btn primary" disabled={!password || props.busy}>
+            {unlock.owner ? "Unlock" : "Open"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 const IMAGE_CHOICES: { value: ImageChoice; label: string }[] = [
   { value: "off", label: "Off" },
   { value: "left", label: "Left of text" },
@@ -1142,6 +1474,30 @@ const THEMES: { value: ThemePref; label: string }[] = [
   { value: "dark", label: "Dark" },
   { value: "system", label: "System" },
 ];
+
+function updateStatus(s: UpdateState): string {
+  switch (s.kind) {
+    case "checking":
+      return "Checking…";
+    case "latest":
+      return `You have the latest version (${__APP_VERSION__}).`;
+    case "available":
+      return `TrackMySign ${s.update.version} is available.`;
+    case "installing":
+      return `Downloading ${s.update.version}…`;
+    case "error":
+      return s.update ? `Could not install ${s.update.version}: ${s.message}` : `Could not check for updates: ${s.message}`;
+    default:
+      return `Version ${__APP_VERSION__}`;
+  }
+}
+
+function onlineNote(signing: boolean, updates: boolean): string {
+  if (signing && updates) return "Only timestamp, revocation and update requests go online.";
+  if (signing) return "Only timestamp and revocation requests go online.";
+  if (updates) return "Only the update check goes online.";
+  return "Nothing leaves this computer.";
+}
 
 function Settings(props: {
   theme: ThemePref;
@@ -1156,6 +1512,8 @@ function Settings(props: {
   onChooseImage: () => void;
   onRemoveImage: () => void;
   onRefresh: () => void;
+  updateState: UpdateState;
+  onCheckUpdate: () => void;
   onClose: () => void;
 }) {
   const { onClose } = props;
@@ -1303,6 +1661,28 @@ function Settings(props: {
           </section>
 
           <section>
+            <h3>Expiry reminder</h3>
+            <div className="segmented" role="radiogroup" aria-label="Expiry reminder">
+              {REMINDER_CHOICES.map((c) => (
+                <button
+                  key={c.value}
+                  role="radio"
+                  aria-checked={props.saved.expiryReminder === c.value}
+                  className={props.saved.expiryReminder === c.value ? "on" : ""}
+                  onClick={() => props.update({ expiryReminder: c.value, reminderDismissed: "" })}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <p className="muted small">
+              {props.saved.expiryReminder
+                ? `Reminds you to renew your DSC ${props.saved.expiryReminder} days before it expires, also when the token is not plugged in.`
+                : "No reminder. An expired certificate still cannot be used to sign."}
+            </p>
+          </section>
+
+          <section>
             <h3>DSC token</h3>
             <dl className="kv">
               <dt>Status</dt>
@@ -1313,6 +1693,10 @@ function Settings(props: {
                 <>
                   <dt>Issuer</dt>
                   <dd>{cert.issuer}</dd>
+                  <dt>Valid until</dt>
+                  <dd className={cert.expired ? "bad" : undefined}>
+                    {cert.validUntil} · {daysLeftText(cert.daysLeft)}
+                  </dd>
                 </>
               )}
               {cert && (
@@ -1354,6 +1738,21 @@ function Settings(props: {
           </section>
 
           <section>
+            <h3>Updates</h3>
+            <label className="check-row">
+              <input type="checkbox" checked={props.saved.autoUpdate} onChange={(e) => props.update({ autoUpdate: e.target.checked })} />
+              Check for updates on launch
+            </label>
+            <p className="muted small">Asks GitHub whether a newer version is out. Nothing is installed without your click.</p>
+            <div className="setting-row">
+              <span className={`small ${props.updateState.kind === "error" ? "bad" : "muted"}`}>{updateStatus(props.updateState)}</span>
+              <button className="btn" onClick={props.onCheckUpdate} disabled={props.updateState.kind === "checking" || props.updateState.kind === "installing"}>
+                <RefreshIcon size={14} /> Check for updates
+              </button>
+            </div>
+          </section>
+
+          <section>
             <h3>About</h3>
             <div className="about">
               <Logo size={28} />
@@ -1363,7 +1762,7 @@ function Settings(props: {
                 </div>
                 <span className="muted small">
                   Signs PDFs with your DSC.{" "}
-                  {props.saved.timestamp || props.saved.ltv ? "Only timestamp and revocation requests go online." : "Nothing leaves this computer."}
+                  {onlineNote(props.saved.timestamp || props.saved.ltv, props.saved.autoUpdate)}
                 </span>
                 <button className="link" onClick={() => api.openWebsite()}>
                   sign.rahuldk.in

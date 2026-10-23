@@ -101,7 +101,7 @@ else
   echo "FAIL info: $("$BIN" info "$W/fx/field-nested.pdf")"; fail=1
 fi
 # Refused: a seed value the signature cannot meet, a signed field, a missing one.
-refused() {
+field_refused() {
   if "$BIN" sign "$W/fx/$1.pdf" --field "$2" --out "$W/refused.pdf" 2>"$W/err" >/dev/null; then
     echo "FAIL signed into $1 / $2"; fail=1
   elif grep -q "$3" "$W/err" && [ ! -e "$W/refused.pdf" ]; then
@@ -110,9 +110,9 @@ refused() {
     echo "FAIL: $(cat "$W/err")"; fail=1
   fi
 }
-refused field-sv Sha512Only "requires the digest sha512"
-refused field-mixed Auditor "empty fields: Director"
-refused field-simple Nope "empty fields: ClientSignature"
+field_refused field-sv Sha512Only "requires the digest sha512"
+field_refused field-mixed Auditor "empty fields: Director"
+field_refused field-simple Nope "empty fields: ClientSignature"
 for f in field-simple field-mixed field-nested field-rot270 field-lock field-cades; do vcheck "$W/signed/$f.pdf" valid; done
 for f in presigned presigned-objstm presigned-form; do vcheck "$W/fx/$f.pdf" valid; done
 for f in plain objstm form broken presigned presigned-form rot2 invisible twice; do vcheck "$W/signed/$f.pdf" valid; done
@@ -122,6 +122,42 @@ for f in plain twice; do
 done
 python3 -W ignore "$ROOT/tests/tamper.py" content "$W/signed/twice.pdf" "$W/changed.pdf"
 vcheck "$W/changed.pdf" valid
+
+# Password-protected PDFs: name and password ("" = empty user password, opens silently).
+encsign() {
+  local f=$1 pw=$2; shift 2
+  local arg=(); [ -n "$pw" ] && arg=(--password "$pw")
+  "$BIN" sign "$W/fx/$f.pdf" "${arg[@]}" "$@" --reason Approved --out "$W/signed/$f.pdf" >/dev/null
+  check --password="$pw" "$W/fx/$f.pdf" "$W/signed/$f.pdf"
+  python3 -W ignore "$ROOT/tests/verify_check.py" --password="$pw" "$BIN" "$W/signed/$f.pdf" valid "${ROOTS[@]}" || fail=1
+}
+encsign enc-rc40 ""
+encsign enc-rc128 user
+encsign enc-aes128 "" --pages all --image "$W/fx/sig.png"
+encsign enc-aes128-meta user
+encsign enc-aes256 own
+encsign enc-aes256-r5 ""
+encsign presigned-enc-aes256 user
+encsign presigned-enc-rc128 own --invisible
+encsign enc-restricted own
+expect_fail() {
+  local what=$1 pattern=$2; shift 2
+  if "$@" --out "$W/x.pdf" >/dev/null 2>"$W/err" </dev/null; then
+    echo "FAIL $what: signed"; fail=1
+  elif grep -q "$pattern" "$W/err" && [ ! -e "$W/x.pdf" ]; then
+    echo "PASS $what"
+  else
+    echo "FAIL $what: $(cat "$W/err")"; fail=1
+  fi
+}
+expect_fail "restricted PDF refused without the owner password" "do not allow signing" \
+  "$BIN" sign "$W/fx/enc-restricted.pdf"
+expect_fail "wrong PDF password rejected" "password is not correct" \
+  "$BIN" sign "$W/fx/enc-aes256.pdf" --password nope
+expect_fail "missing PDF password reported" "password-protected" \
+  "$BIN" sign "$W/fx/enc-rc128.pdf"
+"$BIN" sign "$W/signed/enc-aes256.pdf" --password user --position top-left --out "$W/signed/enc-twice.pdf" >/dev/null
+check --password=user "$W/signed/enc-aes256.pdf" "$W/signed/enc-twice.pdf"
 
 # Trusted timestamp, and LTV (TSA CA only reachable via AIA, revocation via OCSP and CRLs).
 TSA=$TEST_SERVICES_URL/tsa
@@ -135,6 +171,8 @@ check --timestamp --ltv "$W/fx/presigned-objstm.pdf" "$W/signed/ltv-presigned.pd
 check --timestamp --ltv "$W/signed/ltv.pdf" "$W/signed/ltv-twice.pdf"
 "$BIN" sign "$W/fx/broken.pdf" --ltv --out "$W/signed/ltv-only.pdf" >/dev/null
 check --ltv "$W/fx/broken.pdf" "$W/signed/ltv-only.pdf"
+"$BIN" sign "$W/fx/enc-aes256.pdf" --password user --timestamp "$TSA" --ltv --out "$W/signed/ltv-enc.pdf" >/dev/null
+check --timestamp --ltv --password=user "$W/fx/enc-aes256.pdf" "$W/signed/ltv-enc.pdf"
 if "$BIN" sign "$W/fx/plain.pdf" --timestamp http://127.0.0.1:1/tsa --out "$W/ts-down.pdf" 2>"$W/err"; then
   echo "FAIL signed although the TSA is unreachable"; fail=1
 elif grep -q "Timestamp failed" "$W/err" && [ ! -e "$W/ts-down.pdf" ]; then
@@ -151,10 +189,91 @@ for f in plain presigned-objstm; do cp "$W/fx/$f.pdf" "$W/batch-ltv/"; done
 "$BIN" sign "$W/batch-ltv/plain.pdf" "$W/batch-ltv/presigned-objstm.pdf" --pages all --image "$W/fx/sig.jpg" \
   --timestamp "$TSA" --ltv >/dev/null || fail=1
 for f in plain presigned-objstm; do check --timestamp --ltv "$W/fx/$f.pdf" "$W/batch-ltv/${f}_signed.pdf"; done
+# Certification (DocMDP): each level, approvals after levels 2 and 3, refusals.
+n=1
+for lvl in none forms annotations; do
+  "$BIN" sign "$W/fx/plain.pdf" --certify $lvl --out "$W/signed/cert-$lvl.pdf" >/dev/null
+  check --certify=$n "$W/fx/plain.pdf" "$W/signed/cert-$lvl.pdf"
+  vcheck "$W/signed/cert-$lvl.pdf" valid
+  n=$((n + 1))
+done
+for f in objstm form indirect broken; do
+  "$BIN" sign "$W/fx/$f.pdf" --certify forms --pages all --out "$W/signed/cert-$f.pdf" >/dev/null
+  check --certify=2 "$W/fx/$f.pdf" "$W/signed/cert-$f.pdf"
+done
+for lvl in forms annotations; do
+  n=$([ $lvl = forms ] && echo 2 || echo 3)
+  "$BIN" sign "$W/signed/cert-$lvl.pdf" --position top-left --image "$W/fx/sig.png" --out "$W/signed/cert-$lvl-approved.pdf" >/dev/null
+  check --certify=$n "$W/signed/cert-$lvl.pdf" "$W/signed/cert-$lvl-approved.pdf"
+  vcheck "$W/signed/cert-$lvl-approved.pdf" valid
+done
+"$BIN" sign "$W/signed/cert-objstm.pdf" --position top-left --out "$W/signed/cert-objstm-approved.pdf" >/dev/null
+check --certify=2 "$W/signed/cert-objstm.pdf" "$W/signed/cert-objstm-approved.pdf"
+# Visible approvals pass as in Acrobat (above); invisible ones even pyHanko's stricter default.
+"$BIN" sign "$W/signed/cert-forms.pdf" --invisible --out "$W/signed/cert-forms-invisible.pdf" >/dev/null
+check --certify=2 --strict "$W/signed/cert-forms.pdf" "$W/signed/cert-forms-invisible.pdf"
+"$BIN" sign "$W/fx/plain.pdf" --certify none --timestamp "$TSA" --ltv --out "$W/signed/cert-ltv.pdf" >/dev/null
+check --certify=1 --timestamp --ltv "$W/fx/plain.pdf" "$W/signed/cert-ltv.pdf"
+# Certifying an encrypted PDF: /Perms and /Reference go into the encrypted update.
+for f in enc-aes256:user enc-rc128:user enc-aes128:; do
+  name=${f%%:*} pw=${f#*:}
+  "$BIN" sign "$W/fx/$name.pdf" --password "$pw" --certify forms --out "$W/signed/cert-$name.pdf" >/dev/null
+  check --certify=2 --password="$pw" "$W/fx/$name.pdf" "$W/signed/cert-$name.pdf"
+  python3 -W ignore "$ROOT/tests/verify_check.py" --password="$pw" "$BIN" "$W/signed/cert-$name.pdf" valid "${ROOTS[@]}" || fail=1
+done
+"$BIN" sign "$W/signed/cert-enc-aes256.pdf" --password user --position top-left --out "$W/signed/cert-enc-approved.pdf" >/dev/null
+check --certify=2 --password=user "$W/signed/cert-enc-aes256.pdf" "$W/signed/cert-enc-approved.pdf"
+# Empty signature fields in an encrypted PDF (the field's /V and appearance go into
+# the encrypted update), and certifying into a field that has a /Lock.
+"$BIN" sign "$W/fx/field-enc.pdf" --password user --field approvals.director --out "$W/signed/field-enc.pdf" >/dev/null
+check --password=user "$W/fx/field-enc.pdf" "$W/signed/field-enc.pdf"
+python3 -W ignore "$ROOT/tests/check_field.py" --password user "$W/fx/field-enc.pdf" "$W/signed/field-enc.pdf" approvals.director "${ROOTS[@]}" || fail=1
+python3 -W ignore "$ROOT/tests/verify_check.py" --password=user "$BIN" "$W/signed/field-enc.pdf" valid "${ROOTS[@]}" || fail=1
+"$BIN" sign "$W/fx/field-lock.pdf" --field Approver --certify forms --image "$W/fx/sig.png" --out "$W/signed/field-cert.pdf" >/dev/null
+check --certify=2 "$W/fx/field-lock.pdf" "$W/signed/field-cert.pdf"
+python3 -W ignore "$ROOT/tests/check_field.py" --certify 2 --lock company "$W/fx/field-lock.pdf" "$W/signed/field-cert.pdf" Approver "${ROOTS[@]}" || fail=1
+vcheck "$W/signed/field-cert.pdf" valid
+"$BIN" sign "$W/fx/field-enc.pdf" --password user --field approvals.director --certify forms --timestamp "$TSA" --ltv \
+  --out "$W/signed/field-enc-cert.pdf" >/dev/null
+check --certify=2 --timestamp --ltv --password=user "$W/fx/field-enc.pdf" "$W/signed/field-enc-cert.pdf"
+python3 -W ignore "$ROOT/tests/check_field.py" --certify 2 --password user "$W/fx/field-enc.pdf" "$W/signed/field-enc-cert.pdf" approvals.director "${ROOTS[@]}" || fail=1
+refused() {
+  if "$BIN" sign "$1" "${@:3}" --out "$W/refused.pdf" >"$W/out" 2>"$W/err"; then
+    echo "FAIL signed $1 although it should be refused"; fail=1
+  elif grep -q "$2" "$W/err" && ! grep -q "^Signing as" "$W/out" && [ ! -e "$W/refused.pdf" ]; then
+    echo "PASS refused: $(basename "$1") ${*:3}"
+  else
+    echo "FAIL refusal of $1: $(cat "$W/out" "$W/err")"; fail=1
+  fi
+}
+refused "$W/signed/cert-none.pdf" "no changes allowed"
+refused "$W/signed/cert-none.pdf" "no changes allowed" --invisible
+refused "$W/fx/presigned.pdf" "Only the first signature can certify" --certify forms
+refused "$W/signed/cert-forms.pdf" "Only the first signature can certify" --certify annotations
 if TRACKMYSIGN_PIN=00000000 "$BIN" sign "$W/fx/plain.pdf" --out "$W/x.pdf" 2>"$W/err"; then
   echo "FAIL wrong PIN accepted"; fail=1
 else
   grep -q "Wrong PIN" "$W/err" && echo "PASS wrong PIN rejected" || { echo "FAIL: $(cat "$W/err")"; fail=1; }
+fi
+# A key that wants the PIN again for every signature (CKA_ALWAYS_AUTHENTICATE).
+AA=(env SOFTHSM2_CONF="$ALWAYS_AUTH_CONF")
+"${AA[@]}" "$BIN" sign "$W/fx/presigned.pdf" --out "$W/signed/always-auth.pdf" >/dev/null || fail=1
+check "$W/fx/presigned.pdf" "$W/signed/always-auth.pdf"
+mkdir -p "$W/batch-aa"
+for f in plain objstm form; do cp "$W/fx/$f.pdf" "$W/batch-aa/"; done
+"${AA[@]}" "$BIN" sign "$W/batch-aa/plain.pdf" "$W/batch-aa/objstm.pdf" "$W/batch-aa/form.pdf" \
+  --timestamp "$TSA" >"$W/batch-aa.out" || fail=1
+[ "$(grep -c '^Signed:' "$W/batch-aa.out")" = 3 ] && echo "PASS batch with a per-signature PIN" \
+  || { echo "FAIL batch with a per-signature PIN: $(cat "$W/batch-aa.out")"; fail=1; }
+for f in plain objstm form; do check --timestamp "$W/fx/$f.pdf" "$W/batch-aa/${f}_signed.pdf"; done
+mkdir -p "$W/batch-aa-bad"
+for f in plain objstm; do cp "$W/fx/$f.pdf" "$W/batch-aa-bad/"; done
+if TRACKMYSIGN_PIN=00000000 "${AA[@]}" "$BIN" sign "$W/batch-aa-bad/plain.pdf" "$W/batch-aa-bad/objstm.pdf" 2>"$W/err"; then
+  echo "FAIL wrong PIN accepted for the per-signature key"; fail=1
+elif [ "$(grep -c "Wrong PIN" "$W/err")" = 1 ] && ! ls "$W/batch-aa-bad"/*_signed.pdf >/dev/null 2>&1; then
+  echo "PASS wrong PIN rejected for the per-signature key"
+else
+  echo "FAIL: $(cat "$W/err")"; fail=1
 fi
 # A driver that fails to load must not hide the token behind another one.
 : > "$W/broken-pkcs11.so"
@@ -163,5 +282,28 @@ if TRACKMYSIGN_PKCS11_MODULE="$W/broken-pkcs11.so:$TRACKMYSIGN_PKCS11_MODULE" "$
   echo "PASS broken driver skipped"
 else
   echo "FAIL broken driver: $(cat "$W/certs")"; fail=1
+fi
+# Days left on each certificate; an expired one is refused unless --allow-expired.
+"$BIN" certs >"$W/certs" 2>&1 || fail=1
+if grep -Eq "Valid until: .* \(expires in 7(29|30) days\)" "$W/certs" \
+   && grep -Eq "Valid until: 01 Jan 2025 \(EXPIRED [0-9]+ days ago\)" "$W/certs" \
+   && grep -q "OLD TEST DIRECTOR (Personal)" "$W/certs"; then
+  echo "PASS certs shows days left"
+else
+  echo "FAIL certs expiry: $(cat "$W/certs")"; fail=1
+fi
+old=$(grep -o '^[0-9]*\. OLD TEST DIRECTOR' "$W/certs" | cut -d. -f1)
+if "$BIN" sign "$W/fx/plain.pdf" --cert "$old" --out "$W/expired.pdf" >/dev/null 2>"$W/err"; then
+  echo "FAIL signed with an expired certificate"; fail=1
+elif grep -q "expired .* --allow-expired" "$W/err" && [ ! -e "$W/expired.pdf" ]; then
+  echo "PASS expired certificate refused"
+else
+  echo "FAIL: $(cat "$W/err")"; fail=1
+fi
+if "$BIN" sign "$W/fx/plain.pdf" --cert "$old" --allow-expired --out "$W/expired.pdf" >/dev/null 2>"$W/err" \
+   && grep -q "Warning: .* has expired" "$W/err" && [ -s "$W/expired.pdf" ]; then
+  echo "PASS --allow-expired signs with a warning"
+else
+  echo "FAIL --allow-expired: $(cat "$W/err")"; fail=1
 fi
 [ $fail = 0 ] && echo "ALL PASSED" || { echo "SOME TESTS FAILED"; exit 1; }

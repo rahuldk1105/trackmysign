@@ -9,9 +9,9 @@ use std::io::Write as _;
 
 use sha1::{Digest, Sha1};
 
-use super::object::{Dict, Obj, write_obj};
+use super::object::{Dict, Obj};
 use super::reader::{Document, Result, XrefEntry, decode_stream};
-use super::sign::{write_xref_stream, write_xref_table};
+use super::sign::{write_objects, write_xref_stream, write_xref_table};
 
 /// What goes into the store for one signature.
 pub struct Validation<'a> {
@@ -38,7 +38,16 @@ fn flate(data: &[u8]) -> Vec<u8> {
 
 /// Appends a `/DSS` update to `input`, merging with any store already there.
 pub fn append(input: &[u8], v: &Validation) -> Result<Vec<u8>> {
-    let doc = Document::parse(input)?;
+    append_with_password(input, None, v)
+}
+
+/// [`append`] for a password-protected PDF; the new objects are encrypted.
+pub fn append_with_password(
+    input: &[u8],
+    password: Option<&str>,
+    v: &Validation,
+) -> Result<Vec<u8>> {
+    let doc = Document::open(input, password)?;
     let (cat_id, cat_gen) = doc.catalog_ref()?;
     let mut catalog = doc.catalog()?;
 
@@ -124,16 +133,11 @@ pub fn append(input: &[u8], v: &Validation) -> Result<Vec<u8>> {
         out.push(b'\n');
     }
     let mut offsets: BTreeMap<u32, (usize, u16)> = BTreeMap::new();
-    for (id, (gn, obj)) in &objs {
-        offsets.insert(*id, (out.len(), *gn));
-        out.extend_from_slice(format!("{id} {gn} obj\n").as_bytes());
-        write_obj(&mut out, obj);
-        out.extend_from_slice(b"\nendobj\n");
-    }
+    write_objects(&mut out, &doc, &objs, &mut offsets);
 
     let mut trailer = Dict::new();
     trailer.set("Root", Obj::Ref(cat_id, cat_gen));
-    for key in ["Info", "ID"] {
+    for key in ["Info", "ID", "Encrypt"] {
         if let Some(v) = doc.trailer.get(key) {
             trailer.set(key, v.clone());
         }

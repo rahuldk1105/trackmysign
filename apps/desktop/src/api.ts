@@ -9,8 +9,13 @@ export interface Cert {
   name: string;
   organization: string | null;
   issuer: string;
+  validFrom: string;
   validUntil: string;
   expired: boolean;
+  /** Whole days until it expires; negative once expired. */
+  daysLeft: number;
+  /** Whole days until it becomes valid, when it is not yet (or the PC clock is wrong). */
+  startsIn: number | null;
   canSign: boolean;
   tokenLabel: string;
   /** Product name of the PKCS#11 driver the certificate was read through. */
@@ -18,10 +23,36 @@ export interface Cert {
   driverPath: string;
 }
 
+/** A certificate seen on a token before, remembered for the expiry reminder. */
+export interface KnownCert {
+  id: string;
+  name: string;
+  issuer: string;
+  validUntil: string;
+  daysLeft: number;
+}
+
 export interface Driver {
   name: string;
   path: string;
 }
+
+export interface PdfInfo {
+  path: string;
+  name: string;
+  pages: { width: number; height: number }[];
+  signatures: number;
+  /** Password-protected (possibly with an empty open password). */
+  encrypted: boolean;
+  /** The PDF's security settings, or the password given, allow signing. */
+  signingAllowed: boolean;
+  /** DocMDP level when the document is certified. */
+  certified: CertifyLevel | null;
+  emptyFields: EmptyField[];
+}
+
+/** What a certification allows afterwards: 1 no changes, 2 form filling and signing, 3 also comments. */
+export type CertifyLevel = 1 | 2 | 3;
 
 export interface Rect {
   x: number;
@@ -38,14 +69,6 @@ export interface EmptyField {
   page: number | null;
   /** Points from the top-left of the displayed page; null when invisible. */
   rect: Rect | null;
-}
-
-export interface PdfInfo {
-  path: string;
-  name: string;
-  pages: { width: number; height: number }[];
-  signatures: number;
-  emptyFields: EmptyField[];
 }
 
 /** Whether the handwritten signature image is shown, and where. */
@@ -68,6 +91,10 @@ export interface SignArgs {
   image?: Exclude<ImageChoice, "off"> | null;
   /** Sign into this empty signature field; `page`, `rect` and `pages` are then unused. */
   field?: string | null;
+  /** Password the PDF was opened with; kept in memory only. */
+  password?: string | null;
+  /** Certify instead of approving. */
+  certify?: CertifyLevel | null;
 }
 
 /** Several PDFs, one PIN entry. The box goes on the same page and spot of each. */
@@ -89,8 +116,15 @@ export interface Signed {
   name: string;
 }
 
+/** PIN attempts as the token reports them (not every token does). */
+export interface PinStatus {
+  countLow: boolean;
+  finalTry: boolean;
+  locked: boolean;
+}
+
 export interface ApiError {
-  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "io" | "timestamp" | "ltv" | "other";
+  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "password" | "permission" | "io" | "timestamp" | "ltv" | "expired" | "other";
   message: string;
 }
 
@@ -110,8 +144,11 @@ const mock = {
         name: "DK RAHUL",
         organization: "Personal",
         issuer: "Verasys Sub CA 2022",
+        validFrom: "12 Dec 2024",
         validUntil: "11 Dec 2026",
         expired: false,
+        daysLeft: 49,
+        startsIn: null,
         canSign: true,
         tokenLabel: "HYP2003",
         driver: "Hypersecu HyperPKI",
@@ -143,13 +180,21 @@ export async function listCertificates(): Promise<Cert[]> {
   return inTauri ? invoke("list_certificates") : mock.listCertificates();
 }
 
-export async function pdfInfo(path: string): Promise<PdfInfo> {
-  if (inTauri) return invoke("pdf_info", { path });
+export async function knownCertificates(): Promise<KnownCert[]> {
+  return inTauri ? invoke("known_certificates") : [];
+}
+
+/** `password` unlocks a protected PDF (open or owner password). */
+export async function pdfInfo(path: string, password?: string): Promise<PdfInfo> {
+  if (inTauri) return invoke("pdf_info", { path, password: password ?? null });
   return {
     path,
     name: path.split(/[\\/]/).pop() ?? path,
     pages: [],
     signatures: 1,
+    certified: 2,
+    encrypted: false,
+    signingAllowed: true,
     emptyFields: [
       { name: "Director", page: 0, rect: { x: 340, y: 700, w: 200, h: 60 } },
       { name: "approvals.cfo", page: 0, rect: { x: 60, y: 700, w: 200, h: 60 } },
@@ -163,6 +208,11 @@ export async function readPdf(path: string): Promise<ArrayBuffer> {
 
 export async function sign(args: SignArgs): Promise<Signed> {
   return inTauri ? invoke("sign", { args }) : mock.sign(args);
+}
+
+export async function pinStatus(certId: string, driverPath: string): Promise<PinStatus> {
+  if (inTauri) return invoke("pin_status", { certId, driverPath });
+  return { countLow: false, finalTry: false, locked: false };
 }
 
 /** PDFs the app was started with (command line, Finder, "Sign with TrackMySign"). */
@@ -276,10 +326,12 @@ export interface SignatureCheck {
   bytesAfter: number;
   chain: string[];
   trust: "cca" | "notChecked";
+  /** Set for a certification signature. */
+  certification: CertifyLevel | null;
 }
 
-export async function verifyPdf(path: string): Promise<SignatureCheck[]> {
-  if (inTauri) return invoke("verify_pdf", { path });
+export async function verifyPdf(path: string, password?: string): Promise<SignatureCheck[]> {
+  if (inTauri) return invoke("verify_pdf", { path, password: password ?? null });
   return [
     {
       field: "AuditorSignature",
@@ -302,6 +354,7 @@ export async function verifyPdf(path: string): Promise<SignatureCheck[]> {
       bytesAfter: 11785,
       chain: ["CA AUDITOR PARTNER", "Verasys Sub CA 2022", "Verasys CA 2022", "CCA India 2022"],
       trust: "cca",
+      certification: 2,
     },
   ];
 }

@@ -126,7 +126,47 @@ for src, dst in (("plain.pdf", "presigned.pdf"), ("objstm.pdf", "presigned-objst
             new_field_spec=fields.SigFieldSpec("AuditorSignature", on_page=-1, box=(60, 60, 240, 110)),
             output=outf,
         )
-# 10. empty signature fields to sign into: simple, two fields of which one
+# 9. handwritten signature images: transparent left half / red right half
+# (PNG, RGBA and palette + tRNS), green left / red right (JPEG)
+from PIL import Image
+
+sig = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
+sig.paste((220, 0, 0, 255), (100, 0, 200, 100))
+sig.save(P("sig.png"))
+pal = Image.new("P", (200, 100), 0)
+pal.putpalette([0, 0, 0, 220, 0, 0])
+pal.paste(1, (100, 0, 200, 100))
+pal.save(P("sig-palette.png"), transparency=0)
+jpg = Image.new("RGB", (200, 100), (0, 160, 0))
+jpg.paste((220, 0, 0), (100, 0, 200, 100))
+jpg.save(P("sig.jpg"), quality=95)
+
+# 10. password-protected (qpdf): name, source, user password, owner password, options
+for name, src, user, owner, opts in (
+    ("enc-rc40", "plain.pdf", "", "own", ["40"]),
+    ("enc-rc128", "plain.pdf", "user", "own", ["128", "--use-aes=n"]),
+    ("enc-aes128", "objstm.pdf", "", "own", ["128", "--use-aes=y"]),
+    ("enc-aes128-meta", "plain.pdf", "user", "own", ["128", "--use-aes=y", "--cleartext-metadata"]),
+    ("enc-aes256", "objstm.pdf", "user", "own", ["256"]),
+    ("enc-aes256-r5", "plain.pdf", "", "own", ["256", "--force-R5"]),
+    ("enc-restricted", "form.pdf", "", "own", ["256", "--form=n", "--annotate=n"]),
+):
+    # --allow-weak-crypto: RC4 is what older PDFs use, so it must still be read.
+    subprocess.run(["qpdf", "--allow-weak-crypto", "--encrypt", user, owner, *opts, "--", P(src), P(name + ".pdf")], check=True)
+
+# 11. encrypted and already signed (pyHanko encrypts its update with the file key)
+for src, pw in (("enc-aes256.pdf", "user"), ("enc-rc128.pdf", "user")):
+    with open(P(src), "rb") as inf, open(P("presigned-" + src), "wb") as outf:
+        w = IncrementalPdfFileWriter(inf)
+        w.encrypt(pw)
+        signers.sign_pdf(
+            w,
+            signers.PdfSignatureMetadata(field_name="AuditorSignature", reason="Audited"),
+            signer=aud,
+            new_field_spec=fields.SigFieldSpec("AuditorSignature", on_page=-1, box=(60, 60, 240, 110)),
+            output=outf,
+        )
+# 12. empty signature fields to sign into: simple, two fields of which one
 # is signed, with a /Lock on a text field, with seed values (/SV) (pyHanko);
 # nested under a parent field and on rotated pages (hand-written)
 from pyhanko.sign.fields import FieldMDPAction, FieldMDPSpec, SigSeedSubFilter, SigSeedValFlags, SigSeedValueSpec
@@ -203,18 +243,6 @@ raw_pdf(P("field-rotated.pdf"), {
     9: b"<< /Fields [7 0 R 10 0 R] /SigFlags 0 >>",
     10: b"<< /Type /Annot /Subtype /Widget /FT /Sig /T (Rotated270) /Rect [480 80 540 280] /F 4 /P 5 0 R >>",
 })
-# 9. handwritten signature images: transparent left half / red right half
-# (PNG, RGBA and palette + tRNS), green left / red right (JPEG)
-from PIL import Image
-
-sig = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
-sig.paste((220, 0, 0, 255), (100, 0, 200, 100))
-sig.save(P("sig.png"))
-pal = Image.new("P", (200, 100), 0)
-pal.putpalette([0, 0, 0, 220, 0, 0])
-pal.paste(1, (100, 0, 200, 100))
-pal.save(P("sig-palette.png"), transparency=0)
-jpg = Image.new("RGB", (200, 100), (0, 160, 0))
-jpg.paste((220, 0, 0), (100, 0, 200, 100))
-jpg.save(P("sig.jpg"), quality=95)
+# ... and one in a password-protected PDF
+subprocess.run(["qpdf", "--encrypt", "user", "own", "256", "--", P("field-nested.pdf"), P("field-enc.pdf")], check=True)
 print("fixtures written to", out)
