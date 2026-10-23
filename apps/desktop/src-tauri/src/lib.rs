@@ -202,6 +202,12 @@ async fn sign(args: SignArgs) -> CmdResult<SignedDto> {
     })?
 }
 
+/// Path of the PKCS#11 driver that will be used for the token, if one is installed.
+#[tauri::command]
+fn token_driver() -> Option<String> {
+    signdesk_core::token::find_module().map(|p| p.to_string_lossy().into_owned())
+}
+
 /// A PDF passed on the command line ("Open with TrackMySign", drag onto the icon).
 #[tauri::command]
 fn startup_file() -> Option<String> {
@@ -226,6 +232,16 @@ fn reveal_file(path: String) -> CmdResult<()> {
     })
 }
 
+#[tauri::command]
+fn open_website() -> CmdResult<()> {
+    tauri_plugin_opener::open_url("https://sign.rahuldk.in", None::<&str>).map_err(|e| {
+        CommandError {
+            kind: "io",
+            message: e.to_string(),
+        }
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -237,8 +253,10 @@ pub fn run() {
             read_pdf,
             sign,
             startup_file,
+            token_driver,
             open_file,
-            reveal_file
+            reveal_file,
+            open_website
         ])
         .run(tauri::generate_context!())
         .expect("error while running TrackMySign");

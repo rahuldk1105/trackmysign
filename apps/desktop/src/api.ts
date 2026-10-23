@@ -110,6 +110,16 @@ export async function revealFile(path: string): Promise<void> {
   if (inTauri) await invoke("reveal_file", { path });
 }
 
+/** Path of the PKCS#11 driver used for the token, or null when none is installed. */
+export async function tokenDriver(): Promise<string | null> {
+  return inTauri ? invoke("token_driver") : "C:\\Windows\\System32\\eps2003csp11v2.dll";
+}
+
+export async function openWebsite(): Promise<void> {
+  if (inTauri) await invoke("open_website");
+  else window.open("https://sign.rahuldk.in", "_blank");
+}
+
 export async function pickPdf(): Promise<string | null> {
   if (!inTauri) return "C:\\Users\\rahul\\Downloads\\sample.pdf";
   const { open } = await import("@tauri-apps/plugin-dialog");

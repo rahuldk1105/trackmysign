@@ -35,6 +35,12 @@ interface Props {
   /** Multiplier on fit-to-width (1 = fit). */
   zoom: number;
   onPlace: (p: Placement) => void;
+  /** Reports the effective scale (1 = 100%) and the fit-to-width scale. */
+  onScale?: (scale: number, fit: number) => void;
+  /** Reports the page that currently fills the view. */
+  onPageChange?: (page: number) => void;
+  /** Scrolls to a page whenever this changes (`n` lets the same page be requested again). */
+  goto?: { page: number; n: number } | null;
 }
 
 const MIN_W = 90;
@@ -57,7 +63,7 @@ function fitFont(lines: string[], w: number, h: number): number {
 }
 const MIN_H = 30;
 
-export function PdfView({ doc, sizes, placement, preview, zoom, onPlace }: Props) {
+export function PdfView({ doc, sizes, placement, preview, zoom, onPlace, onScale, onPageChange, goto }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -74,6 +80,21 @@ export function PdfView({ doc, sizes, placement, preview, zoom, onPlace }: Props
   const fit = Math.min(1.6, Math.max(0.3, (width - 64) / maxPageWidth));
   const scale = Math.min(4, Math.max(0.25, fit * zoom));
 
+  useEffect(() => {
+    if (width) onScale?.(scale, fit);
+  }, [scale, fit, width, onScale]);
+
+  // Keep the same part of the document in view when the scale changes.
+  const prevScale = useRef<{ doc: PDFDocumentProxy; scale: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    const prev = prevScale.current;
+    prevScale.current = { doc, scale };
+    if (!el || !prev || prev.doc !== doc || prev.scale === scale) return;
+    const mid = el.scrollTop + el.clientHeight / 2;
+    el.scrollTop = Math.max(0, mid * (scale / prev.scale) - el.clientHeight / 2);
+  }, [doc, scale]);
+
   // When a document opens, scroll so the signature box is in view.
   const scrolledFor = useRef<PDFDocumentProxy | null>(null);
   useLayoutEffect(() => {
@@ -84,10 +105,38 @@ export function PdfView({ doc, sizes, placement, preview, zoom, onPlace }: Props
     scrolledFor.current = doc;
     const boxMid = pageEl.offsetTop + (placement.y + placement.h / 2) * scale;
     el.scrollTop = Math.max(0, boxMid - el.clientHeight * 0.6);
+    trackPage();
   }, [doc, placement, scale, width]);
 
+  // Which page is in view: the last page whose top is above 40% of the viewport.
+  const current = useRef(-1);
+  const trackPage = () => {
+    const el = scroller.current;
+    if (!el) return;
+    const line = el.scrollTop + el.clientHeight * 0.4;
+    let page = 0;
+    el.querySelectorAll<HTMLElement>("[data-page]").forEach((p, i) => {
+      if (p.offsetTop <= line) page = i;
+    });
+    if (el.scrollHeight > el.clientHeight + 2 && el.scrollTop + el.clientHeight >= el.scrollHeight - 2) page = sizes.length - 1;
+    if (page !== current.current) {
+      current.current = page;
+      onPageChange?.(page);
+    }
+  };
+  useEffect(() => {
+    current.current = -1;
+  }, [doc]);
+
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || !goto) return;
+    const pageEl = el.querySelector(`[data-page="${goto.page}"]`) as HTMLElement | null;
+    if (pageEl) el.scrollTo({ top: Math.max(0, pageEl.offsetTop - 20) });
+  }, [goto]);
+
   return (
-    <div className="pages" ref={scroller}>
+    <div className="pages" ref={scroller} onScroll={trackPage}>
       {sizes.map((s, i) => (
         <Page
           key={i}
@@ -226,7 +275,7 @@ function Page({ doc, index, size, scale, placement, preview, onPlace }: PageProp
           </div>
         )}
       </div>
-      <div className="page-num">Page {index + 1}</div>
+      <div className="page-num">{index + 1}</div>
     </div>
   );
 }
