@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    signdesk_desktop_lib::run()
+    trackmysign_desktop_lib::run()
 }
