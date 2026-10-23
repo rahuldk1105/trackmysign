@@ -4,6 +4,8 @@ import * as api from "./api";
 import type { ApiError, BatchProgress, Cert, Driver, ImageChoice, PdfInfo, Signed } from "./api";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
 import { SignaturesPanel } from "./SignaturesPanel";
+import { UpdateBanner } from "./UpdateBanner";
+import { useUpdater, type UpdateState } from "./updater";
 import { useTheme, type ThemePref } from "./theme";
 import { activePreset, describePage, fromPresetPlacement, pageChoice, toPresetPlacement, type Preset } from "./presets";
 import {
@@ -36,6 +38,8 @@ interface Saved {
   presets: Preset[];
   /** Show the signature image (kept in the app's data folder) in the box. */
   image: ImageChoice;
+  /** Look for a new version on launch. */
+  autoUpdate: boolean;
 }
 
 const KEY = "trackmysign.settings.v1";
@@ -57,6 +61,7 @@ const defaults: Saved = {
   ltv: false,
   presets: [],
   image: "off",
+  autoUpdate: true,
 };
 
 function loadSaved(): Saved {
@@ -220,6 +225,7 @@ export default function App() {
   const [theme, setTheme] = useTheme();
   const [sigImage, setSigImage] = useState<{ url: string; aspect: number } | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const updater = useUpdater(saved.autoUpdate);
 
   const update = (patch: Partial<Saved>) =>
     setSaved((s) => {
@@ -597,6 +603,8 @@ export default function App() {
         </button>
       </header>
 
+      <UpdateBanner state={updater.state} busy={step.kind === "signing" || (step.kind === "batch" && step.running)} onInstall={updater.install} onDismiss={updater.dismiss} />
+
       <div className="workspace">
         <main className="viewer">
           {doc ? (
@@ -902,6 +910,8 @@ export default function App() {
           onChooseImage={chooseImage}
           onRemoveImage={removeImage}
           onRefresh={refreshCerts}
+          updateState={updater.state}
+          onCheckUpdate={updater.check}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -1065,6 +1075,30 @@ const THEMES: { value: ThemePref; label: string }[] = [
   { value: "system", label: "System" },
 ];
 
+function updateStatus(s: UpdateState): string {
+  switch (s.kind) {
+    case "checking":
+      return "Checking…";
+    case "latest":
+      return `You have the latest version (${__APP_VERSION__}).`;
+    case "available":
+      return `TrackMySign ${s.update.version} is available.`;
+    case "installing":
+      return `Downloading ${s.update.version}…`;
+    case "error":
+      return s.update ? `Could not install ${s.update.version}: ${s.message}` : `Could not check for updates: ${s.message}`;
+    default:
+      return `Version ${__APP_VERSION__}`;
+  }
+}
+
+function onlineNote(signing: boolean, updates: boolean): string {
+  if (signing && updates) return "Only timestamp, revocation and update requests go online.";
+  if (signing) return "Only timestamp and revocation requests go online.";
+  if (updates) return "Only the update check goes online.";
+  return "Nothing leaves this computer.";
+}
+
 function Settings(props: {
   theme: ThemePref;
   setTheme: (t: ThemePref) => void;
@@ -1078,6 +1112,8 @@ function Settings(props: {
   onChooseImage: () => void;
   onRemoveImage: () => void;
   onRefresh: () => void;
+  updateState: UpdateState;
+  onCheckUpdate: () => void;
   onClose: () => void;
 }) {
   const { onClose } = props;
@@ -1276,6 +1312,21 @@ function Settings(props: {
           </section>
 
           <section>
+            <h3>Updates</h3>
+            <label className="check-row">
+              <input type="checkbox" checked={props.saved.autoUpdate} onChange={(e) => props.update({ autoUpdate: e.target.checked })} />
+              Check for updates on launch
+            </label>
+            <p className="muted small">Asks GitHub whether a newer version is out. Nothing is installed without your click.</p>
+            <div className="setting-row">
+              <span className={`small ${props.updateState.kind === "error" ? "bad" : "muted"}`}>{updateStatus(props.updateState)}</span>
+              <button className="btn" onClick={props.onCheckUpdate} disabled={props.updateState.kind === "checking" || props.updateState.kind === "installing"}>
+                <RefreshIcon size={14} /> Check for updates
+              </button>
+            </div>
+          </section>
+
+          <section>
             <h3>About</h3>
             <div className="about">
               <Logo size={28} />
@@ -1285,7 +1336,7 @@ function Settings(props: {
                 </div>
                 <span className="muted small">
                   Signs PDFs with your DSC.{" "}
-                  {props.saved.timestamp || props.saved.ltv ? "Only timestamp and revocation requests go online." : "Nothing leaves this computer."}
+                  {onlineNote(props.saved.timestamp || props.saved.ltv, props.saved.autoUpdate)}
                 </span>
                 <button className="link" onClick={() => api.openWebsite()}>
                   sign.rahuldk.in
