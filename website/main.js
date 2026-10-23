@@ -20,6 +20,91 @@
     });
   }
 
+  // ------------------------------------------- hero background engraving
+  // Guilloché rosettes and wave bands, as on certificates and stamp paper,
+  // plus one large signature stroke. Drawn once per size/theme; no animation.
+  var bg = $("[data-hero-bg]");
+  function drawHeroBg() {
+    if (!bg) return;
+    var w = bg.clientWidth, h = bg.clientHeight;
+    if (!w || !h) return;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    bg.width = Math.round(w * dpr);
+    bg.height = Math.round(h * dpr);
+    var ctx = bg.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    var ink = getComputedStyle(root).getPropertyValue("--hero-line").trim() || "#1b3a8c";
+    ctx.strokeStyle = ink;
+    ctx.lineJoin = "round";
+
+    // Rosette: a family of rotated hypotrochoids.
+    function rosette(cx, cy, R, r, d, copies, width, alpha) {
+      ctx.lineWidth = width;
+      ctx.globalAlpha = alpha;
+      var steps = 1400, k = (R - r) / r;
+      for (var c = 0; c < copies; c++) {
+        var rot = (c / copies) * (Math.PI * 2) / 9;
+        ctx.beginPath();
+        for (var i = 0; i <= steps; i++) {
+          var t = (i / steps) * Math.PI * 2 * r / gcd(R, r);
+          var x = (R - r) * Math.cos(t) + d * Math.cos(k * t);
+          var y = (R - r) * Math.sin(t) - d * Math.sin(k * t);
+          var xr = x * Math.cos(rot) - y * Math.sin(rot);
+          var yr = x * Math.sin(rot) + y * Math.cos(rot);
+          if (i === 0) ctx.moveTo(cx + xr, cy + yr);
+          else ctx.lineTo(cx + xr, cy + yr);
+        }
+        ctx.stroke();
+      }
+    }
+    function gcd(a, b) { return b ? gcd(b, a % b) : a; }
+
+    var u = Math.max(w, 900) / 1440;
+    rosette(w * 0.06, h * 0.18, 300 * u, 45 * u, 120 * u, 3, 0.7, 0.9);
+    rosette(w * 0.06, h * 0.18, 170 * u, 34 * u, 70 * u, 2, 0.6, 0.7);
+    rosette(w * 0.98, h * 0.94, 340 * u, 51 * u, 130 * u, 3, 0.7, 0.8);
+    rosette(w * 0.5, h * 0.06, 120 * u, 24 * u, 50 * u, 2, 0.6, 0.6);
+
+    // Wave band across the lower part of the hero.
+    ctx.globalAlpha = 0.75;
+    ctx.lineWidth = 0.7;
+    var base = h * 0.78;
+    for (var j = 0; j < 22; j++) {
+      ctx.beginPath();
+      for (var x = -10; x <= w + 10; x += 6) {
+        var y = base + j * 4.2 +
+          Math.sin(x * 0.006 + j * 0.28) * 26 * u +
+          Math.sin(x * 0.017 - j * 0.15) * 9 * u;
+        if (x === -10) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // One large signature stroke (the mark's own curve), sweeping behind the headline.
+    var sig = new Path2D("M14 40c6-10 10-14 13-14 4 0-2 12 2 12s6-8 9-8 1 6 4 6 5-3 8-5");
+    ctx.save();
+    var sc = 10 * u;
+    ctx.translate(w * 0.01, h * 0.38);
+    ctx.scale(sc, sc);
+    ctx.globalAlpha = 0.9;
+    ctx.lineWidth = 2.2 / sc * 1.6;
+    ctx.lineCap = "round";
+    ctx.stroke(sig);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+  if (bg) {
+    var redraw = function () { window.requestAnimationFrame(drawHeroBg); };
+    if (window.ResizeObserver) new ResizeObserver(redraw).observe(bg);
+    else window.addEventListener("resize", redraw);
+    new MutationObserver(redraw).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    media.addEventListener ? media.addEventListener("change", redraw) : media.addListener(redraw);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(redraw);
+    redraw();
+  }
+
   // ------------------------------------------------------ OS detection
   var ua = navigator.userAgent || "";
   var plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";

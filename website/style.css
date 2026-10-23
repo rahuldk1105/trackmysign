@@ -28,6 +28,9 @@
   --doc-bg: #ffffff;
   --doc-ink: #1b1f27;
   --doc-rule: #d9dde3;
+  --hero-line: #1b3a8c;
+  --hero-bg-opacity: 0.2;
+  --hero-grid: rgb(27 58 140 / 0.055);
   --band-ink: #0f1d45;
   --band-ink-fg: #e9edf6;
   --band-ink-muted: #a3afcb;
@@ -69,6 +72,9 @@
     --band-ink-rule: #262626;
     --logo-bg: #ffffff;
     --logo-fg: #000000;
+    --hero-line: #ffffff;
+    --hero-bg-opacity: 0.17;
+    --hero-grid: rgb(255 255 255 / 0.045);
     color-scheme: dark;
   }
 }
@@ -99,6 +105,9 @@
   --band-ink-rule: #262626;
   --logo-bg: #ffffff;
   --logo-fg: #000000;
+  --hero-line: #ffffff;
+  --hero-bg-opacity: 0.17;
+  --hero-grid: rgb(255 255 255 / 0.045);
   color-scheme: dark;
 }
 
@@ -345,6 +354,12 @@ code {
 /* ------------------------------------------------------------------ hero */
 
 .hero {
+  position: relative;
+  overflow: hidden;
+  background-image: linear-gradient(var(--hero-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hero-grid) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: -1px -1px;
   padding-block: clamp(36px, 4.5vw, 64px) clamp(36px, 4vw, 56px);
   border-bottom: 1px solid var(--rule);
 }
@@ -1524,4 +1539,21 @@ details p {
   .spec > div {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* hero background drawing (canvas, drawn in main.js) */
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: var(--hero-bg-opacity);
+  pointer-events: none;
+}
+.hero > .wrap {
+  position: relative;
+  z-index: 1;
+}
+.hero-copy {
+  position: relative;
 }
