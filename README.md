@@ -6,7 +6,8 @@ Sign PDFs with your USB DSC token (tested design: Hypersecu HyperPKI HYP2003) �
   signatures already on the document (auditor, CA, co-director) stay valid.
 - Standard `adbe.pkcs7.detached` / SHA-256 signatures that Adobe Reader validates.
 - Visible "Digitally signed by …" box, or invisible.
-- Your PIN is never stored.
+- Your PIN is never stored. Tokens whose key asks for the PIN on every
+  signature work too, batches included, with the PIN entered once.
 
 Status: desktop app for Windows (installer) and macOS (dmg), plus a command-line tool.
 
@@ -56,7 +57,7 @@ macOS), or pass `--module` to the command-line tool.
 .\trackmysign.exe certs
 ```
 
-   You should see your name, the issuing CA, the expiry date and the driver it was read through.
+   You should see your name, the issuing CA, the expiry date (with the days left) and the driver it was read through.
 
 3. Sign a test PDF (bottom-right of the last page by default):
 
@@ -94,6 +95,11 @@ in the PDF so the signature can be validated after the certificate expires. The
 desktop app has the same options under *Settings → Long-term validity*. If a
 server cannot be reached, nothing is saved and you can sign again without it.
 
+An expired certificate is refused, since a signature made with it is not valid
+(`--allow-expired` signs anyway, with a warning). The desktop app reminds you to
+renew 30 days ahead (15, 60 or off under *Settings → Expiry reminder*), also
+when the token is not plugged in, and turns signing off once the DSC has expired.
+
 Password-protected PDFs (RC4, AES-128 and AES-256) can be signed too; the signed copy
 keeps the same password and restrictions. Most of them only restrict editing and open
 without a password. If a PDF needs one, the app asks for it (the command-line tool
@@ -118,3 +124,12 @@ Layout:
 - `crates/signdesk-cli` — `trackmysign` command
 - `apps/desktop` — Tauri desktop app (React + PDF.js front end)
 - `PLAN.md` — decisions and roadmap
+
+## Project
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — building, tests, code style, adding a token driver
+- [PRIVACY.md](PRIVACY.md) — nothing leaves your computer except optional timestamp/LTV requests and the update check
+- [SECURITY.md](SECURITY.md) — reporting vulnerabilities privately
+- [CHANGELOG.md](CHANGELOG.md) — changes in each release, also on [sign.rahuldk.in/changelog](https://sign.rahuldk.in/changelog/)
+
+MIT licence, see [LICENSE](LICENSE).

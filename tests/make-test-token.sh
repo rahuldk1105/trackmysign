@@ -66,6 +66,15 @@ for kind in sign enc; do
   openssl pkcs8 -topk8 -nocrypt -in $kind.key -outform DER -out $kind.key.der
   openssl x509 -in $kind.pem -outform DER -out $kind.der
 done
+# An expired signing certificate (openssl x509 cannot back-date, openssl ca can).
+mkdir -p old && : > old/index.txt && echo 01 > old/serial
+printf '[ca]\ndefault_ca=c\n[c]\ndatabase=%s\nserial=%s\nnew_certs_dir=%s\ndefault_md=sha256\npolicy=p\n[p]\ncommonName=supplied\n' \
+  "$PWD/old/index.txt" "$PWD/old/serial" "$PWD/old" > old/ca.cnf
+q openssl req -newkey rsa:2048 -nodes -keyout old.key -out old.csr -subj "/C=IN/O=Personal/CN=OLD TEST DIRECTOR"
+q openssl ca -batch -notext -preserveDN -config old/ca.cnf -cert sub.pem -keyfile sub.key -in old.csr -out old.pem \
+  -startdate 20230101000000Z -enddate 20250101000000Z -extfile ext.cnf -extensions sd_sign
+openssl pkcs8 -topk8 -nocrypt -in old.key -outform DER -out old.key.der
+openssl x509 -in old.pem -outform DER -out old.der
 openssl x509 -in root.pem -outform DER -out root.der
 openssl x509 -in sub.pem -outform DER -out sub.der
 
@@ -102,7 +111,21 @@ q $P --write-object sign.key.der --type privkey --id 01 --label "sign"
 q $P --write-object sign.der --type cert --id 01 --label "sign"
 q $P --write-object enc.key.der --type privkey --id 02 --label "enc"
 q $P --write-object enc.der --type cert --id 02 --label "enc"
+q $P --write-object old.key.der --type privkey --id 03 --label "old"
+q $P --write-object old.der --type cert --id 03 --label "old"
 q $P --write-object sub.der --type cert --id 10 --label "subca"
 q $P --write-object root.der --type cert --id 11 --label "root"
 
-echo "export SOFTHSM2_CONF=$SOFTHSM2_CONF TRACKMYSIGN_PKCS11_MODULE=$MOD TRACKMYSIGN_PIN=12345678 TEST_PKI=$W/pki"
+# A second token whose signing key wants the PIN again for every signature
+# (CKA_ALWAYS_AUTHENTICATE), kept apart so it does not change the main token's list.
+AA_CONF="$W/softhsm2-always-auth.conf"
+mkdir -p "$W/softhsm-always-auth" && rm -rf "$W/softhsm-always-auth"/*
+printf 'directories.tokendir = %s\nobjectstore.backend = file\n' "$W/softhsm-always-auth" > "$AA_CONF"
+SOFTHSM2_CONF=$AA_CONF q softhsm2-util --init-token --free --label "HYP2003 ALWAYS" --so-pin 87654321 --pin 12345678
+SOFTHSM2_CONF=$AA_CONF q $P --write-object sign.key.der --type privkey --id 01 --label "sign" --always-auth
+for o in "sign.der 01 sign" "sub.der 10 subca" "root.der 11 root"; do
+  set -- $o
+  SOFTHSM2_CONF=$AA_CONF q $P --write-object "$1" --type cert --id "$2" --label "$3"
+done
+
+echo "export SOFTHSM2_CONF=$SOFTHSM2_CONF TRACKMYSIGN_PKCS11_MODULE=$MOD TRACKMYSIGN_PIN=12345678 TEST_PKI=$W/pki ALWAYS_AUTH_CONF=$AA_CONF"

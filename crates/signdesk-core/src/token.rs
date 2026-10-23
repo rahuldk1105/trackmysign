@@ -2,8 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use cryptoki::context::{CInitializeArgs, CInitializeFlags, Pkcs11};
-use cryptoki::error::{Error as CkError, RvError};
+use cryptoki::context::{CInitializeArgs, CInitializeFlags, Function, Pkcs11};
+use cryptoki::error::{Error as CkError, Rv, RvError};
 use cryptoki::mechanism::Mechanism;
 use cryptoki::object::{Attribute, AttributeType, ObjectClass, ObjectHandle};
 use cryptoki::session::{Session, UserType};
@@ -257,12 +257,7 @@ impl Token {
     }
 
     pub fn pin_status(&self, slot: Slot) -> Result<PinStatus, Error> {
-        let ti = self.ctx.get_token_info(slot).map_err(ck)?;
-        Ok(PinStatus {
-            count_low: ti.user_pin_count_low(),
-            final_try: ti.user_pin_final_try(),
-            locked: ti.user_pin_locked(),
-        })
+        pin_status(&self.ctx, slot)
     }
 
     /// All X.509 certificates on all connected tokens (no PIN needed).
@@ -333,23 +328,22 @@ impl Token {
             return Err(Error::PinLocked);
         }
         let session = self.ctx.open_ro_session(cert.slot).map_err(ck)?;
-        match session.login(UserType::User, Some(&AuthPin::new(pin.into()))) {
+        match session.login(UserType::User, Some(&AuthPin::from(pin))) {
             Ok(()) | Err(CkError::Pkcs11(RvError::UserAlreadyLoggedIn, _)) => {}
-            Err(CkError::Pkcs11(RvError::PinIncorrect | RvError::PinLenRange, _)) => {
-                let s = self.pin_status(cert.slot).unwrap_or_default();
-                if s.locked {
-                    return Err(Error::PinLocked);
-                }
-                return Err(Error::WrongPin {
-                    final_try: s.final_try,
-                    count_low: s.count_low,
-                });
-            }
-            Err(CkError::Pkcs11(RvError::PinLocked, _)) => return Err(Error::PinLocked),
-            Err(e) => return Err(ck(e)),
+            Err(e) => return Err(login_error(&self.ctx, cert.slot, e)),
         }
 
         let key = find_private_key(&session, cert)?;
+        let always_auth = session
+            .get_attributes(key, &[AttributeType::AlwaysAuthenticate])
+            .unwrap_or_default()
+            .iter()
+            .any(|a| matches!(a, Attribute::AlwaysAuthenticate(true)));
+        let per_signature = if always_auth {
+            Some(PerSignaturePin::new(&self.driver.path, pin)?)
+        } else {
+            None
+        };
 
         // Issuer chain from the other certificates stored on the token.
         let all = self.certificates().unwrap_or_default();
@@ -373,8 +367,11 @@ impl Token {
         }
 
         Ok(TokenSigner {
+            ctx: self.ctx.clone(),
+            slot: cert.slot,
             session,
             key,
+            per_signature,
             kind: cert.summary.key_kind,
             sig_len: cert.summary.signature_len,
             cert: cert.der.clone(),
@@ -459,6 +456,33 @@ impl Tokens {
     }
 }
 
+fn pin_status(ctx: &Pkcs11, slot: Slot) -> Result<PinStatus, Error> {
+    let ti = ctx.get_token_info(slot).map_err(ck)?;
+    Ok(PinStatus {
+        count_low: ti.user_pin_count_low(),
+        final_try: ti.user_pin_final_try(),
+        locked: ti.user_pin_locked(),
+    })
+}
+
+/// A failed `C_Login`, with the attempts left when the token tells.
+fn login_error(ctx: &Pkcs11, slot: Slot, e: CkError) -> Error {
+    match e {
+        CkError::Pkcs11(RvError::PinIncorrect | RvError::PinLenRange, _) => {
+            let s = pin_status(ctx, slot).unwrap_or_default();
+            if s.locked {
+                return Error::PinLocked;
+            }
+            Error::WrongPin {
+                final_try: s.final_try,
+                count_low: s.count_low,
+            }
+        }
+        CkError::Pkcs11(RvError::PinLocked, _) => Error::PinLocked,
+        e => ck(e),
+    }
+}
+
 fn find_private_key(session: &Session, cert: &TokenCert) -> Result<ObjectHandle, Error> {
     if !cert.ck_id.is_empty() {
         let found = session
@@ -497,13 +521,101 @@ fn find_private_key(session: &Session, cert: &TokenCert) -> Result<ObjectHandle,
     ))
 }
 
+/// For a key with `CKA_ALWAYS_AUTHENTICATE`: the PIN is given again after
+/// every `C_SignInit` (a `CKU_CONTEXT_SPECIFIC` login). It is kept only while
+/// the signer lives, so a batch needs one entry, and is wiped on drop.
+struct PerSignaturePin {
+    /// `None` once the token refused it: retrying would only use up attempts.
+    pin: Option<AuthPin>,
+    /// `C_Sign` on its own; cryptoki only calls it right after its own `C_SignInit`.
+    sign: unsafe extern "C" fn(
+        cryptoki_sys::CK_SESSION_HANDLE,
+        *mut u8,
+        cryptoki_sys::CK_ULONG,
+        *mut u8,
+        *mut cryptoki_sys::CK_ULONG,
+    ) -> cryptoki_sys::CK_RV,
+    /// The driver loaded once more (the OS shares the one already loaded),
+    /// keeping `sign` valid.
+    _lib: cryptoki_sys::Pkcs11,
+}
+
+impl PerSignaturePin {
+    fn new(module: &Path, pin: &str) -> Result<Self, Error> {
+        let missing = || Error::Token("The token driver does not provide C_Sign.".into());
+        // SAFETY: the same library cryptoki already loaded and initialised;
+        // the function list it hands out lives as long as the library does.
+        unsafe {
+            let lib = cryptoki_sys::Pkcs11::new(module)
+                .map_err(|e| Error::Token(format!("Could not load the token driver: {e}")))?;
+            if lib.C_GetFunctionList.is_err() {
+                return Err(missing());
+            }
+            let mut list: *mut cryptoki_sys::CK_FUNCTION_LIST = std::ptr::null_mut();
+            Rv::from(lib.C_GetFunctionList(&mut list))
+                .into_result(Function::GetFunctionList)
+                .map_err(ck)?;
+            let sign = list.as_ref().and_then(|l| l.C_Sign).ok_or_else(missing)?;
+            Ok(PerSignaturePin {
+                pin: Some(AuthPin::from(pin)),
+                sign,
+                _lib: lib,
+            })
+        }
+    }
+}
+
 pub struct TokenSigner {
+    ctx: Pkcs11,
+    slot: Slot,
     session: Session,
     key: ObjectHandle,
+    per_signature: Option<PerSignaturePin>,
     kind: KeyKind,
     sig_len: usize,
     cert: Vec<u8>,
     chain: Vec<Vec<u8>>,
+}
+
+impl TokenSigner {
+    fn sign(&mut self, mechanism: &Mechanism, data: &[u8]) -> Result<Vec<u8>, Error> {
+        let Some(per) = &mut self.per_signature else {
+            return self.session.sign(mechanism, self.key, data).map_err(ck);
+        };
+        let Some(pin) = per.pin.take() else {
+            return Err(Error::Token(
+                "Signing stopped: the token did not accept the PIN for this key.".into(),
+            ));
+        };
+        self.session.sign_init(mechanism, self.key).map_err(ck)?;
+        match self.session.login(UserType::ContextSpecific, Some(&pin)) {
+            // Some drivers answer this when the key needs no further login.
+            Ok(()) | Err(CkError::Pkcs11(RvError::UserAlreadyLoggedIn, _)) => per.pin = Some(pin),
+            Err(e) => return Err(login_error(&self.ctx, self.slot, e)),
+        }
+        let session = self.session.handle();
+        let call = |out: *mut u8, len: &mut cryptoki_sys::CK_ULONG| {
+            // SAFETY: `data` and `out` (when not null) outlive the call, and
+            // `len` is the size of `out`.
+            Rv::from(unsafe {
+                (per.sign)(
+                    session,
+                    data.as_ptr() as *mut u8,
+                    data.len() as cryptoki_sys::CK_ULONG,
+                    out,
+                    len,
+                )
+            })
+            .into_result(Function::Sign)
+            .map_err(ck)
+        };
+        let mut len: cryptoki_sys::CK_ULONG = 0;
+        call(std::ptr::null_mut(), &mut len)?;
+        let mut sig = vec![0u8; len as usize];
+        call(sig.as_mut_ptr(), &mut len)?;
+        sig.truncate(len as usize);
+        Ok(sig)
+    }
 }
 
 impl Signer for TokenSigner {
@@ -521,15 +633,9 @@ impl Signer for TokenSigner {
     }
     fn sign_sha256(&mut self, digest: &[u8; 32]) -> Result<Vec<u8>, Error> {
         match self.kind {
-            KeyKind::Rsa => self
-                .session
-                .sign(&Mechanism::RsaPkcs, self.key, &sha256_digest_info(digest))
-                .map_err(ck),
+            KeyKind::Rsa => self.sign(&Mechanism::RsaPkcs, &sha256_digest_info(digest)),
             KeyKind::Ec => {
-                let raw = self
-                    .session
-                    .sign(&Mechanism::Ecdsa, self.key, digest)
-                    .map_err(ck)?;
+                let raw = self.sign(&Mechanism::Ecdsa, digest)?;
                 Ok(ecdsa_raw_to_der(&raw))
             }
         }

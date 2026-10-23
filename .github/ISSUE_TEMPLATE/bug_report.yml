@@ -1,0 +1,82 @@
+name: Bug report
+description: Something doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Never paste your PIN, a certificate file, or a PDF signed with your real certificate.** Blank out your name and other personal details in screenshots and logs.
+        Security problems go to [private reporting](https://github.com/rahuldk1105/trackmysign/security/advisories/new), not here.
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: TrackMySign version
+      description: Shown in Settings → About, or run `trackmysign --version`.
+      placeholder: v0.1.4
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - Desktop app
+        - Command-line tool
+    validations:
+      required: true
+  - type: input
+    id: token
+    attributes:
+      label: Token make and model
+      placeholder: Hypersecu HyperPKI HYP2003
+  - type: input
+    id: driver
+    attributes:
+      label: Driver
+      description: From Settings → DSC token → Detected drivers (name and path), or the `Driver:` line of `trackmysign certs`.
+      placeholder: Hypersecu HyperPKI, C:\Windows\System32\eps2003csp11v2.dll
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Is it a PIN or token problem?
+      description: For example "Wrong PIN", "token locked", the certificate not showing, or signing failing at the PIN step.
+      options:
+        - "No"
+        - "Yes"
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a PDF that ...
+        2. Place the box on page ...
+        3. Press Sign document, enter PIN
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What happened, and what you expected
+      description: Include the exact error message. If Adobe Reader shows the signature as invalid, include what its signature panel says.
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Where the PDF came from (Tally, MCA form, scanner, Word...), whether it was already signed, screenshots.

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
+use signdesk_core::certinfo::Validity;
 use signdesk_core::token::{Driver, TokenCert, Tokens, driver_name};
 use signdesk_core::verify::{Changes, SignatureReport, Status, Trust};
 use signdesk_core::{
@@ -79,6 +80,10 @@ enum Cmd {
         /// Embed revocation info (OCSP/CRL) for long-term validation (needs the internet).
         #[arg(long)]
         ltv: bool,
+        /// Sign even if the certificate has expired. The signature will not be
+        /// accepted as valid.
+        #[arg(long)]
+        allow_expired: bool,
         /// PIN (for scripted tests only; normally you are prompted).
         #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
         pin: Option<String>,
@@ -207,14 +212,37 @@ fn open_tokens(module: &Option<PathBuf>) -> Result<Tokens> {
     })
 }
 
+fn days(n: i64) -> String {
+    if n == 1 {
+        "1 day".into()
+    } else {
+        format!("{n} days")
+    }
+}
+
+/// "expires in 12 days", "EXPIRED 3 days ago", "NOT YET VALID (starts in 2 days)".
+fn validity_text(v: Validity) -> String {
+    match v {
+        Validity::Valid { days_left: 0 } => "expires in less than a day".into(),
+        Validity::Valid { days_left } => format!("expires in {}", days(days_left)),
+        Validity::Expired { days: 0 } => "EXPIRED today".into(),
+        Validity::Expired { days: n } => format!("EXPIRED {} ago", days(n)),
+        Validity::NotYetValid { days: 0 } => "NOT YET VALID (starts later today)".into(),
+        Validity::NotYetValid { days: n } => format!("NOT YET VALID (starts in {})", days(n)),
+    }
+}
+
 fn describe(i: usize, c: &TokenCert) -> String {
     let s = &c.summary;
+    let validity = s.validity();
     let mut flags = Vec::new();
     if !s.can_sign {
         flags.push("encryption only");
     }
-    if s.expired {
-        flags.push("EXPIRED");
+    match validity {
+        Validity::Expired { .. } => flags.push("EXPIRED"),
+        Validity::NotYetValid { .. } => flags.push("NOT YET VALID"),
+        Validity::Valid { .. } => {}
     }
     let flags = if flags.is_empty() {
         String::new()
@@ -222,7 +250,7 @@ fn describe(i: usize, c: &TokenCert) -> String {
         format!("  [{}]", flags.join(", "))
     };
     format!(
-        "{i}. {}{}\n   Issued by: {}\n   Valid until: {}\n   Token: {}\n   Driver: {}{}",
+        "{i}. {}{}\n   Issued by: {}\n   Valid until: {} ({})\n   Token: {}\n   Driver: {}{}",
         s.subject_cn,
         s.organization
             .as_ref()
@@ -230,6 +258,7 @@ fn describe(i: usize, c: &TokenCert) -> String {
             .unwrap_or_default(),
         s.issuer_cn,
         s.not_after.format("%d %b %Y"),
+        validity_text(validity),
         c.token_label,
         c.driver.name,
         flags
@@ -409,6 +438,7 @@ fn run() -> Result<()> {
             cert,
             timestamp,
             ltv,
+            allow_expired,
             pin,
         } => {
             if out.is_some() && pdfs.len() > 1 {
@@ -464,6 +494,23 @@ fn run() -> Result<()> {
             if !chosen.summary.can_sign {
                 bail!("certificate #{cert} is for encryption only; pick the signing certificate");
             }
+            match chosen.summary.validity() {
+                v @ Validity::Expired { .. } if !allow_expired => bail!(
+                    "certificate #{cert} {} (valid until {}). A signature made with it is not \
+                     valid; renew your DSC. Use --allow-expired to sign anyway.",
+                    validity_text(v).to_lowercase(),
+                    chosen.summary.not_after.format("%d %b %Y")
+                ),
+                Validity::Expired { .. } => eprintln!(
+                    "Warning: certificate #{cert} has expired; the signature will not be valid."
+                ),
+                v @ Validity::NotYetValid { .. } => eprintln!(
+                    "Warning: certificate #{cert} is {}; check this computer's clock. \
+                     The signature may not be accepted as valid.",
+                    validity_text(v).to_lowercase()
+                ),
+                Validity::Valid { .. } => {}
+            }
             println!("Signing as: {}", chosen.summary.subject_cn);
             let pin = match pin {
                 Some(p) => p,
@@ -489,6 +536,8 @@ fn run() -> Result<()> {
                 };
                 let out = out.clone().unwrap_or_else(|| signed_path(pdf));
                 let done = match sign_pdf(&job.data, &req, &mut signer) {
+                    // Stop the batch: another attempt could lock the token.
+                    Err(e @ (Error::WrongPin { .. } | Error::PinLocked)) => return Err(e.into()),
                     Err(e @ Error::Timestamp(_)) => Err(anyhow::anyhow!(
                         "{e}\nNothing was saved. Run again without --timestamp to sign without one."
                     )),
@@ -530,4 +579,26 @@ fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validity_wording() {
+        let t = |v| validity_text(v);
+        assert_eq!(t(Validity::Valid { days_left: 12 }), "expires in 12 days");
+        assert_eq!(t(Validity::Valid { days_left: 1 }), "expires in 1 day");
+        assert_eq!(
+            t(Validity::Valid { days_left: 0 }),
+            "expires in less than a day"
+        );
+        assert_eq!(t(Validity::Expired { days: 3 }), "EXPIRED 3 days ago");
+        assert_eq!(t(Validity::Expired { days: 0 }), "EXPIRED today");
+        assert_eq!(
+            t(Validity::NotYetValid { days: 2 }),
+            "NOT YET VALID (starts in 2 days)"
+        );
+    }
 }
