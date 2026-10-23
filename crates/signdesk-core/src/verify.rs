@@ -13,10 +13,10 @@ use cms::content_info::ContentInfo;
 use cms::signed_data::{SignedData, SignerIdentifier};
 use const_oid::ObjectIdentifier;
 use const_oid::db::{rfc4519, rfc5280, rfc5911, rfc5912};
-use der::asn1::OctetString;
+use der::asn1::{OctetString, UintRef};
 use der::{Decode, Encode};
 use p256::ecdsa::signature::hazmat::PrehashVerifier;
-use rsa::pkcs8::DecodePublicKey;
+use p256::pkcs8::DecodePublicKey;
 use sha2::Digest;
 use x509_cert::Certificate;
 use x509_cert::attr::Attributes;
@@ -665,6 +665,68 @@ fn signature_algorithm(oid: ObjectIdentifier, digest: Hash) -> Option<(KeyKind, 
     .map(|(_, k, h)| (k, h.unwrap_or(digest)))
 }
 
+/// RFC 8017 RSAPublicKey.
+#[derive(der::Sequence)]
+struct RsaPublicKey<'a> {
+    modulus: UintRef<'a>,
+    public_exponent: UintRef<'a>,
+}
+
+/// DER DigestInfo prefix for each hash (RFC 8017, section 9.2, note 1).
+fn digest_info_prefix(hash: Hash) -> &'static [u8] {
+    match hash {
+        Hash::Sha1 => &[
+            0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04,
+            0x14,
+        ],
+        Hash::Sha256 => &[
+            0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
+            0x01, 0x05, 0x00, 0x04, 0x20,
+        ],
+        Hash::Sha384 => &[
+            0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
+            0x02, 0x05, 0x00, 0x04, 0x30,
+        ],
+        Hash::Sha512 => &[
+            0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
+            0x03, 0x05, 0x00, 0x04, 0x40,
+        ],
+    }
+}
+
+/// EMSA-PKCS1-v1_5 encoding of `hashed` for a `k`-byte modulus.
+fn pkcs1_encode(hash: Hash, hashed: &[u8], k: usize) -> Option<Vec<u8>> {
+    let prefix = digest_info_prefix(hash);
+    let t_len = prefix.len() + hashed.len();
+    if k < t_len + 11 {
+        return None;
+    }
+    let mut em = vec![0xff; k];
+    em[0] = 0;
+    em[1] = 1;
+    em[k - t_len - 1] = 0;
+    em[k - t_len..k - hashed.len()].copy_from_slice(prefix);
+    em[k - hashed.len()..].copy_from_slice(hashed);
+    Some(em)
+}
+
+/// RSASSA-PKCS1-v1_5 verification. Only public values are involved, so
+/// plain (variable-time) big-integer arithmetic is fine here.
+fn rsa_verify(key: &RsaPublicKey, hash: Hash, hashed: &[u8], sig: &[u8]) -> bool {
+    use num_bigint::BigUint;
+    let n = BigUint::from_bytes_be(key.modulus.as_bytes());
+    let e = BigUint::from_bytes_be(key.public_exponent.as_bytes());
+    let k = key.modulus.as_bytes().len();
+    let s = BigUint::from_bytes_be(sig);
+    if sig.len() != k || s >= n {
+        return false;
+    }
+    let m = s.modpow(&e, &n).to_bytes_be();
+    let mut em = vec![0; k - m.len()];
+    em.extend_from_slice(&m);
+    pkcs1_encode(hash, hashed, k).is_some_and(|expected| expected == em)
+}
+
 /// `Ok(false)` for a wrong signature, `Err` when the key cannot be used.
 fn verify_hashed(
     spki: &SubjectPublicKeyInfoOwned,
@@ -676,15 +738,12 @@ fn verify_hashed(
     let spki_der = spki.to_der().map_err(|e| e.to_string())?;
     match kind {
         KeyKind::Rsa => {
-            let key = rsa::RsaPublicKey::from_public_key_der(&spki_der)
-                .map_err(|_| "The signer's RSA key is not supported.".to_string())?;
-            let scheme = match hash {
-                Hash::Sha1 => rsa::Pkcs1v15Sign::new::<sha1::Sha1>(),
-                Hash::Sha256 => rsa::Pkcs1v15Sign::new::<sha2::Sha256>(),
-                Hash::Sha384 => rsa::Pkcs1v15Sign::new::<sha2::Sha384>(),
-                Hash::Sha512 => rsa::Pkcs1v15Sign::new::<sha2::Sha512>(),
-            };
-            Ok(key.verify(scheme, hashed, sig).is_ok())
+            let key = spki
+                .subject_public_key
+                .as_bytes()
+                .and_then(|b| RsaPublicKey::from_der(b).ok())
+                .ok_or_else(|| "The signer's RSA key is not supported.".to_string())?;
+            Ok(rsa_verify(&key, hash, hashed, sig))
         }
         KeyKind::Ec => {
             let curve = spki
@@ -1008,10 +1067,53 @@ fn is_signature_field(doc: &Document, d: &Dict) -> bool {
 mod tests {
     use super::*;
     use crate::{SignRequest, Signer, sign_pdf};
-    use rsa::pkcs8::DecodePrivateKey;
+    use num_bigint::BigUint;
+    use p256::pkcs8::DecodePrivateKey;
+
+    /// RFC 8017 RSAPrivateKey.
+    #[derive(der::Sequence)]
+    struct RsaPrivateKey<'a> {
+        version: UintRef<'a>,
+        modulus: UintRef<'a>,
+        public_exponent: UintRef<'a>,
+        private_exponent: UintRef<'a>,
+        prime1: UintRef<'a>,
+        prime2: UintRef<'a>,
+        exponent1: UintRef<'a>,
+        exponent2: UintRef<'a>,
+        coefficient: UintRef<'a>,
+    }
+
+    struct RsaKey {
+        n: BigUint,
+        d: BigUint,
+        k: usize,
+    }
+
+    impl RsaKey {
+        fn from_pkcs8(der: &[u8]) -> Self {
+            let info = p256::pkcs8::PrivateKeyInfo::from_der(der).unwrap();
+            let key = RsaPrivateKey::from_der(info.private_key).unwrap();
+            RsaKey {
+                n: BigUint::from_bytes_be(key.modulus.as_bytes()),
+                d: BigUint::from_bytes_be(key.private_exponent.as_bytes()),
+                k: key.modulus.as_bytes().len(),
+            }
+        }
+
+        fn sign(&self, hashed: &[u8]) -> Vec<u8> {
+            let em = pkcs1_encode(Hash::Sha256, hashed, self.k).unwrap();
+            let s = BigUint::from_bytes_be(&em)
+                .modpow(&self.d, &self.n)
+                .to_bytes_be();
+            let mut out = vec![0; self.k - s.len()];
+            out.extend_from_slice(&s);
+            out
+        }
+    }
 
     enum Key {
-        Rsa(Box<rsa::RsaPrivateKey>),
+        Rsa(RsaKey),
         Ec(p256::ecdsa::SigningKey),
     }
 
@@ -1024,10 +1126,9 @@ mod tests {
         fn rsa() -> Self {
             SoftSigner {
                 cert: include_bytes!("../testdata/rsa-cert.der").to_vec(),
-                key: Key::Rsa(Box::new(
-                    rsa::RsaPrivateKey::from_pkcs8_der(include_bytes!("../testdata/rsa-key.der"))
-                        .unwrap(),
-                )),
+                key: Key::Rsa(RsaKey::from_pkcs8(include_bytes!(
+                    "../testdata/rsa-key.der"
+                ))),
             }
         }
 
@@ -1065,9 +1166,7 @@ mod tests {
         }
         fn sign_sha256(&mut self, digest: &[u8; 32]) -> Result<Vec<u8>, Error> {
             match &self.key {
-                Key::Rsa(k) => Ok(k
-                    .sign(rsa::Pkcs1v15Sign::new::<sha2::Sha256>(), digest)
-                    .unwrap()),
+                Key::Rsa(k) => Ok(k.sign(digest)),
                 Key::Ec(k) => {
                     use p256::ecdsa::signature::hazmat::PrehashSigner;
                     let s: p256::ecdsa::Signature = k.sign_prehash(digest).unwrap();
