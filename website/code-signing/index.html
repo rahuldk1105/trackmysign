@@ -60,11 +60,11 @@
           </div>
           <div>
             <dt>Privacy policy</dt>
-            <dd>This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. TrackMySign signs PDFs locally with the user's DSC token; documents, certificates and PINs never leave the computer, and the app has no analytics or telemetry.</dd>
+            <dd>This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. TrackMySign signs PDFs locally with the user's DSC token; documents and PINs never leave the computer, and the app has no analytics or telemetry. The only network requests are an update check against GitHub Releases (can be turned off) and, when the user switches them on, a timestamp request (a hash only) and certificate revocation checks (OCSP/CRL).</dd>
           </div>
           <div>
             <dt>Third-party components</dt>
-            <dd>The app talks only to the token driver (PKCS#11 library) installed by the token's vendor, on the same computer. It bundles open-source libraries (Tauri, PDF.js, RustCrypto) that make no network requests in this app.</dd>
+            <dd>The app talks only to the token driver (PKCS#11 library) installed by the token's vendor, on the same computer. It bundles open-source libraries (Tauri, PDF.js, RustCrypto) that make no network requests of their own in this app.</dd>
           </div>
           <div>
             <dt>Reporting problems</dt>
