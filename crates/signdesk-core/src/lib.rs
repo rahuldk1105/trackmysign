@@ -16,6 +16,7 @@ use chrono::{DateTime, FixedOffset, Local};
 use sha2::{Digest, Sha256};
 
 pub use image::{ImagePosition, StampImage};
+pub use pdf::docmdp::DocMdp;
 pub use pdf::reader::PdfError;
 pub use pdf::sign::{DisplayRect, Placement};
 pub use tsa::DEFAULT_TSA_URL;
@@ -58,6 +59,9 @@ pub enum Error {
     Timestamp(String),
     #[error("Could not embed revocation info (LTV): {0}")]
     Ltv(String),
+    /// The document's existing signatures rule this signature out.
+    #[error("{0}")]
+    NotPermitted(String),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -78,6 +82,31 @@ pub struct SignRequest {
     pub timestamp: Option<String>,
     /// Append OCSP/CRL data for the certificates in a `/DSS` (needs the internet).
     pub ltv: bool,
+    /// Certify the document (an author signature) instead of approving it.
+    pub certify: Option<DocMdp>,
+}
+
+/// Whether `input` may get a signature: a certification only on a document
+/// without signatures, and nothing on one certified with "no changes".
+pub fn check_permitted(input: &[u8], certify: Option<DocMdp>) -> Result<(), Error> {
+    let doc = pdf::reader::Document::parse(input)?;
+    let (_, signatures) = doc.form_fields()?;
+    let certified = pdf::docmdp::of_document(&doc)?;
+    if certify.is_some() && (signatures > 0 || certified.is_some()) {
+        return Err(Error::NotPermitted(
+            "Only the first signature can certify a document, and this one is already signed. \
+             Sign it as an approval signature instead."
+                .into(),
+        ));
+    }
+    if certified == Some(DocMdp::NoChanges) {
+        return Err(Error::NotPermitted(
+            "The document is certified with no changes allowed. \
+             Another signature would invalidate the certification."
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Signs `input` and returns the complete new file.
@@ -86,6 +115,7 @@ pub fn sign_pdf(
     req: &SignRequest,
     signer: &mut dyn Signer,
 ) -> Result<Vec<u8>, Error> {
+    check_permitted(input, req.certify)?;
     let summary = certinfo::CertSummary::from_der(signer.certificate())?;
     let time = req.time.unwrap_or_else(|| Local::now().fixed_offset());
     let fields = pdf::sign::SignatureFields {
@@ -95,6 +125,7 @@ pub fn sign_pdf(
         time,
         image: req.image.clone(),
         image_position: req.image_position,
+        certify: req.certify,
     };
     let placement = Placement {
         page: req.page,
@@ -146,6 +177,8 @@ pub struct PageSize {
 pub struct PdfInfo {
     pub pages: Vec<PageSize>,
     pub signatures: usize,
+    /// Set when the document is certified.
+    pub certified: Option<DocMdp>,
 }
 
 pub fn inspect(input: &[u8]) -> Result<PdfInfo, Error> {
@@ -163,7 +196,11 @@ pub fn inspect(input: &[u8]) -> Result<PdfInfo, Error> {
         })
         .collect();
     let (_, signatures) = doc.form_fields()?;
-    Ok(PdfInfo { pages, signatures })
+    Ok(PdfInfo {
+        pages,
+        signatures,
+        certified: pdf::docmdp::of_document(&doc)?,
+    })
 }
 
 /// Parses a page selection such as `all` or `1-3,5` (numbered from 1) into

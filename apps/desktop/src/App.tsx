@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import * as api from "./api";
-import type { ApiError, BatchProgress, Cert, Driver, ImageChoice, PdfInfo, Signed } from "./api";
+import type { ApiError, BatchProgress, Cert, CertifyLevel, Driver, ImageChoice, PdfInfo, Signed } from "./api";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
 import { SignaturesPanel } from "./SignaturesPanel";
 import { useTheme, type ThemePref } from "./theme";
@@ -113,6 +113,12 @@ const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.
 
 type PagesMode = "this" | "all" | "custom";
 
+const CERTIFY_LEVELS: { value: CertifyLevel; label: string; help: string }[] = [
+  { value: 1, label: "No changes", help: "Any later change, even another signature, invalidates the certification." },
+  { value: 2, label: "Form fill & sign", help: "Others can still fill in forms and sign." },
+  { value: 3, label: "+ Comments", help: "Others can still fill in forms, sign and add comments." },
+];
+
 const PAGE_MODES: { value: PagesMode; label: string }[] = [
   { value: "this", label: "This page" },
   { value: "all", label: "All pages" },
@@ -210,6 +216,8 @@ export default function App() {
   const [batch, setBatch] = useState<string[] | null>(null);
   const [pagesMode, setPagesMode] = useState<PagesMode>("this");
   const [pagesSpec, setPagesSpec] = useState("");
+  /** Certify (an author signature) instead of approving; per document. */
+  const [certify, setCertify] = useState<CertifyLevel | null>(null);
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [hover, setHover] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -315,6 +323,7 @@ export default function App() {
       setPlacement(initialPlacement(sizes, loadSaved()));
       setPagesMode("this");
       setPagesSpec("");
+      setCertify(null);
     } catch (e) {
       setDoc(null);
       setDocError(api.errorOf(e).message);
@@ -421,7 +430,11 @@ export default function App() {
     pagesMode === "all" ? Array.from({ length: pages }, (_, i) => i) : pagesMode === "custom" ? parsePages(pagesSpec, pages) : null;
   const pagesError = typeof selection === "string" ? selection : null;
   const targetPages = Array.isArray(selection) ? selection : null;
-  const canSign = !!doc && !!placement && !!cert && !cert.expired && !loading && !pagesError;
+  // Only the first signature certifies; "no changes" rules out any further one.
+  const canCertify = !!doc && doc.info.signatures === 0 && doc.info.certified === null;
+  const locked = doc?.info.certified === 1;
+  const canSign =
+    !!doc && !!placement && !!cert && !cert.expired && !loading && !pagesError && !locked && (!certify || canCertify);
   const dialogOpen = step.kind !== "idle" || settingsOpen;
 
   // ---- keyboard
@@ -475,6 +488,7 @@ export default function App() {
           timestamp: useTs ? saved.tsaUrl.trim() : null,
           ltv: saved.ltv && skip !== "ltv",
           image: stampImage?.position ?? null,
+          certify,
         },
         (p) => {
           if (!started) {
@@ -519,6 +533,7 @@ export default function App() {
         timestamp: useTs ? saved.tsaUrl.trim() : null,
         ltv: saved.ltv && skip !== "ltv",
         image: stampImage?.position ?? null,
+        certify,
       });
       update({ certName: cert.name });
       setStep({ kind: "done", result });
@@ -765,6 +780,62 @@ export default function App() {
                     ))}
                   </div>
                 </div>
+              </section>
+
+              <section>
+                <h3>Signature type</h3>
+                <div className="segmented" role="radiogroup" aria-label="Signature type">
+                  <button role="radio" aria-checked={!certify} className={!certify ? "on" : ""} onClick={() => setCertify(null)}>
+                    Approval
+                  </button>
+                  <button
+                    role="radio"
+                    aria-checked={!!certify}
+                    className={certify ? "on" : ""}
+                    onClick={() => setCertify(certify ?? 2)}
+                    disabled={!canCertify}
+                  >
+                    Certify
+                  </button>
+                </div>
+                {certify && canCertify && (
+                  <>
+                    <label id="certify-label">Allowed after certifying</label>
+                    <div className="segmented" role="radiogroup" aria-labelledby="certify-label">
+                      {CERTIFY_LEVELS.map((l) => (
+                        <button
+                          key={l.value}
+                          role="radio"
+                          aria-checked={certify === l.value}
+                          className={certify === l.value ? "on" : ""}
+                          onClick={() => setCertify(l.value)}
+                        >
+                          {l.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="muted small">
+                      {CERTIFY_LEVELS.find((l) => l.value === certify)?.help}
+                      {batch && " Already signed documents in the batch are skipped."}
+                    </p>
+                  </>
+                )}
+                {locked ? (
+                  <div className="warn-row">
+                    <AlertIcon size={14} />
+                    <div>
+                      <strong>Certified, no changes allowed</strong>
+                      <span>Another signature would invalidate the author's certification.</span>
+                    </div>
+                  </div>
+                ) : doc.info.certified ? (
+                  <p className="muted small">
+                    Certified by its author; {doc.info.certified === 3 ? "form filling, signing and comments" : "form filling and signing"}{" "}
+                    still allowed.
+                  </p>
+                ) : (
+                  !canCertify && <p className="muted small">Only the first signature can certify a document, and this one is already signed.</p>
+                )}
               </section>
 
               <section>

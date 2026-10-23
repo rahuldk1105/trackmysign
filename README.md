@@ -84,6 +84,7 @@ Other options:
 .\trackmysign.exe --module C:\Windows\System32\eps2003csp11v2.dll certs   # explicit driver
 .\trackmysign.exe sign file.pdf --timestamp --ltv     # long-term validity (needs internet)
 .\trackmysign.exe sign file.pdf --timestamp=http://timestamp.sectigo.com
+.\trackmysign.exe sign file.pdf --certify forms       # certify as the author (first signature only)
 ```
 
 Long-term validity is off by default, so signing works fully offline. `--timestamp`
@@ -92,6 +93,12 @@ only a hash of the signature is sent). `--ltv` embeds your CA's OCSP/CRL answers
 in the PDF so the signature can be validated after the certificate expires. The
 desktop app has the same options under *Settings → Long-term validity*. If a
 server cannot be reached, nothing is saved and you can sign again without it.
+
+`--certify none|forms|annotations` makes the signature a certification (author)
+signature that says what may change afterwards: nothing, form filling and
+signing, or also comments. Only an unsigned document can be certified, and a
+document certified with `none` cannot be signed again. In the desktop app this
+is *Signature type → Certify* in the side panel.
 
 ## Development
 

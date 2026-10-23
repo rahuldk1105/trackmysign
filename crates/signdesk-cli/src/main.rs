@@ -7,8 +7,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use signdesk_core::token::{Driver, TokenCert, Tokens, driver_name};
 use signdesk_core::verify::{Changes, SignatureReport, Status, Trust};
 use signdesk_core::{
-    DEFAULT_TSA_URL, DisplayRect, Error, ImagePosition, SignRequest, StampImage, inspect,
-    parse_pages, sign_pdf, signed_path, verify,
+    DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, ImagePosition, SignRequest, StampImage,
+    check_permitted, inspect, parse_pages, sign_pdf, signed_path, verify,
 };
 
 #[derive(Parser)]
@@ -73,6 +73,10 @@ enum Cmd {
         /// Embed revocation info (OCSP/CRL) for long-term validation (needs the internet).
         #[arg(long)]
         ltv: bool,
+        /// Certify the document (first signature only) and set what may change
+        /// afterwards: nothing, form filling and signing, or also comments.
+        #[arg(long, value_enum, value_name = "ALLOWED")]
+        certify: Option<Certify>,
         /// PIN (for scripted tests only; normally you are prompted).
         #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
         pin: Option<String>,
@@ -88,6 +92,31 @@ enum Corner {
     BottomLeft,
     TopRight,
     TopLeft,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Certify {
+    None,
+    Forms,
+    Annotations,
+}
+
+impl From<Certify> for DocMdp {
+    fn from(c: Certify) -> Self {
+        match c {
+            Certify::None => DocMdp::NoChanges,
+            Certify::Forms => DocMdp::FormFilling,
+            Certify::Annotations => DocMdp::Annotations,
+        }
+    }
+}
+
+fn describe_certification(p: DocMdp) -> &'static str {
+    match p {
+        DocMdp::NoChanges => "no changes allowed",
+        DocMdp::FormFilling => "form filling and signing allowed",
+        DocMdp::Annotations => "form filling, signing and comments allowed",
+    }
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -129,9 +158,11 @@ fn read_and_place(
     position: Corner,
     rect: Option<DisplayRect>,
     invisible: bool,
+    certify: Option<DocMdp>,
 ) -> Result<Job> {
     let data = std::fs::read(pdf).with_context(|| format!("reading {}", pdf.display()))?;
     let info = inspect(&data)?;
+    check_permitted(&data, certify)?;
     let pages = match pages {
         Some(_) if invisible => bail!("--pages needs a visible signature"),
         Some(spec) => parse_pages(spec, info.pages.len()).map_err(anyhow::Error::msg)?,
@@ -254,6 +285,12 @@ fn describe_signature(r: &SignatureReport) -> String {
     if r.timestamped {
         line("Timestamp", "attached (not verified)".into());
     }
+    if let Some(p) = r.certification {
+        line(
+            "Certifies",
+            format!("level {}, {}", p.level(), describe_certification(p)),
+        );
+    }
     if let Some(v) = &r.reason {
         line("Reason", v.clone());
     }
@@ -352,6 +389,13 @@ fn run() -> Result<()> {
                 );
             }
             println!("Existing signatures: {}", info.signatures);
+            if let Some(p) = info.certified {
+                println!(
+                    "Certified: level {}, {}",
+                    p.level(),
+                    describe_certification(p)
+                );
+            }
         }
         Cmd::Sign {
             pdfs,
@@ -368,8 +412,10 @@ fn run() -> Result<()> {
             cert,
             timestamp,
             ltv,
+            certify,
             pin,
         } => {
+            let certify = certify.map(DocMdp::from);
             if out.is_some() && pdfs.len() > 1 {
                 bail!("--out works with a single PDF; signed copies go next to each original");
             }
@@ -397,7 +443,15 @@ fn run() -> Result<()> {
             // Read and place everything first, so problems show before the PIN prompt.
             let mut jobs = Vec::new();
             for pdf in &pdfs {
-                match read_and_place(pdf, page, pages.as_deref(), position, rect, invisible) {
+                match read_and_place(
+                    pdf,
+                    page,
+                    pages.as_deref(),
+                    position,
+                    rect,
+                    invisible,
+                    certify,
+                ) {
                     Ok(job) => jobs.push((pdf, job)),
                     Err(e) => report(pdf, e)?,
                 }
@@ -434,6 +488,7 @@ fn run() -> Result<()> {
                     },
                     timestamp: timestamp.clone(),
                     ltv,
+                    certify,
                     ..Default::default()
                 };
                 let out = out.clone().unwrap_or_else(|| signed_path(pdf));
