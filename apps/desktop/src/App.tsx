@@ -187,12 +187,28 @@ export default function App() {
   }, [openPath]);
 
   useEffect(() => {
-    api.startupFile().then((p) => {
-      if (p) openPath(p);
-    });
-    let off: (() => void) | undefined;
-    api.onFileDrop(openPath, setHover).then((f) => (off = f));
-    return () => off?.();
+    let offDrop: (() => void) | undefined;
+    let offOpen: (() => void) | undefined;
+    let cancelled = false;
+    api.onFileDrop(openPath, setHover).then((f) => (offDrop = f));
+    // Listen first, then collect what arrived before: nothing is missed or
+    // opened twice. The startup files are handed out once, so open them even
+    // if this effect has been cleaned up in the meantime.
+    api
+      .onOpenFiles((paths) => paths.length && openPath(paths[0]))
+      .then((f) => {
+        if (cancelled) f();
+        else offOpen = f;
+        return api.startupFiles();
+      })
+      .then((paths) => {
+        if (paths.length) openPath(paths[0]);
+      });
+    return () => {
+      cancelled = true;
+      offDrop?.();
+      offOpen?.();
+    };
   }, [openPath]);
 
   const place = (p: Placement) => {

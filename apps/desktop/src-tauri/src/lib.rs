@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use signdesk_core::token::Token;
 use signdesk_core::{DisplayRect, Error, SignRequest, inspect, sign_pdf, signed_path};
 use tauri::ipc::Response;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// PKCS#11 drivers are process-global; never let two commands use one at once.
 static TOKEN_LOCK: Mutex<()> = Mutex::new(());
@@ -208,12 +209,56 @@ fn token_driver() -> Option<String> {
     signdesk_core::token::find_module().map(|p| p.to_string_lossy().into_owned())
 }
 
-/// A PDF passed on the command line ("Open with TrackMySign", drag onto the icon).
+/// PDFs handed over by the system: on the command line ("Open with",
+/// "Sign with TrackMySign", drag onto the icon), by Finder, or by a second
+/// launch while the app is running.
+#[derive(Default)]
+struct Opened {
+    /// Set once the window has asked for its startup files; from then on new
+    /// files are sent to it as `open-files` events.
+    ready: bool,
+    pending: Vec<String>,
+}
+
+/// Existing PDFs among `args`, relative paths resolved against `cwd`.
+fn pdf_args(args: impl IntoIterator<Item = String>, cwd: &Path) -> Vec<String> {
+    args.into_iter()
+        .filter(|a| a.to_lowercase().ends_with(".pdf"))
+        .map(|a| cwd.join(a))
+        .filter(|p| p.is_file())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect()
+}
+
+fn hand_over(app: &AppHandle, files: Vec<String>) {
+    if files.is_empty() {
+        return;
+    }
+    let state = app.state::<Mutex<Opened>>();
+    let mut opened = state.lock().unwrap_or_else(|p| p.into_inner());
+    if opened.ready {
+        let _ = app.emit("open-files", files);
+    } else {
+        opened.pending.extend(files);
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
+/// Files opened before the window was ready to receive them.
 #[tauri::command]
-fn startup_file() -> Option<String> {
-    std::env::args()
-        .skip(1)
-        .find(|a| a.to_lowercase().ends_with(".pdf") && Path::new(a).is_file())
+fn startup_files(state: State<'_, Mutex<Opened>>) -> Vec<String> {
+    let mut opened = state.lock().unwrap_or_else(|p| p.into_inner());
+    opened.ready = true;
+    std::mem::take(&mut opened.pending)
+}
+
+/// The first of [`startup_files`].
+#[tauri::command]
+fn startup_file(state: State<'_, Mutex<Opened>>) -> Option<String> {
+    startup_files(state).into_iter().next()
 }
 
 #[tauri::command]
@@ -244,20 +289,73 @@ fn open_website() -> CmdResult<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let opened = Opened {
+        ready: false,
+        pending: pdf_args(std::env::args().skip(1), &cwd),
+    };
+    let builder = tauri::Builder::default();
+    // Must be the first plugin: a second launch hands its files to this one and exits.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        hand_over(app, pdf_args(args.into_iter().skip(1), Path::new(&cwd)));
+    }));
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(Mutex::new(opened))
         .invoke_handler(tauri::generate_handler![
             list_certificates,
             pdf_info,
             read_pdf,
             sign,
             startup_file,
+            startup_files,
             token_driver,
             open_file,
             reveal_file,
             open_website
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running TrackMySign");
+        .build(tauri::generate_context!())
+        .expect("error while running TrackMySign")
+        .run(on_run_event);
+}
+
+/// Finder: "Open With", drag onto the Dock icon, double-click when default.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn on_run_event(app: &AppHandle, event: tauri::RunEvent) {
+    if let tauri::RunEvent::Opened { urls } = event {
+        let files = urls
+            .iter()
+            .filter_map(|u| u.to_file_path().ok())
+            .map(|p| p.to_string_lossy().into_owned())
+            .filter(|p| p.to_lowercase().ends_with(".pdf"))
+            .collect();
+        hand_over(app, files);
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+fn on_run_event(_: &AppHandle, _: tauri::RunEvent) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pdf_args_resolve_and_filter() {
+        let dir = std::env::temp_dir().join(format!("tms-args-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.pdf"), b"%PDF").unwrap();
+        std::fs::write(dir.join("B.PDF"), b"%PDF").unwrap();
+        std::fs::write(dir.join("notes.txt"), b"").unwrap();
+        let abs = dir.join("B.PDF").to_string_lossy().into_owned();
+        let args = ["a.pdf", "notes.txt", "missing.pdf", "--flag", abs.as_str()];
+        let found = pdf_args(args.iter().map(|s| s.to_string()), &dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            found,
+            vec![dir.join("a.pdf").to_string_lossy().into_owned(), abs]
+        );
+    }
 }

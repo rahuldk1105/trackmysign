@@ -55,7 +55,8 @@
         "uninstallerHeaderImage": "icons/installer/nsis-header.bmp",
         "sidebarImage": "icons/installer/nsis-sidebar.bmp",
         "displayLanguageSelector": false,
-        "startMenuFolder": "TrackMySign"
+        "startMenuFolder": "TrackMySign",
+        "installerHooks": "windows/hooks.nsh"
       }
     },
     "macOS": {

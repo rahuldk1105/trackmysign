@@ -19,6 +19,8 @@ Download from [sign.rahuldk.in](https://sign.rahuldk.in) or the [latest release]
 
 Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`.
 
+You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows and macOS). Your default PDF viewer stays as it is.
+
 ## Command-line tool (Windows)
 
 1. Download `trackmysign-windows-x64.exe` from the

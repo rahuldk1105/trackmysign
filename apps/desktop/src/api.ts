@@ -98,8 +98,16 @@ export async function sign(args: SignArgs): Promise<Signed> {
   return inTauri ? invoke("sign", { args }) : mock.sign(args);
 }
 
-export async function startupFile(): Promise<string | null> {
-  return inTauri ? invoke("startup_file") : null;
+/** PDFs the app was started with (command line, Finder, "Sign with TrackMySign"). */
+export async function startupFiles(): Promise<string[]> {
+  return inTauri ? invoke("startup_files") : [];
+}
+
+/** PDFs handed over while the app is running (Finder, a second launch). */
+export async function onOpenFiles(cb: (paths: string[]) => void): Promise<() => void> {
+  if (!inTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<string[]>("open-files", (e) => cb(e.payload));
 }
 
 export async function openFile(path: string): Promise<void> {
