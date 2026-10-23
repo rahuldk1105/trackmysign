@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SignDesk — Sign PDFs with your DSC, without Adobe</title>
+    <meta
+      name="description"
+      content="SignDesk is a free, open-source desktop app for Windows and macOS that signs PDFs with your USB DSC token. Adobe-valid signatures, original file untouched, existing signatures preserved."
+    />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0c10" media="(prefers-color-scheme: dark)" />
+    <link rel="canonical" href="https://sign.rahuldk.in/" />
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="assets/icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://sign.rahuldk.in/" />
+    <meta property="og:title" content="SignDesk — Sign PDFs with your DSC, without Adobe" />
+    <meta property="og:description" content="Free, open-source DSC signing for Windows and macOS." />
+    <meta property="og:image" content="https://sign.rahuldk.in/assets/app-light.webp" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+
+    <!-- Apply the saved theme before first paint. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("sd-theme");
+          if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+        } catch (e) {}
+      })();
+    </script>
+    <script src="main.js" defer></script>
+  </head>
+
+  <body>
+    <header class="nav">
+      <div class="wrap nav-inner">
+        <a class="brand" href="#top" aria-label="SignDesk home">
+          <img src="assets/favicon.svg" width="26" height="26" alt="" />
+          <span>SignDesk</span>
+        </a>
+        <nav class="nav-links" aria-label="Main">
+          <a href="#features">Features</a>
+          <a href="#how">How it works</a>
+          <a href="#compat">Compatibility</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <div class="nav-actions">
+          <button class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+            <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+            </svg>
+            <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+            </svg>
+          </button>
+          <a class="btn btn-ghost gh" href="https://github.com/rahuldk1105/signdesk" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16" aria-hidden="true" class="gh-mark">
+              <path
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+              />
+            </svg>
+            <span>GitHub</span>
+          </a>
+          <a class="btn btn-primary btn-sm" href="#download">Download</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="top">
+      <!-- ------------------------------------------------------------ hero -->
+      <section class="hero">
+        <div class="grid-bg" aria-hidden="true"></div>
+        <div class="wrap hero-inner">
+          <a class="tag" href="https://github.com/rahuldk1105/signdesk/releases" target="_blank" rel="noopener">
+            <span class="tag-dot"></span>
+            <span class="mono" data-version>v0.1.0</span>
+            <span class="tag-sep"></span>
+            <span>Free &amp; open source · MIT</span>
+          </a>
+
+          <h1>Sign PDFs with your DSC.<br /><span class="hl">Without Adobe.</span></h1>
+          <p class="lead">
+            SignDesk is a small desktop app for Windows and macOS that signs PDFs with your USB DSC token. Open a
+            PDF, place the signature, enter your PIN. The signature validates in Adobe Reader and earlier signatures
+            stay intact.
+          </p>
+
+          <div class="cta">
+            <a class="btn btn-primary btn-lg" data-dl="primary" href="#download">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14" /></svg>
+              <span data-dl-label>Download</span>
+            </a>
+            <a class="btn btn-outline btn-lg" href="https://github.com/rahuldk1105/signdesk" target="_blank" rel="noopener">
+              View source
+            </a>
+          </div>
+          <p class="cta-meta mono" data-dl-meta>Windows 10/11 · macOS 11+ (Apple Silicon) · &lt;3&nbsp;MB</p>
+        </div>
+
+        <div class="wrap">
+          <figure class="shot">
+            <div class="shot-bar" aria-hidden="true">
+              <span></span><span></span><span></span>
+              <div class="shot-title mono">SignDesk — board-resolution.pdf</div>
+            </div>
+            <picture>
+              <img
+                class="shot-light"
+                src="assets/app-light.webp"
+                width="2400"
+                height="1520"
+                alt="SignDesk window with a PDF open: an existing auditor signature and a new signature box placed next to it, with the signer and reason on the right."
+              />
+              <img class="shot-dark" src="assets/app-dark.webp" width="2400" height="1520" alt="" aria-hidden="true" />
+            </picture>
+          </figure>
+        </div>
+      </section>
+
+      <!-- -------------------------------------------------------- strip -->
+      <section class="strip">
+        <div class="wrap strip-inner">
+          <div><strong>PKCS#7 / SHA-256</strong><span>Adobe-validated signatures</span></div>
+          <div><strong>Incremental update</strong><span>Original bytes never rewritten</span></div>
+          <div><strong>100% offline</strong><span>No account, no upload, no telemetry</span></div>
+          <div><strong>&lt;3 MB</strong><span>Native app, opens instantly</span></div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------ features -->
+      <section id="features" class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow mono">Features</p>
+            <h2>Everything a director needs to sign. Nothing else.</h2>
+            <p class="sub">Built for the documents auditors and company secretaries send every week: financial statements, board resolutions, MCA attachments.</p>
+          </div>
+
+          <div class="features">
+            <article class="feature">
+              <div class="ficon c-blue">
+                <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></svg>
+              </div>
+              <h3>Your file stays untouched</h3>
+              <p>The signature is appended as an incremental update. Every byte of the original PDF is preserved, so nothing in the document can shift or break.</p>
+            </article>
+            <article class="feature">
+              <div class="ficon c-green">
+                <svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /><path d="M16 6l-4.5 4.5" /></svg>
+              </div>
+              <h3>Co-signing that works</h3>
+              <p>PDFs already signed by your CA, auditor or a co-director keep their signatures valid. Yours is added alongside them.</p>
+            </article>
+            <article class="feature">
+              <div class="ficon c-violet">
+                <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M7 15h4M7 11h10" /></svg>
+              </div>
+              <h3>Click to place</h3>
+              <p>Click anywhere on any page, drag to move, drag the corner to resize. The preview matches the final stamp exactly, and the position is remembered.</p>
+            </article>
+            <article class="feature">
+              <div class="ficon c-amber">
+                <svg viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5" /><path d="m10.7 12.3 9.3-9.3M17 6l3 3M14 9l2 2" /></svg>
+              </div>
+              <h3>Talks to your token directly</h3>
+              <p>Uses the token's own PKCS#11 driver. The private key never leaves the token; SignDesk only asks it to sign a hash.</p>
+            </article>
+            <article class="feature">
+              <div class="ficon c-rose">
+                <svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+              </div>
+              <h3>PIN is never stored</h3>
+              <p>Entered for one signature and discarded. SignDesk warns you when the token reports few attempts left, before it locks.</p>
+            </article>
+            <article class="feature">
+              <div class="ficon c-cyan">
+                <svg viewBox="0 0 24 24"><path d="M4 17V7l8-4 8 4v10l-8 4z" /><path d="M12 21V11M20 7l-8 4-8-4" /></svg>
+              </div>
+              <h3>Light, fast, native</h3>
+              <p>A &lt;3&nbsp;MB app built with Rust and Tauri. No Java, no browser plug-ins, no background services. Light and dark themes included.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------------------------------------------------------- how -->
+      <section id="how" class="section alt">
+        <div class="wrap how">
+          <div class="section-head left">
+            <p class="eyebrow mono">How it works</p>
+            <h2>Three steps. About ten seconds.</h2>
+            <ol class="steps">
+              <li>
+                <span class="num mono">01</span>
+                <div>
+                  <h3>Open the PDF</h3>
+                  <p>Drag it into the window or choose it. Your token is detected automatically.</p>
+                </div>
+              </li>
+              <li>
+                <span class="num mono">02</span>
+                <div>
+                  <h3>Place the signature</h3>
+                  <p>Click where it should go. Set the reason and location once; they're remembered.</p>
+                </div>
+              </li>
+              <li>
+                <span class="num mono">03</span>
+                <div>
+                  <h3>Enter your PIN</h3>
+                  <p>The signed copy is saved next to the original as <code>name_signed.pdf</code>.</p>
+                </div>
+              </li>
+            </ol>
+          </div>
+
+          <div class="terminal" aria-label="Command-line example">
+            <div class="term-bar">
+              <span></span><span></span><span></span>
+              <div class="mono">signdesk — also on the command line</div>
+            </div>
+            <pre class="mono"><code><span class="p">$</span> signdesk certs
+Driver: C:\Windows\System32\eps2003csp11v2.dll
+1. DK RAHUL (Personal)
+   Issued by: Verasys Sub CA 2022
+   Valid until: 11 Dec 2026
+
+<span class="p">$</span> signdesk sign board-resolution.pdf \
+    --reason <span class="s">"Approved"</span> --location <span class="s">"Chennai"</span>
+Signing as: DK RAHUL
+Token PIN: <span class="m">********</span>
+<span class="ok">Signed:</span> board-resolution_signed.pdf</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------- compat -->
+      <section id="compat" class="section">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow mono">Compatibility</p>
+            <h2>What it runs on</h2>
+            <p class="sub">Tested with real tokens and verified in Adobe Acrobat Reader. Help extend this list by reporting your token on GitHub.</p>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Component</th>
+                  <th>Supported</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Windows</td>
+                  <td>Windows 10 / 11, 64-bit</td>
+                  <td><span class="pill ok">Tested</span></td>
+                </tr>
+                <tr>
+                  <td>macOS</td>
+                  <td>macOS 11+, Apple Silicon</td>
+                  <td><span class="pill ok">Tested</span></td>
+                </tr>
+                <tr>
+                  <td>DSC token</td>
+                  <td>Hypersecu HyperPKI HYP2003</td>
+                  <td><span class="pill ok">Tested</span></td>
+                </tr>
+                <tr>
+                  <td>DSC token</td>
+                  <td>Feitian ePass2003 (same driver family)</td>
+                  <td><span class="pill warn">Expected</span></td>
+                </tr>
+                <tr>
+                  <td>DSC token</td>
+                  <td>Other PKCS#11 tokens (ProxKey, mToken, …)</td>
+                  <td><span class="pill muted">Planned</span></td>
+                </tr>
+                <tr>
+                  <td>Validation</td>
+                  <td>Adobe Acrobat Reader — trusted via AATL</td>
+                  <td><span class="pill ok">Verified</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ----------------------------------------------------- download -->
+      <section id="download" class="section alt">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow mono">Download</p>
+            <h2>Get SignDesk</h2>
+            <p class="sub">Free forever. Install your token's driver first (it comes with the token), then install SignDesk.</p>
+          </div>
+
+          <div class="downloads">
+            <article class="dl" data-os="windows">
+              <div class="dl-head">
+                <svg class="os" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 5.5 10.5 4.5v7H3zM11.5 4.4 21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zM11.5 12.5H21V21l-9.5-1.4z" />
+                </svg>
+                <div>
+                  <h3>Windows</h3>
+                  <p class="mono">Windows 10 / 11 · x64 · installer</p>
+                </div>
+              </div>
+              <a
+                class="btn btn-primary btn-block"
+                href="https://github.com/rahuldk1105/signdesk/releases/latest/download/SignDesk-Setup-windows-x64.exe"
+                >Download for Windows</a
+              >
+              <p class="dl-note">
+                Installs for your user only — no admin rights needed. If SmartScreen says “Windows protected your PC”,
+                choose <em>More info → Run anyway</em>.
+              </p>
+            </article>
+
+            <article class="dl" data-os="mac">
+              <div class="dl-head">
+                <svg class="os" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M16.4 12.6c0-2.4 2-3.5 2-3.6-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.8-3.5.8-.7 0-1.9-.8-3.1-.8-1.6 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.4-.9-2.4-3.6zM14.1 5.6c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"
+                  />
+                </svg>
+                <div>
+                  <h3>macOS</h3>
+                  <p class="mono">macOS 11+ · Apple Silicon · .dmg</p>
+                </div>
+              </div>
+              <a class="btn btn-primary btn-block" href="https://github.com/rahuldk1105/signdesk/releases/latest/download/SignDesk-macos-arm64.dmg"
+                >Download for macOS</a
+              >
+              <p class="dl-note">Open the .dmg and drag SignDesk into Applications. Install your token's macOS driver from its vendor first.</p>
+            </article>
+          </div>
+
+          <div class="source">
+            <div>
+              <h3>Build from source</h3>
+              <p>Rust 1.80+ and Node 20+. The signing engine is a plain Rust library with no PDF dependency.</p>
+              <a class="link" href="https://github.com/rahuldk1105/signdesk" target="_blank" rel="noopener">github.com/rahuldk1105/signdesk →</a>
+            </div>
+            <pre class="mono"><code><span class="p">$</span> git clone https://github.com/rahuldk1105/signdesk
+<span class="p">$</span> cd signdesk/apps/desktop
+<span class="p">$</span> npm ci && npx tauri build</code></pre>
+          </div>
+
+          <p class="all-releases">
+            <a class="link" href="https://github.com/rahuldk1105/signdesk/releases" target="_blank" rel="noopener">All releases and checksums</a>
+            <span>·</span>
+            <a class="link" href="https://github.com/rahuldk1105/signdesk/releases/latest/download/signdesk-windows-x64-signdesk.exe">CLI for Windows</a>
+          </p>
+        </div>
+      </section>
+
+      <!-- ----------------------------------------------------------- faq -->
+      <section id="faq" class="section">
+        <div class="wrap faq-wrap">
+          <div class="section-head left">
+            <p class="eyebrow mono">FAQ</p>
+            <h2>Questions</h2>
+          </div>
+          <div class="faq">
+            <details>
+              <summary>Is a signature from SignDesk legally valid?</summary>
+              <p>
+                The legal weight comes from your DSC, issued by a licensed Certifying Authority under the IT Act, 2000 —
+                not from the software that applies it. SignDesk produces a standard PKCS#7 signature with your
+                certificate, which Adobe Reader and other validators verify the same way as any other DSC signature.
+              </p>
+            </details>
+            <details>
+              <summary>Are my documents uploaded anywhere?</summary>
+              <p>No. SignDesk works entirely on your computer. There is no server, no account and no analytics. You can run it with the network disconnected.</p>
+            </details>
+            <details>
+              <summary>Will it break signatures that are already on the PDF?</summary>
+              <p>
+                No. SignDesk writes an incremental update: it appends the new signature after the existing content
+                instead of rewriting the file, which is exactly what keeps earlier signatures valid.
+              </p>
+            </details>
+            <details>
+              <summary>Which DSC tokens work?</summary>
+              <p>
+                Tested with Hypersecu HyperPKI HYP2003. Tokens from the same driver family (Feitian ePass2003) are
+                expected to work. Support for automatically detecting other PKCS#11 tokens is planned — open an issue
+                with your token's name and driver and it can be added.
+              </p>
+            </details>
+            <details>
+              <summary>Why does Windows or macOS warn me when installing?</summary>
+              <p>
+                The installers are not yet signed with a paid code-signing certificate, so the OS doesn't recognise the
+                publisher. The code is open, and every release is built publicly by GitHub Actions from the source in
+                the repository.
+              </p>
+            </details>
+            <details>
+              <summary>Does it work for MCA e-forms?</summary>
+              <p>
+                SignDesk signs regular PDFs such as financial statements, resolutions and attachments. MCA's own
+                web-based forms are signed through the MCA portal's signer utility, not with a desktop app.
+              </p>
+            </details>
+            <details>
+              <summary>Is it really free?</summary>
+              <p>Yes. SignDesk is MIT-licensed open source. Use it, change it, ship it with your own products.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer-inner">
+        <div class="footer-brand">
+          <img src="assets/favicon.svg" width="22" height="22" alt="" />
+          <span>SignDesk</span>
+          <span class="muted">MIT License</span>
+        </div>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="https://github.com/rahuldk1105/signdesk" target="_blank" rel="noopener">Source</a>
+          <a href="https://github.com/rahuldk1105/signdesk/releases" target="_blank" rel="noopener">Releases</a>
+          <a href="https://github.com/rahuldk1105/signdesk/issues" target="_blank" rel="noopener">Report an issue</a>
+        </nav>
+        <p class="muted">Built by <a href="https://rahuldk.in" target="_blank" rel="noopener">DK Rahul</a></p>
+      </div>
+    </footer>
+  </body>
+</html>
