@@ -29,6 +29,10 @@ All notable changes to TrackMySign are listed here. The format follows
 - Handwritten signature image (PNG or JPEG) in the signature box, left of the
   text or above it (`--image`, `--image-position`).
 - Batch signing: several PDFs with one PIN entry (`trackmysign sign a.pdf b.pdf`).
+- DSC expiry reminder: days left are shown wherever certificates are listed.
+  The app reminds you 30 days ahead (15, 60 or off in *Settings → Expiry
+  reminder*), also when the token is not plugged in, and will not sign with an
+  expired certificate. `trackmysign sign` refuses one unless `--allow-expired`.
 
 More features are in progress.
 
