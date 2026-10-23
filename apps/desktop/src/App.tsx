@@ -4,6 +4,7 @@ import * as api from "./api";
 import type { ApiError, Cert, PdfInfo, Signed } from "./api";
 import { loadPdf, PdfView, type PageSize, type Placement } from "./PdfView";
 import { useTheme, type ThemePref } from "./theme";
+import { activePreset, describePage, fromPresetPlacement, toPresetPlacement, type Preset } from "./presets";
 import {
   AlertIcon,
   CheckIcon,
@@ -28,14 +29,17 @@ interface Saved {
   certName: string;
   /** Last box, as fractions of the page, and which page counted from the end. */
   box: { fx: number; fy: number; fw: number; fh: number; fromEnd: number } | null;
+  presets: Preset[];
 }
 
 const KEY = "trackmysign.settings.v1";
-const defaults: Saved = { reason: "Approved", location: "", certName: "", box: null };
+const defaults: Saved = { reason: "Approved", location: "", certName: "", box: null, presets: [] };
 
 function loadSaved(): Saved {
   try {
-    return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
+    const s: Saved = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
+    if (!Array.isArray(s.presets)) s.presets = [];
+    return s;
   } catch {
     return defaults;
   }
@@ -233,6 +237,29 @@ export default function App() {
     if (next) setZoom(next / view.fit);
   };
 
+  // ---- presets
+  const current = {
+    reason: saved.reason,
+    location: saved.location,
+    placement: doc && placement ? toPresetPlacement(placement, doc.sizes.length) : null,
+  };
+  const active = activePreset(saved.presets, current);
+
+  const applyPreset = (p: Preset) => {
+    update({ reason: p.reason, location: p.location });
+    if (doc && p.placement) {
+      const pl = fromPresetPlacement(p.placement, doc.sizes);
+      place(pl);
+      goPage(pl.page);
+    }
+  };
+
+  const savePreset = (name: string) => {
+    const preset: Preset = { name, ...current };
+    const exists = saved.presets.some((p) => p.name === name);
+    update({ presets: exists ? saved.presets.map((p) => (p.name === name ? preset : p)) : [...saved.presets, preset] });
+  };
+
   // ---- signing
   const cert = certs?.[certIndex];
   const canSign = !!doc && !!placement && !!cert && !cert.expired && !loading;
@@ -403,6 +430,11 @@ export default function App() {
         {doc && (
           <aside className="inspector">
             <div className="insp-scroll">
+              <section>
+                <h3>Preset</h3>
+                <PresetPicker presets={saved.presets} active={active?.name} onApply={applyPreset} onSave={savePreset} />
+              </section>
+
               <section>
                 <h3>Signer</h3>
                 {certs === null ? (
@@ -748,6 +780,25 @@ function Settings(props: {
           </section>
 
           <section>
+            <h3>Presets</h3>
+            {props.saved.presets.length === 0 ? (
+              <p className="muted small">No presets yet. Set up the signature, then use “Save current as preset” in the side panel.</p>
+            ) : (
+              <ul className="preset-list">
+                {props.saved.presets.map((p) => (
+                  <PresetRow
+                    key={p.name}
+                    preset={p}
+                    taken={(n) => props.saved.presets.some((o) => o !== p && o.name === n)}
+                    onRename={(name) => props.update({ presets: props.saved.presets.map((o) => (o === p ? { ...o, name } : o)) })}
+                    onDelete={() => props.update({ presets: props.saved.presets.filter((o) => o !== p) })}
+                  />
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section>
             <h3>Remembered position</h3>
             <div className="setting-row">
               <span className="muted small">
@@ -799,6 +850,106 @@ function Settings(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+function PresetPicker(props: { presets: Preset[]; active?: string; onApply: (p: Preset) => void; onSave: (name: string) => void }) {
+  const [name, setName] = useState<string | null>(null);
+  const trimmed = name?.trim() ?? "";
+  const replaces = props.presets.some((p) => p.name === trimmed);
+  return (
+    <>
+      {props.presets.length > 0 ? (
+        <select
+          value={props.active ?? ""}
+          onChange={(e) => {
+            const p = props.presets.find((x) => x.name === e.target.value);
+            if (p) props.onApply(p);
+          }}
+          aria-label="Preset"
+        >
+          <option value="" disabled>
+            Custom
+          </option>
+          {props.presets.map((p) => (
+            <option key={p.name} value={p.name}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <p className="muted small">Save the reason, location and position to reuse them.</p>
+      )}
+      {name === null ? (
+        <button className="link" onClick={() => setName(props.active ?? "")}>
+          Save current as preset…
+        </button>
+      ) : (
+        <form
+          className="preset-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!trimmed) return;
+            props.onSave(trimmed);
+            setName(null);
+          }}
+        >
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === "Escape" && setName(null)}
+            placeholder="Preset name"
+            aria-label="Preset name"
+          />
+          <button type="submit" className="btn" disabled={!trimmed}>
+            {replaces ? "Replace" : "Save"}
+          </button>
+          <button type="button" className="tb-btn" onClick={() => setName(null)} title="Cancel" aria-label="Cancel">
+            <CloseIcon />
+          </button>
+        </form>
+      )}
+    </>
+  );
+}
+
+function PresetRow(props: { preset: Preset; taken: (name: string) => boolean; onRename: (name: string) => void; onDelete: () => void }) {
+  const { preset } = props;
+  const [name, setName] = useState(preset.name);
+  const commit = () => {
+    const n = name.trim();
+    if (n && n !== preset.name && !props.taken(n)) props.onRename(n);
+    else setName(preset.name);
+  };
+  const pl = preset.placement;
+  const summary = [
+    preset.reason.trim() || "No reason",
+    preset.location.trim(),
+    pl && `${describePage(pl.page)}, ${pl.w.toFixed(1)} × ${pl.h.toFixed(1)} mm`,
+  ].filter(Boolean);
+  return (
+    <li className="preset-row">
+      <div className="preset-main">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              setName(preset.name);
+            }
+          }}
+          aria-label="Preset name"
+        />
+        <span className="muted small">{summary.join(" · ")}</span>
+      </div>
+      <button className="btn ghost" onClick={props.onDelete} title={`Delete “${preset.name}”`}>
+        Delete
+      </button>
+    </li>
   );
 }
 

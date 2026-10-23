@@ -713,6 +713,49 @@ section > label:first-of-type {
   font-size: 11.5px;
 }
 
+.preset-form {
+  display: flex;
+  gap: 6px;
+}
+.preset-form input {
+  flex: 1;
+  min-width: 0;
+}
+.preset-form .tb-btn {
+  height: 30px;
+}
+.preset-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.preset-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.preset-row:first-child {
+  padding-top: 0;
+}
+.preset-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.preset-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.preset-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .place-row {
   display: flex;
   align-items: baseline;
