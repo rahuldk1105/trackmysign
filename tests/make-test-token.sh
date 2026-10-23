@@ -105,4 +105,16 @@ q $P --write-object enc.der --type cert --id 02 --label "enc"
 q $P --write-object sub.der --type cert --id 10 --label "subca"
 q $P --write-object root.der --type cert --id 11 --label "root"
 
-echo "export SOFTHSM2_CONF=$SOFTHSM2_CONF TRACKMYSIGN_PKCS11_MODULE=$MOD TRACKMYSIGN_PIN=12345678 TEST_PKI=$W/pki"
+# A second token whose signing key wants the PIN again for every signature
+# (CKA_ALWAYS_AUTHENTICATE), kept apart so it does not change the main token's list.
+AA_CONF="$W/softhsm2-always-auth.conf"
+mkdir -p "$W/softhsm-always-auth" && rm -rf "$W/softhsm-always-auth"/*
+printf 'directories.tokendir = %s\nobjectstore.backend = file\n' "$W/softhsm-always-auth" > "$AA_CONF"
+SOFTHSM2_CONF=$AA_CONF q softhsm2-util --init-token --free --label "HYP2003 ALWAYS" --so-pin 87654321 --pin 12345678
+SOFTHSM2_CONF=$AA_CONF q $P --write-object sign.key.der --type privkey --id 01 --label "sign" --always-auth
+for o in "sign.der 01 sign" "sub.der 10 subca" "root.der 11 root"; do
+  set -- $o
+  SOFTHSM2_CONF=$AA_CONF q $P --write-object "$1" --type cert --id "$2" --label "$3"
+done
+
+echo "export SOFTHSM2_CONF=$SOFTHSM2_CONF TRACKMYSIGN_PKCS11_MODULE=$MOD TRACKMYSIGN_PIN=12345678 TEST_PKI=$W/pki ALWAYS_AUTH_CONF=$AA_CONF"

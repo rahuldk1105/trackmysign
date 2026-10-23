@@ -99,6 +99,42 @@ async fn list_certificates() -> CmdResult<Vec<CertDto>> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct PinStatusDto {
+    count_low: bool,
+    final_try: bool,
+    locked: bool,
+}
+
+/// What the token says about PIN attempts, read fresh when the PIN dialog opens.
+#[tauri::command]
+async fn pin_status(cert_id: String, driver_path: String) -> CmdResult<PinStatusDto> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let token = Token::open(Path::new(&driver_path))?;
+        let certs = token.signing_certificates()?;
+        let cert = certs
+            .iter()
+            .find(|c| c.fingerprint() == cert_id)
+            .ok_or_else(|| CommandError {
+                kind: "token",
+                message: "The selected certificate is no longer on the token.".into(),
+            })?;
+        let s = token.pin_status(cert.slot)?;
+        Ok(PinStatusDto {
+            count_low: s.count_low,
+            final_try: s.final_try,
+            locked: s.locked,
+        })
+    })
+    .await
+    .map_err(|e| CommandError {
+        kind: "other",
+        message: e.to_string(),
+    })?
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct PageDto {
     width: f64,
     height: f64,
@@ -363,7 +399,8 @@ fn sign_one(
 }
 
 /// Signs every file with one login. Fails as a whole only when the token or
-/// PIN does; a file that cannot be signed is reported and skipped.
+/// PIN does (also midway, for a key that asks for the PIN on every
+/// signature); a file that cannot be signed is reported and skipped.
 #[tauri::command]
 async fn sign_batch(
     app: AppHandle,
@@ -390,6 +427,8 @@ async fn sign_batch(
             let _ = progress.send(BatchProgress::Signing { index });
             let _ = progress.send(
                 match sign_one(Path::new(path), &args, &image, &mut signer) {
+                    // Another attempt with the same PIN could lock the token.
+                    Err(e) if matches!(e.kind, "wrongPin" | "pinLocked") => return Err(e),
                     Ok(out) => BatchProgress::Done {
                         index,
                         name: out
@@ -588,6 +627,7 @@ pub fn run() {
             read_pdf,
             sign,
             sign_batch,
+            pin_status,
             startup_file,
             startup_files,
             signature_image,

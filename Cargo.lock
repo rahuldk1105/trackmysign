@@ -3633,6 +3633,7 @@ dependencies = [
  "cms",
  "const-oid",
  "cryptoki",
+ "cryptoki-sys",
  "der",
  "flate2",
  "num-bigint",

@@ -76,6 +76,13 @@ export interface Signed {
   name: string;
 }
 
+/** PIN attempts as the token reports them (not every token does). */
+export interface PinStatus {
+  countLow: boolean;
+  finalTry: boolean;
+  locked: boolean;
+}
+
 export interface ApiError {
   kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "io" | "timestamp" | "ltv" | "other";
   message: string;
@@ -141,6 +148,11 @@ export async function readPdf(path: string): Promise<ArrayBuffer> {
 
 export async function sign(args: SignArgs): Promise<Signed> {
   return inTauri ? invoke("sign", { args }) : mock.sign(args);
+}
+
+export async function pinStatus(certId: string, driverPath: string): Promise<PinStatus> {
+  if (inTauri) return invoke("pin_status", { certId, driverPath });
+  return { countLow: false, finalTry: false, locked: false };
 }
 
 /** PDFs the app was started with (command line, Finder, "Sign with TrackMySign"). */
