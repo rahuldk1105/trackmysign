@@ -1,5 +1,7 @@
 //! Tauri backend: thin commands over `signdesk-core`.
 
+mod verify;
+
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -256,7 +258,8 @@ pub fn run() {
             token_driver,
             open_file,
             reveal_file,
-            open_website
+            open_website,
+            verify::verify_pdf
         ])
         .run(tauri::generate_context!())
         .expect("error while running TrackMySign");

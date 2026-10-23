@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use signdesk_core::token::{Token, TokenCert};
-use signdesk_core::{DisplayRect, SignRequest, inspect, sign_pdf, signed_path};
+use signdesk_core::verify::{Changes, SignatureReport, Status, Trust};
+use signdesk_core::{DisplayRect, SignRequest, inspect, sign_pdf, signed_path, verify};
 
 #[derive(Parser)]
 #[command(name = "trackmysign", version, about = "Sign PDFs with your DSC token")]
@@ -51,6 +52,9 @@ enum Cmd {
         #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
         pin: Option<String>,
     },
+    /// Check the signatures in a PDF. Exits with status 2 if any signature is
+    /// invalid or the content was changed after signing.
+    Verify { pdf: PathBuf },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -111,6 +115,103 @@ fn describe(i: usize, c: &TokenCert) -> String {
         c.token_label,
         flags
     )
+}
+
+fn describe_signature(r: &SignatureReport) -> String {
+    let mut out = vec![format!(
+        "{}: {}",
+        r.field,
+        match r.status {
+            Status::Valid => "VALID",
+            Status::Invalid => "INVALID",
+            Status::Unknown => "UNKNOWN",
+        }
+    )];
+    let mut line = |k: &str, v: String| out.push(format!("   {k}: {v}"));
+    if let Some(s) = &r.signer {
+        let org = s
+            .organization
+            .as_ref()
+            .map(|o| format!(" ({o})"))
+            .unwrap_or_default();
+        line("Signed by", format!("{}{org}", s.subject));
+        line("Issued by", s.issuer.clone());
+        line(
+            "Certificate",
+            format!(
+                "valid {} to {}",
+                s.not_before.format("%d %b %Y"),
+                s.not_after.format("%d %b %Y")
+            ),
+        );
+    } else if let Some(n) = &r.name {
+        line("Signed by", format!("{n} (certificate not found)"));
+    }
+    if let Some(t) = r.signing_time {
+        let inside = match r.time_in_validity {
+            Some(true) => ", within certificate validity",
+            Some(false) => ", OUTSIDE certificate validity",
+            None => "",
+        };
+        line(
+            "Signed at",
+            format!(
+                "{} (signer's clock{inside})",
+                t.format("%Y.%m.%d %H:%M:%S %:z")
+            ),
+        );
+    }
+    if r.timestamped {
+        line("Timestamp", "attached (not verified)".into());
+    }
+    if let Some(v) = &r.reason {
+        line("Reason", v.clone());
+    }
+    if let Some(v) = &r.location {
+        line("Location", v.clone());
+    }
+    line(
+        "Format",
+        [r.sub_filter.as_deref(), r.digest_algorithm]
+            .iter()
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+    let after = match r.changes {
+        Changes::None => None,
+        Changes::Signatures => Some("only signatures added"),
+        Changes::FormOrAnnotations => Some("form filled in or annotations changed"),
+        Changes::Content => Some("CONTENT CHANGED after signing"),
+        Changes::Unknown => Some("changes could not be analysed"),
+    };
+    line(
+        "Coverage",
+        match after {
+            None => "whole document".into(),
+            Some(what) => format!(
+                "{} later revision(s), {} bytes: {what}",
+                r.later_revisions,
+                r.bytes_after()
+            ),
+        },
+    );
+    if !r.chain.is_empty() {
+        let names: Vec<&str> = r.chain.iter().map(|c| c.subject.as_str()).collect();
+        line("Chain", names.join(" <- "));
+    }
+    line(
+        "Trust",
+        match r.trust {
+            Trust::CcaIndia => "chains to CCA India 2022 (revocation not checked)".into(),
+            Trust::NotChecked => "not checked".into(),
+        },
+    );
+    for n in &r.notes {
+        line("Note", n.clone());
+    }
+    out.join("\n")
 }
 
 fn main() {
@@ -216,6 +317,22 @@ fn run() -> Result<()> {
             let out = out.unwrap_or_else(|| signed_path(&pdf));
             std::fs::write(&out, signed).with_context(|| format!("writing {}", out.display()))?;
             println!("Signed: {}", out.display());
+        }
+        Cmd::Verify { pdf } => {
+            let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
+            let reports = verify(&data)?;
+            if reports.is_empty() {
+                println!("No signatures found.");
+            }
+            for r in &reports {
+                println!("{}", describe_signature(r));
+            }
+            if reports
+                .iter()
+                .any(|r| r.status == Status::Invalid || r.changes == Changes::Content)
+            {
+                std::process::exit(2);
+            }
         }
     }
     Ok(())

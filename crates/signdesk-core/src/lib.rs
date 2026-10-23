@@ -4,6 +4,7 @@ pub mod certinfo;
 pub mod cms;
 pub mod pdf;
 pub mod token;
+pub mod verify;
 
 use std::path::{Path, PathBuf};
 
@@ -12,6 +13,7 @@ use sha2::{Digest, Sha256};
 
 pub use pdf::reader::PdfError;
 pub use pdf::sign::{DisplayRect, Placement};
+pub use verify::{SignatureReport, verify};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyKind {

@@ -3,6 +3,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import * as api from "./api";
 import type { ApiError, Cert, PdfInfo, Signed } from "./api";
 import { loadPdf, PdfView, type PageSize, type Placement } from "./PdfView";
+import { SignaturesPanel } from "./SignaturesPanel";
 import { useTheme, type ThemePref } from "./theme";
 import {
   AlertIcon,
@@ -17,7 +18,6 @@ import {
   MinusIcon,
   PlusIcon,
   RefreshIcon,
-  ShieldIcon,
 } from "./icons";
 
 // ---------------------------------------------------------------- settings
@@ -481,14 +481,7 @@ export default function App() {
                 </button>
               </section>
 
-              {doc.info.signatures > 0 && (
-                <div className="ok-row">
-                  <ShieldIcon size={14} />
-                  <span>
-                    {doc.info.signatures} existing signature{doc.info.signatures > 1 ? "s" : ""} — kept valid
-                  </span>
-                </div>
-              )}
+              <SignaturesPanel path={doc.info.path} count={doc.info.signatures} />
             </div>
 
             <div className="insp-foot">
