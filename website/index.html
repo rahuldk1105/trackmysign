@@ -162,46 +162,145 @@
             </div>
           </div>
         </div>
+        <div class="wrap">
+          <div class="chain" aria-label="How a signature is made: token, app, signed PDF">
+            <figure class="node">
+              <svg class="ill" viewBox="0 0 260 120" aria-hidden="true">
+                <rect class="s f" x="18" y="34" width="168" height="56" rx="6" />
+                <rect class="s f" x="186" y="46" width="46" height="32" />
+                <rect class="s" x="194" y="54" width="10" height="6" />
+                <rect class="s" x="212" y="54" width="10" height="6" />
+                <rect class="s" x="194" y="66" width="10" height="6" />
+                <rect class="s" x="212" y="66" width="10" height="6" />
+                <circle class="s" cx="38" cy="62" r="7" />
+                <circle class="led" cx="168" cy="48" r="3.5" />
+                <text class="t mono" x="58" y="58">HYP2003</text>
+                <text class="t2 mono" x="58" y="74">Class 3 DSC</text>
+                <path class="m" d="M18 100h214" />
+              </svg>
+              <figcaption><b>Your DSC token</b><span>The private key stays on the token. It only ever signs a 32-byte hash.</span></figcaption>
+            </figure>
+            <div class="link"><span class="mono">PKCS#11</span></div>
+            <figure class="node">
+              <svg class="ill" viewBox="0 0 260 120" aria-hidden="true">
+                <rect class="s f" x="20" y="12" width="220" height="100" />
+                <path class="s" d="M20 28h220" />
+                <rect class="a" x="28" y="17" width="7" height="7" />
+                <path class="m" d="M178 28v84" />
+                <rect class="s pg" x="62" y="38" width="76" height="66" />
+                <path class="m" d="M72 50h46M72 58h56M72 66h40" />
+                <rect class="a-o" x="100" y="84" width="32" height="14" />
+                <path class="m" d="M186 40h44M186 50h34M186 66h44M186 76h30" />
+                <rect class="a" x="186" y="94" width="44" height="10" />
+              </svg>
+              <figcaption><b>TrackMySign</b><span>Places the stamp, hashes the byte ranges, asks the token to sign.</span></figcaption>
+            </figure>
+            <div class="link"><span class="mono">incremental update</span></div>
+            <figure class="node">
+              <svg class="ill" viewBox="0 0 260 120" aria-hidden="true">
+                <path class="s pg" d="M78 8h86l20 20v86H78z" />
+                <path class="s" d="M164 8v20h20" />
+                <path class="m" d="M92 30h56M92 40h76M92 50h70M92 60h60" />
+                <rect class="s" x="90" y="76" width="38" height="22" />
+                <rect class="a-o" x="134" y="76" width="40" height="22" />
+                <circle class="ok-f" cx="186" cy="96" r="13" />
+                <path class="ok-s" d="m180 96 4 4 8-8" />
+              </svg>
+              <figcaption><b>Signed PDF</b><span>Adobe Reader: “Signature is valid”. Earlier signatures still valid.</span></figcaption>
+            </figure>
+          </div>
+        </div>
       </section>
 
       <!-- ======================================================== HOW IT WORKS -->
       <section id="how" class="band">
         <div class="wrap">
-          <header class="sec-head">
-            <p class="label mono">How it works</p>
-            <h2>Your original bytes are never rewritten.</h2>
+          <header class="sec-head wide">
+            <div>
+              <p class="label mono">How it works</p>
+              <h2>Your original bytes are never rewritten.</h2>
+            </div>
             <p class="sec-lede">
-              Many PDF tools re-save the whole file when they add a signature. That silently invalidates the auditor's or
+              Many PDF tools re-save the whole file when they add a signature, which silently breaks the auditor's or
               co-director's signature already on it. TrackMySign appends its signature after the last byte, the way the
               PDF standard intends for documents signed by more than one person.
             </p>
           </header>
 
-          <div class="compare">
-            <figure class="cmp">
-              <figcaption><span class="tag tag-bad mono">Re-saved file</span> Typical PDF editor</figcaption>
-              <div class="cmp-bar"><span class="cmp-rewrite"></span></div>
-              <p class="cmp-note">The whole file is regenerated. Byte offsets move, and the earlier signature reports <em>“document has been modified”</em>.</p>
-            </figure>
-            <figure class="cmp">
-              <figcaption><span class="tag tag-ok mono">Incremental update</span> TrackMySign</figcaption>
-              <div class="cmp-bar"><span class="cmp-keep"></span><span class="cmp-add"></span></div>
-              <p class="cmp-note">Bytes 0 to the original end stay identical. Your signature, its appearance and a new cross-reference table are added after them.</p>
-            </figure>
+          <div class="fmap" aria-label="Byte layout of a signed PDF">
+            <div class="fmap-top mono"><span>board-resolution_signed.pdf</span><span>/ByteRange [0 48,920 65,306 4,511]</span></div>
+            <div class="fmap-row">
+              <div class="fseg f-orig">
+                <b>Original file</b>
+                <span>%PDF-1.7 header · 42 objects · xref · trailer · %%EOF</span>
+                <span class="mono">bytes 0 – 48,213 · unchanged</span>
+                <i class="tagm mono">hashed</i>
+              </div>
+              <div class="fseg f-dict">
+                <b>Signature dictionary</b>
+                <span>/Type /Sig · /ByteRange · /M</span>
+                <span class="mono">+707 B</span>
+                <i class="tagm mono">hashed</i>
+              </div>
+              <div class="fseg f-gap">
+                <b>/Contents</b>
+                <span>PKCS#7 signature from the token</span>
+                <span class="mono">16,386 B</span>
+                <i class="tagm mono">excluded</i>
+              </div>
+              <div class="fseg f-tail">
+                <b>Stamp, xref, trailer</b>
+                <span>widget · appearance · /Prev</span>
+                <span class="mono">+4,511 B</span>
+                <i class="tagm mono">hashed</i>
+              </div>
+            </div>
+            <div class="fmap-brk mono" aria-hidden="true">
+              <span class="brk b-hash">SHA-256 covers these bytes</span>
+              <span class="brk b-excl">not hashed: holds the signature</span>
+              <span class="brk b-hash">hashed</span>
+            </div>
+            <div class="fmap-vs">
+              <span class="tag tag-bad mono">Typical editor</span>
+              <div class="vs-bar"></div>
+              <span class="vs-note">Whole file regenerated → earlier signature shows “document has been modified”.</span>
+            </div>
           </div>
 
           <ol class="steps">
             <li>
+              <svg class="ill step-ill" viewBox="0 0 220 110" aria-hidden="true">
+                <rect class="s f" x="10" y="14" width="200" height="86" />
+                <path class="s" d="M10 28h200" />
+                <rect class="d" x="60" y="40" width="100" height="50" />
+                <path class="s pg" d="M92 6h34l10 10v40H92z" />
+                <path class="m" d="M98 22h26M98 30h30M98 38h22" />
+                <path class="a-s" d="M114 62v20m0 0-7-7m7 7 7-7" />
+              </svg>
               <h3>Open the PDF</h3>
-              <p>Drag it into the window. The app finds your token through its own PKCS#11 driver, the same one that came with the token.</p>
+              <p>Drag it into the window. The app finds your token through the PKCS#11 driver that came with it.</p>
             </li>
             <li>
+              <svg class="ill step-ill" viewBox="0 0 220 110" aria-hidden="true">
+                <rect class="s pg" x="54" y="6" width="112" height="98" />
+                <path class="m" d="M66 20h70M66 30h88M66 40h80M66 50h60" />
+                <rect class="d" x="104" y="66" width="52" height="26" />
+                <path class="s f" d="m150 84 0 20 5-6 4 9 4-2-4-9 8 0z" />
+              </svg>
               <h3>Place the signature</h3>
-              <p>Click anywhere on any page; drag to move, drag the corner to resize. Reason, location and position are remembered.</p>
+              <p>Click anywhere on any page; drag to move, drag the corner to resize. The position is remembered.</p>
             </li>
             <li>
+              <svg class="ill step-ill" viewBox="0 0 220 110" aria-hidden="true">
+                <rect class="s f" x="36" y="22" width="148" height="66" />
+                <text class="t2 mono" x="50" y="44">Token PIN</text>
+                <rect class="s" x="50" y="52" width="120" height="22" />
+                <circle class="a" cx="66" cy="63" r="3.5" /><circle class="a" cx="80" cy="63" r="3.5" /><circle class="a" cx="94" cy="63" r="3.5" /><circle class="a" cx="108" cy="63" r="3.5" />
+                <rect class="s" x="150" y="8" width="26" height="20" />
+                <path class="s" d="M155 8V3a8 8 0 0 1 16 0v5" />
+              </svg>
               <h3>Enter the PIN</h3>
-              <p>The token signs a SHA-256 hash; the private key never leaves it. The copy is saved as <code>name_signed.pdf</code>.</p>
+              <p>The token signs a SHA-256 hash; the key never leaves it. The copy is saved as <code>name_signed.pdf</code>.</p>
             </li>
           </ol>
         </div>
@@ -210,9 +309,12 @@
       <!-- ============================================================= THE APP -->
       <section class="band band-alt">
         <div class="wrap">
-          <header class="sec-head">
-            <p class="label mono">The app</p>
-            <h2>One window. No setup wizard, no account.</h2>
+          <header class="sec-head wide">
+            <div>
+              <p class="label mono">The app</p>
+              <h2>One window. No setup wizard, no account.</h2>
+            </div>
+            <p class="sec-lede">Toolbar with page and zoom controls, the document in the middle, and everything about the signature on the right: signer, stamp text, position in millimetres. The status bar shows which token and driver are in use.</p>
           </header>
           <figure class="shot">
             <img class="shot-light" src="assets/app-light.webp" width="2560" height="1600" alt="TrackMySign with a two-page PDF open, an existing auditor signature, the new signature box placed, and the signer, appearance and placement settings on the right." />
@@ -223,10 +325,12 @@
 
       <!-- ======================================================= SPECIFICATION -->
       <section id="spec" class="band">
-        <div class="wrap spec-grid">
-          <header class="sec-head">
-            <p class="label mono">Specification</p>
-            <h2>What it produces, exactly.</h2>
+        <div class="wrap">
+          <header class="sec-head wide">
+            <div>
+              <p class="label mono">Specification</p>
+              <h2>What it produces, exactly.</h2>
+            </div>
             <p class="sec-lede">The signing engine is a small Rust library you can read in an afternoon. Every release is built by GitHub Actions from the public source.</p>
           </header>
           <dl class="spec">
@@ -239,6 +343,7 @@
             <div><dt>Download</dt><dd><span class="mono">1.9 MB</span> Windows · <span class="mono">5.3 MB</span> macOS</dd></div>
             <div><dt>Privacy</dt><dd>No network access, no account, no telemetry; the PIN is never stored</dd></div>
             <div><dt>Licence</dt><dd>MIT</dd></div>
+            <div><dt>Built with</dt><dd>Rust · Tauri 2 · React · PDF.js (legacy build)</dd></div>
           </dl>
         </div>
       </section>
@@ -326,10 +431,12 @@ Token PIN: ********
 
       <!-- ================================================================= FAQ -->
       <section id="faq" class="band">
-        <div class="wrap faq-grid">
-          <header class="sec-head">
-            <p class="label mono">FAQ</p>
-            <h2>Questions directors ask.</h2>
+        <div class="wrap">
+          <header class="sec-head wide">
+            <div>
+              <p class="label mono">FAQ</p>
+              <h2>Questions directors ask.</h2>
+            </div>
           </header>
           <div class="faq">
             <details>
