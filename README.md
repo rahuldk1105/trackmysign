@@ -116,3 +116,12 @@ Layout:
 - `crates/signdesk-cli` — `trackmysign` command
 - `apps/desktop` — Tauri desktop app (React + PDF.js front end)
 - `PLAN.md` — decisions and roadmap
+
+## Project
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — building, tests, code style, adding a token driver
+- [PRIVACY.md](PRIVACY.md) — nothing leaves your computer except optional timestamp/LTV requests and the update check
+- [SECURITY.md](SECURITY.md) — reporting vulnerabilities privately
+- [CHANGELOG.md](CHANGELOG.md) — changes in each release, also on [sign.rahuldk.in/changelog](https://sign.rahuldk.in/changelog/)
+
+MIT licence, see [LICENSE](LICENSE).
