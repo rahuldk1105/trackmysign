@@ -710,6 +710,30 @@ section > label:first-of-type {
   color: var(--ok);
   flex: none;
 }
+/* Worth knowing, nothing wrong yet: e.g. the DSC expires within a month. */
+.warn-row.calm {
+  border-left-color: var(--accent-text);
+  background: var(--accent-soft);
+}
+.warn-row.calm > .icon,
+.warn-row.calm strong {
+  color: var(--accent-text);
+}
+:root[data-theme="dark"] .warn-row.calm {
+  border-left-color: var(--line-strong);
+}
+.reminders {
+  margin-top: 18px;
+}
+.sb-item.expiry {
+  font-weight: 500;
+}
+.sb-item.expiry.calm {
+  color: var(--accent-text);
+}
+.sb-item.expiry.bad {
+  color: var(--bad);
+}
 
 .stamp-preview {
   margin-top: 12px;

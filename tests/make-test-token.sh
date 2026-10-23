@@ -66,6 +66,15 @@ for kind in sign enc; do
   openssl pkcs8 -topk8 -nocrypt -in $kind.key -outform DER -out $kind.key.der
   openssl x509 -in $kind.pem -outform DER -out $kind.der
 done
+# An expired signing certificate (openssl x509 cannot back-date, openssl ca can).
+mkdir -p old && : > old/index.txt && echo 01 > old/serial
+printf '[ca]\ndefault_ca=c\n[c]\ndatabase=%s\nserial=%s\nnew_certs_dir=%s\ndefault_md=sha256\npolicy=p\n[p]\ncommonName=supplied\n' \
+  "$PWD/old/index.txt" "$PWD/old/serial" "$PWD/old" > old/ca.cnf
+q openssl req -newkey rsa:2048 -nodes -keyout old.key -out old.csr -subj "/C=IN/O=Personal/CN=OLD TEST DIRECTOR"
+q openssl ca -batch -notext -preserveDN -config old/ca.cnf -cert sub.pem -keyfile sub.key -in old.csr -out old.pem \
+  -startdate 20230101000000Z -enddate 20250101000000Z -extfile ext.cnf -extensions sd_sign
+openssl pkcs8 -topk8 -nocrypt -in old.key -outform DER -out old.key.der
+openssl x509 -in old.pem -outform DER -out old.der
 openssl x509 -in root.pem -outform DER -out root.der
 openssl x509 -in sub.pem -outform DER -out sub.der
 
@@ -102,6 +111,8 @@ q $P --write-object sign.key.der --type privkey --id 01 --label "sign"
 q $P --write-object sign.der --type cert --id 01 --label "sign"
 q $P --write-object enc.key.der --type privkey --id 02 --label "enc"
 q $P --write-object enc.der --type cert --id 02 --label "enc"
+q $P --write-object old.key.der --type privkey --id 03 --label "old"
+q $P --write-object old.der --type cert --id 03 --label "old"
 q $P --write-object sub.der --type cert --id 10 --label "subca"
 q $P --write-object root.der --type cert --id 11 --label "root"
 

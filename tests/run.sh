@@ -127,4 +127,27 @@ if TRACKMYSIGN_PKCS11_MODULE="$W/broken-pkcs11.so:$TRACKMYSIGN_PKCS11_MODULE" "$
 else
   echo "FAIL broken driver: $(cat "$W/certs")"; fail=1
 fi
+# Days left on each certificate; an expired one is refused unless --allow-expired.
+"$BIN" certs >"$W/certs" 2>&1 || fail=1
+if grep -Eq "Valid until: .* \(expires in 7(29|30) days\)" "$W/certs" \
+   && grep -Eq "Valid until: 01 Jan 2025 \(EXPIRED [0-9]+ days ago\)" "$W/certs" \
+   && grep -q "OLD TEST DIRECTOR (Personal)" "$W/certs"; then
+  echo "PASS certs shows days left"
+else
+  echo "FAIL certs expiry: $(cat "$W/certs")"; fail=1
+fi
+old=$(grep -o '^[0-9]*\. OLD TEST DIRECTOR' "$W/certs" | cut -d. -f1)
+if "$BIN" sign "$W/fx/plain.pdf" --cert "$old" --out "$W/expired.pdf" >/dev/null 2>"$W/err"; then
+  echo "FAIL signed with an expired certificate"; fail=1
+elif grep -q "expired .* --allow-expired" "$W/err" && [ ! -e "$W/expired.pdf" ]; then
+  echo "PASS expired certificate refused"
+else
+  echo "FAIL: $(cat "$W/err")"; fail=1
+fi
+if "$BIN" sign "$W/fx/plain.pdf" --cert "$old" --allow-expired --out "$W/expired.pdf" >/dev/null 2>"$W/err" \
+   && grep -q "Warning: .* has expired" "$W/err" && [ -s "$W/expired.pdf" ]; then
+  echo "PASS --allow-expired signs with a warning"
+else
+  echo "FAIL --allow-expired: $(cat "$W/err")"; fail=1
+fi
 [ $fail = 0 ] && echo "ALL PASSED" || { echo "SOME TESTS FAILED"; exit 1; }

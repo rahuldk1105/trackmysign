@@ -1,12 +1,14 @@
 //! Tauri backend: thin commands over `signdesk-core`.
 
+mod known;
 mod verify;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use signdesk_core::token::{Token, Tokens, installed_drivers};
+use signdesk_core::certinfo::{Validity, days_until};
+use signdesk_core::token::{Token, TokenCert, Tokens, installed_drivers};
 use signdesk_core::{
     DisplayRect, Error, ImagePosition, SignRequest, StampImage, inspect, sign_pdf, signed_path,
 };
@@ -60,8 +62,13 @@ struct CertDto {
     name: String,
     organization: Option<String>,
     issuer: String,
+    valid_from: String,
     valid_until: String,
     expired: bool,
+    /// Whole days until it expires; negative once expired.
+    days_left: i64,
+    /// Whole days until it becomes valid, when it is not yet (or the PC clock is wrong).
+    starts_in: Option<i64>,
     can_sign: bool,
     token_label: String,
     driver: String,
@@ -69,11 +76,13 @@ struct CertDto {
 }
 
 #[tauri::command]
-async fn list_certificates() -> CmdResult<Vec<CertDto>> {
-    tauri::async_runtime::spawn_blocking(|| {
+async fn list_certificates(app: AppHandle) -> CmdResult<Vec<CertDto>> {
+    tauri::async_runtime::spawn_blocking(move || {
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let tokens = Tokens::open_installed()?;
         let certs = tokens.signing_certificates()?;
+        known::remember(&app, &certs);
+        let now = chrono::Utc::now();
         Ok(certs
             .iter()
             .map(|c| CertDto {
@@ -81,8 +90,14 @@ async fn list_certificates() -> CmdResult<Vec<CertDto>> {
                 name: c.summary.subject_cn.clone(),
                 organization: c.summary.organization.clone(),
                 issuer: c.summary.issuer_cn.clone(),
+                valid_from: c.summary.not_before.format("%d %b %Y").to_string(),
                 valid_until: c.summary.not_after.format("%d %b %Y").to_string(),
                 expired: c.summary.expired,
+                days_left: days_until(now, c.summary.not_after),
+                starts_in: match c.summary.validity() {
+                    Validity::NotYetValid { days } => Some(days),
+                    _ => None,
+                },
                 can_sign: c.summary.can_sign,
                 token_label: c.token_label.clone(),
                 driver: c.driver.name.clone(),
@@ -209,6 +224,7 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
                 kind: "token",
                 message: "The selected certificate is no longer on the token.".into(),
             })?;
+        not_expired(cert)?;
         let mut signer = token.signer(cert, &args.pin)?;
         let req = SignRequest {
             page: args.page,
@@ -243,6 +259,21 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
         kind: "other",
         message: e.to_string(),
     })?
+}
+
+/// A signature made with an expired certificate is invalid, so do not make one.
+fn not_expired(cert: &TokenCert) -> CmdResult<()> {
+    if cert.summary.expired {
+        return Err(CommandError {
+            kind: "expired",
+            message: format!(
+                "The certificate expired on {}. A signature made with it would not be valid. \
+                 Renew your DSC with your provider.",
+                cert.summary.not_after.format("%d %b %Y")
+            ),
+        });
+    }
+    Ok(())
 }
 
 fn image_position(arg: Option<ImageArg>) -> ImagePosition {
@@ -385,6 +416,7 @@ async fn sign_batch(
                 kind: "token",
                 message: "The selected certificate is no longer on the token.".into(),
             })?;
+        not_expired(cert)?;
         let mut signer = token.signer(cert, &args.pin)?;
         for (index, path) in args.paths.iter().enumerate() {
             let _ = progress.send(BatchProgress::Signing { index });
@@ -584,6 +616,7 @@ pub fn run() {
         .manage(Mutex::new(opened))
         .invoke_handler(tauri::generate_handler![
             list_certificates,
+            known::known_certificates,
             pdf_info,
             read_pdf,
             sign,

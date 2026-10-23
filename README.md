@@ -56,7 +56,7 @@ macOS), or pass `--module` to the command-line tool.
 .\trackmysign.exe certs
 ```
 
-   You should see your name, the issuing CA, the expiry date and the driver it was read through.
+   You should see your name, the issuing CA, the expiry date (with the days left) and the driver it was read through.
 
 3. Sign a test PDF (bottom-right of the last page by default):
 
@@ -92,6 +92,11 @@ only a hash of the signature is sent). `--ltv` embeds your CA's OCSP/CRL answers
 in the PDF so the signature can be validated after the certificate expires. The
 desktop app has the same options under *Settings → Long-term validity*. If a
 server cannot be reached, nothing is saved and you can sign again without it.
+
+An expired certificate is refused, since a signature made with it is not valid
+(`--allow-expired` signs anyway, with a warning). The desktop app reminds you to
+renew 30 days ahead (15, 60 or off under *Settings → Expiry reminder*), also
+when the token is not plugged in, and turns signing off once the DSC has expired.
 
 ## Development
 
