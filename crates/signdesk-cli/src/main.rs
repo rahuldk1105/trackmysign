@@ -438,6 +438,8 @@ fn run() -> Result<()> {
                 };
                 let out = out.clone().unwrap_or_else(|| signed_path(pdf));
                 let done = match sign_pdf(&job.data, &req, &mut signer) {
+                    // Stop the batch: another attempt could lock the token.
+                    Err(e @ (Error::WrongPin { .. } | Error::PinLocked)) => return Err(e.into()),
                     Err(e @ Error::Timestamp(_)) => Err(anyhow::anyhow!(
                         "{e}\nNothing was saved. Run again without --timestamp to sign without one."
                     )),

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import * as api from "./api";
-import type { ApiError, BatchProgress, Cert, Driver, ImageChoice, PdfInfo, Signed } from "./api";
+import type { ApiError, BatchProgress, Cert, Driver, ImageChoice, PdfInfo, PinStatus, Signed } from "./api";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
 import { SignaturesPanel } from "./SignaturesPanel";
 import { useTheme, type ThemePref } from "./theme";
@@ -458,6 +458,7 @@ export default function App() {
       setStep((s) => (s.kind === "batch" ? { ...s, files: s.files.map((f, j) => (j === i ? { ...f, ...patch } : f)) } : s));
     // The PIN dialog stays up until the token has accepted the PIN.
     let started = false;
+    let finished = 0;
     setStep({ kind: "signing" });
     try {
       await api.signBatch(
@@ -484,13 +485,16 @@ export default function App() {
           if (p.state === "signing") setItem(p.index, { state: "signing" });
           else if (p.state === "done") setItem(p.index, { state: "done", output: p.output, signedName: p.name });
           else setItem(p.index, { state: "failed", message: p.message });
+          if (p.state !== "signing") finished++;
         },
       );
       update({ certName: cert.name });
       setStep((s) => (s.kind === "batch" ? { ...s, running: false } : s));
     } catch (e) {
       const err = api.errorOf(e);
-      if (started) {
+      // A key that wants the PIN for every signature only checks it at the first file.
+      const pinRefused = err.kind === "wrongPin" || err.kind === "pinLocked";
+      if (started && !(pinRefused && finished === 0)) {
         setStep((s) => (s.kind === "batch" ? { ...s, running: false, error: err.message } : s));
         return;
       }
@@ -984,14 +988,25 @@ function PinDialog(props: {
   onSubmit: (pin: string, skip?: "timestamp" | "ltv") => void;
 }) {
   const [pin, setPin] = useState("");
+  const [status, setStatus] = useState<PinStatus | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    api.pinStatus(props.cert.id, props.cert.driverPath).then(setStatus, () => setStatus(null));
+  }, [props.cert.id, props.cert.driverPath]);
   // A timestamp or revocation server failing is not a PIN problem: keep the PIN for the retry.
   const online = props.error?.kind === "timestamp" || props.error?.kind === "ltv" ? props.error.kind : null;
   useEffect(() => {
     if (props.error && !online) setPin("");
     input.current?.focus();
   }, [props.error, online]);
-  const locked = props.error?.kind === "pinLocked";
+  const locked = props.error?.kind === "pinLocked" || (!props.error && !!status?.locked);
+  const warning = status?.locked
+    ? "The token PIN is locked. Contact your DSC provider to unlock it."
+    : status?.finalTry
+      ? "One attempt left before the token locks!"
+      : status?.countLow
+        ? "Careful: few attempts left before the token locks."
+        : null;
   const pinError = props.error && (props.error.kind === "wrongPin" || props.error.kind === "pinLocked");
   return (
     <Modal title="Enter token PIN" onClose={props.busy ? undefined : props.onCancel}>
@@ -1030,6 +1045,10 @@ function PinDialog(props: {
         {props.error ? (
           <p className="inline-error">
             <AlertIcon size={14} /> {props.error.message}
+          </p>
+        ) : warning ? (
+          <p className="inline-error">
+            <AlertIcon size={14} /> {warning}
           </p>
         ) : (
           <p className="muted small">The token locks after several wrong attempts. The PIN is never saved.</p>

@@ -6,7 +6,8 @@ Sign PDFs with your USB DSC token (tested design: Hypersecu HyperPKI HYP2003) â€
   signatures already on the document (auditor, CA, co-director) stay valid.
 - Standard `adbe.pkcs7.detached` / SHA-256 signatures that Adobe Reader validates.
 - Visible "Digitally signed by â€¦" box, or invisible.
-- Your PIN is never stored.
+- Your PIN is never stored. Tokens whose key asks for the PIN on every
+  signature work too, batches included, with the PIN entered once.
 
 Status: desktop app for Windows (installer) and macOS (dmg), plus a command-line tool.
 

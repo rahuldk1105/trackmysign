@@ -119,6 +119,26 @@ if TRACKMYSIGN_PIN=00000000 "$BIN" sign "$W/fx/plain.pdf" --out "$W/x.pdf" 2>"$W
 else
   grep -q "Wrong PIN" "$W/err" && echo "PASS wrong PIN rejected" || { echo "FAIL: $(cat "$W/err")"; fail=1; }
 fi
+# A key that wants the PIN again for every signature (CKA_ALWAYS_AUTHENTICATE).
+AA=(env SOFTHSM2_CONF="$ALWAYS_AUTH_CONF")
+"${AA[@]}" "$BIN" sign "$W/fx/presigned.pdf" --out "$W/signed/always-auth.pdf" >/dev/null || fail=1
+check "$W/fx/presigned.pdf" "$W/signed/always-auth.pdf"
+mkdir -p "$W/batch-aa"
+for f in plain objstm form; do cp "$W/fx/$f.pdf" "$W/batch-aa/"; done
+"${AA[@]}" "$BIN" sign "$W/batch-aa/plain.pdf" "$W/batch-aa/objstm.pdf" "$W/batch-aa/form.pdf" \
+  --timestamp "$TSA" >"$W/batch-aa.out" || fail=1
+[ "$(grep -c '^Signed:' "$W/batch-aa.out")" = 3 ] && echo "PASS batch with a per-signature PIN" \
+  || { echo "FAIL batch with a per-signature PIN: $(cat "$W/batch-aa.out")"; fail=1; }
+for f in plain objstm form; do check --timestamp "$W/fx/$f.pdf" "$W/batch-aa/${f}_signed.pdf"; done
+mkdir -p "$W/batch-aa-bad"
+for f in plain objstm; do cp "$W/fx/$f.pdf" "$W/batch-aa-bad/"; done
+if TRACKMYSIGN_PIN=00000000 "${AA[@]}" "$BIN" sign "$W/batch-aa-bad/plain.pdf" "$W/batch-aa-bad/objstm.pdf" 2>"$W/err"; then
+  echo "FAIL wrong PIN accepted for the per-signature key"; fail=1
+elif [ "$(grep -c "Wrong PIN" "$W/err")" = 1 ] && ! ls "$W/batch-aa-bad"/*_signed.pdf >/dev/null 2>&1; then
+  echo "PASS wrong PIN rejected for the per-signature key"
+else
+  echo "FAIL: $(cat "$W/err")"; fail=1
+fi
 # A driver that fails to load must not hide the token behind another one.
 : > "$W/broken-pkcs11.so"
 if TRACKMYSIGN_PKCS11_MODULE="$W/broken-pkcs11.so:$TRACKMYSIGN_PKCS11_MODULE" "$BIN" certs >"$W/certs" 2>&1 \

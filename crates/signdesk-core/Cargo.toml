@@ -8,6 +8,7 @@ chrono = "0.4"
 cms = { version = "0.2.3", features = ["std"] }
 const-oid = { version = "0.9", features = ["db"] }
 cryptoki = "0.12.1"
+cryptoki-sys = "0.5"
 der = { version = "0.7", features = ["derive", "oid", "alloc"] }
 flate2 = "1.1.10"
 num-bigint = "0.4"
