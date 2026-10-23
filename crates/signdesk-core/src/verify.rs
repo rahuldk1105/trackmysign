@@ -1155,6 +1155,8 @@ mod tests {
                 h: 55.0,
             }),
             pages: Vec::new(),
+            timestamp: None,
+            ltv: false,
             reason: Some("Approved".into()),
             location: Some("Chennai".into()),
             time: Some(DateTime::parse_from_rfc3339(time).unwrap()),

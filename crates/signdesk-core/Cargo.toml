@@ -16,4 +16,6 @@ rsa = { version = "0.9", default-features = false, features = ["std", "sha2", "u
 sha1 = { version = "0.10", features = ["oid"] }
 sha2 = { version = "0.10", features = ["oid"] }
 thiserror = "2.0.21"
+ureq = { version = "3.1", default-features = false, features = ["rustls"] }
 x509-cert = "0.2"
+x509-ocsp = "0.2.1"

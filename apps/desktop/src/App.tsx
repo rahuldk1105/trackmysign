@@ -28,10 +28,22 @@ interface Saved {
   certName: string;
   /** Last box, as fractions of the page, and which page counted from the end. */
   box: { fx: number; fy: number; fw: number; fh: number; fromEnd: number } | null;
+  /** Long-term validity; both need the internet, so off by default. */
+  timestamp: boolean;
+  tsaUrl: string;
+  ltv: boolean;
 }
 
 const KEY = "trackmysign.settings.v1";
-const defaults: Saved = { reason: "Approved", location: "", certName: "", box: null };
+const TSA_URLS = [
+  "http://timestamp.digicert.com",
+  "http://timestamp.sectigo.com",
+  "http://ts.ssl.com",
+  "http://timestamp.globalsign.com/tsa/r6advanced1",
+  "http://time.certum.pl",
+  "https://freetsa.org/tsr",
+];
+const defaults: Saved = { reason: "Approved", location: "", certName: "", box: null, timestamp: false, tsaUrl: TSA_URLS[0], ltv: false };
 
 function loadSaved(): Saved {
   try {
@@ -310,8 +322,10 @@ export default function App() {
     return () => window.removeEventListener("keydown", k);
   }, []);
 
-  const doSign = async (pin: string) => {
+  /** `skip` drops the online step that just failed, for this attempt only. */
+  const doSign = async (pin: string, skip?: "timestamp" | "ltv") => {
     if (!doc || !placement || !cert) return;
+    const useTs = saved.timestamp && skip !== "timestamp" && !!saved.tsaUrl.trim();
     setStep({ kind: "signing" });
     try {
       const result = await api.sign({
@@ -324,6 +338,8 @@ export default function App() {
         certId: cert.id,
         driverPath: cert.driverPath,
         pin,
+        timestamp: useTs ? saved.tsaUrl.trim() : null,
+        ltv: saved.ltv && skip !== "ltv",
       });
       update({ certName: cert.name });
       setStep({ kind: "done", result });
@@ -708,14 +724,16 @@ function PinDialog(props: {
   busy: boolean;
   error?: ApiError;
   onCancel: () => void;
-  onSubmit: (pin: string) => void;
+  onSubmit: (pin: string, skip?: "timestamp" | "ltv") => void;
 }) {
   const [pin, setPin] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  // A timestamp or revocation server failing is not a PIN problem: keep the PIN for the retry.
+  const online = props.error?.kind === "timestamp" || props.error?.kind === "ltv" ? props.error.kind : null;
   useEffect(() => {
-    if (props.error) setPin("");
+    if (props.error && !online) setPin("");
     input.current?.focus();
-  }, [props.error]);
+  }, [props.error, online]);
   const locked = props.error?.kind === "pinLocked";
   const pinError = props.error && (props.error.kind === "wrongPin" || props.error.kind === "pinLocked");
   return (
@@ -760,12 +778,17 @@ function PinDialog(props: {
           <p className="muted small">The token locks after several wrong attempts. The PIN is never saved.</p>
         )}
         <div className="dialog-actions">
+          {online && (
+            <button type="button" className="btn ghost" onClick={() => props.onSubmit(pin, online)} disabled={!pin || props.busy}>
+              {online === "timestamp" ? "Sign without timestamp" : "Sign without revocation info"}
+            </button>
+          )}
           <div className="spacer" />
           <button type="button" className="btn" onClick={props.onCancel} disabled={props.busy}>
             Cancel
           </button>
           <button type="submit" className="btn primary" disabled={!pin || props.busy || locked}>
-            {props.busy ? "Signing…" : "Sign"}
+            {props.busy ? "Signing…" : online ? "Try again" : "Sign"}
           </button>
         </div>
       </form>
@@ -855,6 +878,40 @@ function Settings(props: {
           </section>
 
           <section>
+            <h3>Long-term validity</h3>
+            <label className="check-row">
+              <input type="checkbox" checked={props.saved.timestamp} onChange={(e) => props.update({ timestamp: e.target.checked })} />
+              Add trusted timestamp
+            </label>
+            <p className="muted small">Proves when you signed, independent of this PC's clock. Sends only a hash of the signature.</p>
+            {props.saved.timestamp && (
+              <>
+                <label htmlFor="s-tsa">Timestamp server</label>
+                <input
+                  id="s-tsa"
+                  list="tsa-urls"
+                  className="mono"
+                  value={props.saved.tsaUrl}
+                  onChange={(e) => props.update({ tsaUrl: e.target.value })}
+                  placeholder={TSA_URLS[0]}
+                  spellCheck={false}
+                />
+                <datalist id="tsa-urls">
+                  {TSA_URLS.map((u) => (
+                    <option key={u} value={u} />
+                  ))}
+                </datalist>
+              </>
+            )}
+            <label className="check-row">
+              <input type="checkbox" checked={props.saved.ltv} onChange={(e) => props.update({ ltv: e.target.checked })} />
+              Embed revocation info (LTV)
+            </label>
+            <p className="muted small">Stores your CA's OCSP/CRL answers in the PDF so the signature can still be checked after the certificate expires.</p>
+            {(props.saved.timestamp || props.saved.ltv) && <p className="muted small">Needs an internet connection while signing.</p>}
+          </section>
+
+          <section>
             <h3>DSC token</h3>
             <dl className="kv">
               <dt>Status</dt>
@@ -913,7 +970,10 @@ function Settings(props: {
                 <div>
                   <strong>TrackMySign</strong> <span className="mono muted">{__APP_VERSION__}</span>
                 </div>
-                <span className="muted small">Signs PDFs with your DSC. Nothing leaves this computer.</span>
+                <span className="muted small">
+                  Signs PDFs with your DSC.{" "}
+                  {props.saved.timestamp || props.saved.ltv ? "Only timestamp and revocation requests go online." : "Nothing leaves this computer."}
+                </span>
                 <button className="link" onClick={() => api.openWebsite()}>
                   sign.rahuldk.in
                 </button>

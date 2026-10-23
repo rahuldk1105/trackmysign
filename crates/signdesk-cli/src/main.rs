@@ -7,7 +7,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use signdesk_core::token::{Driver, TokenCert, Tokens, driver_name};
 use signdesk_core::verify::{Changes, SignatureReport, Status, Trust};
 use signdesk_core::{
-    DisplayRect, SignRequest, inspect, parse_pages, sign_pdf, signed_path, verify,
+    DEFAULT_TSA_URL, DisplayRect, Error, SignRequest, inspect, parse_pages, sign_pdf, signed_path,
+    verify,
 };
 
 #[derive(Parser)]
@@ -22,6 +23,8 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+// Parsed once at startup, so the size of Sign does not matter.
+#[allow(clippy::large_enum_variant)]
 enum Cmd {
     /// List certificates on the connected token(s).
     Certs,
@@ -56,6 +59,12 @@ enum Cmd {
         /// Which certificate to use (number from `trackmysign certs`).
         #[arg(long, default_value_t = 1)]
         cert: usize,
+        /// Add a trusted timestamp from this RFC 3161 server (needs the internet).
+        #[arg(long, value_name = "URL", num_args = 0..=1, default_missing_value = DEFAULT_TSA_URL)]
+        timestamp: Option<String>,
+        /// Embed revocation info (OCSP/CRL) for long-term validation (needs the internet).
+        #[arg(long)]
+        ltv: bool,
         /// PIN (for scripted tests only; normally you are prompted).
         #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
         pin: Option<String>,
@@ -286,8 +295,16 @@ fn run() -> Result<()> {
             reason,
             location,
             cert,
+            timestamp,
+            ltv,
             pin,
         } => {
+            if let Some(url) = &timestamp
+                && !url.starts_with("http://")
+                && !url.starts_with("https://")
+            {
+                bail!("--timestamp expects an http:// or https:// address, got {url:?}");
+            }
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
             let info = inspect(&data)?;
             let pages = match pages {
@@ -340,8 +357,20 @@ fn run() -> Result<()> {
                 reason,
                 location,
                 time: None,
+                timestamp,
+                ltv,
             };
-            let signed = sign_pdf(&data, &req, &mut signer)?;
+            let signed = match sign_pdf(&data, &req, &mut signer) {
+                Err(e @ Error::Timestamp(_)) => {
+                    bail!(
+                        "{e}\nNothing was saved. Run again without --timestamp to sign without one."
+                    )
+                }
+                Err(e @ Error::Ltv(_)) => {
+                    bail!("{e}\nNothing was saved. Run again without --ltv to sign without it.")
+                }
+                r => r?,
+            };
             let out = out.unwrap_or_else(|| signed_path(&pdf));
             std::fs::write(&out, signed).with_context(|| format!("writing {}", out.display()))?;
             println!("Signed: {}", out.display());
