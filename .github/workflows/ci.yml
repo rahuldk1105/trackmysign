@@ -7,6 +7,11 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publish a release with this tag (e.g. v0.1.0). Leave empty for a test build."
+        required: false
+        default: ""
 
 jobs:
   test:
@@ -70,8 +75,13 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [[ -n "$RELEASE_TAG" ]]; then
+            REL="$RELEASE_TAG"
+            gh release view "$REL" >/dev/null 2>&1 || \
+              gh release create "$REL" --target "$GITHUB_SHA" --title "TrackMySign $REL" --generate-notes || true
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             REL="$GITHUB_REF_NAME"
             gh release view "$REL" >/dev/null 2>&1 || \
               gh release create "$REL" --verify-tag --title "TrackMySign $REL" --generate-notes || true
@@ -250,8 +260,13 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          if [[ -n "$RELEASE_TAG" ]]; then
+            REL="$RELEASE_TAG"
+            gh release view "$REL" >/dev/null 2>&1 || \
+              gh release create "$REL" --target "$GITHUB_SHA" --title "TrackMySign $REL" --generate-notes || true
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             REL="$GITHUB_REF_NAME"
             gh release view "$REL" >/dev/null 2>&1 || \
               gh release create "$REL" --verify-tag --title "TrackMySign $REL" --generate-notes || true
