@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import * as api from "./api";
-import type { ApiError, BatchProgress, Cert, Driver, ImageChoice, PdfInfo, Signed } from "./api";
+import type { ApiError, BatchProgress, Cert, Driver, EmptyField, ImageChoice, PdfInfo, Signed } from "./api";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
 import { SignaturesPanel } from "./SignaturesPanel";
 import { useTheme, type ThemePref } from "./theme";
@@ -206,6 +206,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
+  /** Empty signature field to sign into instead of a free box. */
+  const [field, setField] = useState<EmptyField | null>(null);
   /** Several PDFs to sign in one go; the first is shown for placing the box. */
   const [batch, setBatch] = useState<string[] | null>(null);
   const [pagesMode, setPagesMode] = useState<PagesMode>("this");
@@ -313,6 +315,7 @@ export default function App() {
       setZoom(1);
       setPage(0);
       setPlacement(initialPlacement(sizes, loadSaved()));
+      setField(null);
       setPagesMode("this");
       setPagesSpec("");
     } catch (e) {
@@ -370,11 +373,23 @@ export default function App() {
 
   const place = (p: Placement) => {
     setPlacement(p);
+    setField(null);
     if (!doc) return;
     const s = doc.sizes[p.page];
     update({
       box: { fx: p.x / s.width, fy: p.y / s.height, fw: p.w / s.width, fh: p.h / s.height, fromEnd: doc.sizes.length - 1 - p.page },
     });
+  };
+
+  // The box snaps to the field and stays there; the last free box is not overwritten.
+  const pickField = (f: EmptyField) => {
+    setField(f);
+    if (f.page !== null && f.rect) setPlacement({ page: f.page, ...f.rect });
+  };
+
+  const leaveField = () => {
+    setField(null);
+    if (doc) setPlacement(initialPlacement(doc.sizes, loadSaved()));
   };
 
   // ---- view
@@ -417,8 +432,15 @@ export default function App() {
   // ---- signing
   const cert = certs?.[certIndex];
   // Pages that get the box; null for just the placement's page.
-  const selection: number[] | string | null =
-    pagesMode === "all" ? Array.from({ length: pages }, (_, i) => i) : pagesMode === "custom" ? parsePages(pagesSpec, pages) : null;
+  const selection: number[] | string | null = field
+    ? null
+    : pagesMode === "all"
+      ? Array.from({ length: pages }, (_, i) => i)
+      : pagesMode === "custom"
+        ? parsePages(pagesSpec, pages)
+        : null;
+  // Field names differ between documents, so a batch always places a box.
+  const emptyFields = batch ? [] : (doc?.info.emptyFields ?? []);
   const pagesError = typeof selection === "string" ? selection : null;
   const targetPages = Array.isArray(selection) ? selection : null;
   const canSign = !!doc && !!placement && !!cert && !cert.expired && !loading && !pagesError;
@@ -519,6 +541,7 @@ export default function App() {
         timestamp: useTs ? saved.tsaUrl.trim() : null,
         ltv: saved.ltv && skip !== "ltv",
         image: stampImage?.position ?? null,
+        field: field?.name ?? null,
       });
       update({ certName: cert.name });
       setStep({ kind: "done", result });
@@ -604,7 +627,7 @@ export default function App() {
               <PdfView
                 doc={doc.pdf}
                 sizes={doc.sizes}
-                placement={placement}
+                placement={field && !field.rect ? null : placement}
                 pages={targetPages}
                 preview={preview}
                 image={stampImage}
@@ -613,6 +636,9 @@ export default function App() {
                 onScale={onScale}
                 onPageChange={setPage}
                 goto={goto}
+                fields={emptyFields.filter((f) => f.name !== field?.name)}
+                onPickField={pickField}
+                field={field?.name}
               />
               {hover && <div className="drop-overlay">Drop to open this PDF</div>}
             </>
@@ -767,9 +793,45 @@ export default function App() {
                 </div>
               </section>
 
+              {emptyFields.length > 0 && (
+                <section>
+                  <h3>Signature fields · {emptyFields.length}</h3>
+                  <ul className="field-list" role="listbox" aria-label="Empty signature fields">
+                    {emptyFields.map((f) => (
+                      <li key={f.name}>
+                        <button
+                          role="option"
+                          aria-selected={field?.name === f.name}
+                          className={field?.name === f.name ? "on" : undefined}
+                          onClick={() => {
+                            pickField(f);
+                            if (f.page !== null) goPage(f.page);
+                          }}
+                          title={`Sign into the field "${f.name}"`}
+                        >
+                          <span className="field-name">{f.name}</span>
+                          <span className="muted">{f.rect && f.page !== null ? `Page ${f.page + 1}` : "Invisible"}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="muted small">
+                    {field ? "The signature fills the chosen field." : "This PDF has empty signature fields. Click one, here or on the page, to sign into it."}
+                  </p>
+                </section>
+              )}
+
               <section>
                 <h3>Placement</h3>
-                {placement && (
+                {field && (
+                  <div className="place-row">
+                    <span>In field “{field.name}”</span>
+                    <button className="link" onClick={leaveField}>
+                      Use a box instead
+                    </button>
+                  </div>
+                )}
+                {placement && (!field || field.rect) && (
                   <>
                     <div className="place-row">
                       <span>
@@ -795,8 +857,9 @@ export default function App() {
                     <button
                       key={m.value}
                       role="radio"
-                      aria-checked={pagesMode === m.value}
-                      className={pagesMode === m.value ? "on" : ""}
+                      aria-checked={!field && pagesMode === m.value}
+                      className={!field && pagesMode === m.value ? "on" : ""}
+                      disabled={!!field}
                       onClick={() => {
                         setPagesMode(m.value);
                         if (m.value === "custom" && !pagesSpec) setPagesSpec(pages > 1 ? `1-${pages}` : "1");
@@ -806,7 +869,7 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                {pagesMode === "custom" && (
+                {pagesMode === "custom" && !field && (
                   <input
                     className={`pages-spec mono ${pagesError ? "invalid" : ""}`}
                     value={pagesSpec}
@@ -839,14 +902,20 @@ export default function App() {
                     , same position.
                   </p>
                 )}
-                <p className="muted small">Click a page to place the signature. Drag to move; drag the corner to resize.</p>
-                <button
-                  className="link"
-                  onClick={() => placement && place(bottomRight(placement.page, doc.sizes[placement.page]))}
-                  disabled={!placement}
-                >
-                  Reset to bottom-right
-                </button>
+                {field ? (
+                  <p className="muted small">The box takes the field’s place and size. Click elsewhere on a page to place a box of your own.</p>
+                ) : (
+                  <>
+                    <p className="muted small">Click a page to place the signature. Drag to move; drag the corner to resize.</p>
+                    <button
+                      className="link"
+                      onClick={() => placement && place(bottomRight(placement.page, doc.sizes[placement.page]))}
+                      disabled={!placement}
+                    >
+                      Reset to bottom-right
+                    </button>
+                  </>
+                )}
               </section>
 
               <SignaturesPanel path={doc.info.path} count={doc.info.signatures} />
@@ -911,6 +980,7 @@ export default function App() {
           cert={cert}
           docName={batch ? `${batch.length} documents` : doc.info.name}
           pages={targetPages && targetPages.length > 1 ? pagesLabel(targetPages, pages) : undefined}
+          field={field?.name}
           busy={step.kind === "signing"}
           error={step.kind === "pin" ? step.error : undefined}
           onCancel={() => setStep({ kind: "idle" })}
@@ -978,6 +1048,8 @@ function PinDialog(props: {
   docName: string;
   /** Shown when the box goes on more than one page. */
   pages?: string;
+  /** Signature field being signed into. */
+  field?: string;
   busy: boolean;
   error?: ApiError;
   onCancel: () => void;
@@ -1006,6 +1078,12 @@ function PinDialog(props: {
           <>
             <dt>Pages</dt>
             <dd>{props.pages[0].toUpperCase() + props.pages.slice(1)}</dd>
+          </>
+        )}
+        {props.field && (
+          <>
+            <dt>Field</dt>
+            <dd className="mono ellipsis">{props.field}</dd>
           </>
         )}
       </dl>

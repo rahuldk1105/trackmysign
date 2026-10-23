@@ -126,6 +126,83 @@ for src, dst in (("plain.pdf", "presigned.pdf"), ("objstm.pdf", "presigned-objst
             new_field_spec=fields.SigFieldSpec("AuditorSignature", on_page=-1, box=(60, 60, 240, 110)),
             output=outf,
         )
+# 10. empty signature fields to sign into: simple, two fields of which one
+# is signed, with a /Lock on a text field, with seed values (/SV) (pyHanko);
+# nested under a parent field and on rotated pages (hand-written)
+from pyhanko.sign.fields import FieldMDPAction, FieldMDPSpec, SigSeedSubFilter, SigSeedValFlags, SigSeedValueSpec
+
+
+def with_fields(src, dst, *specs):
+    with open(P(src), "rb") as inf, open(P(dst), "wb") as outf:
+        w = IncrementalPdfFileWriter(inf)
+        for spec in specs:
+            fields.append_signature_field(w, spec)
+        w.write(outf)
+
+
+with_fields("plain.pdf", "field-simple.pdf", fields.SigFieldSpec("ClientSignature", on_page=0, box=(360, 80, 540, 140)))
+with_fields("plain.pdf", "field-two.pdf",
+            fields.SigFieldSpec("Director", on_page=0, box=(340, 80, 540, 140)),
+            fields.SigFieldSpec("Auditor", on_page=1, box=(60, 80, 260, 140)))
+with open(P("field-two.pdf"), "rb") as inf, open(P("field-mixed.pdf"), "wb") as outf:
+    signers.sign_pdf(IncrementalPdfFileWriter(inf), signers.PdfSignatureMetadata(field_name="Auditor", reason="Audited"),
+                     signer=aud, existing_fields_only=True, output=outf)
+with_fields("form.pdf", "field-lock.pdf",
+            fields.SigFieldSpec("Approver", box=(340, 80, 540, 140),
+                                field_mdp_spec=FieldMDPSpec(FieldMDPAction.INCLUDE, ["company"])))
+with_fields("plain.pdf", "field-sv.pdf",
+            fields.SigFieldSpec("CadesOnly", box=(340, 80, 540, 140), seed_value_dict=SigSeedValueSpec(
+                flags=SigSeedValFlags.SUBFILTER, subfilters=[SigSeedSubFilter.PADES])),
+            fields.SigFieldSpec("Sha512Only", box=(60, 80, 260, 140), seed_value_dict=SigSeedValueSpec(
+                flags=SigSeedValFlags.DIGEST_METHOD, digest_methods=["sha512"])))
+
+
+def raw_pdf(path, objs):
+    """Classic-xref PDF; objs maps id -> bytes, or (extra dict entries, stream data)."""
+    buf = bytearray(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
+    offsets = {}
+    for i in sorted(objs):
+        offsets[i] = len(buf)
+        o = objs[i]
+        if isinstance(o, tuple):
+            d, data = o
+            buf += b"%d 0 obj\n<< %s/Length %d >>\nstream\n" % (i, d, len(data)) + data + b"\nendstream\nendobj\n"
+        else:
+            buf += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    size = max(objs) + 1
+    xref = len(buf)
+    buf += b"xref\n0 %d\n0000000000 65535 f\r\n" % size
+    for i in range(1, size):
+        buf += b"%010d 00000 n\r\n" % offsets[i] if i in offsets else b"0000000000 00001 f\r\n"
+    buf += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (size, xref)
+    open(path, "wb").write(bytes(buf))
+
+
+font = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+# "approvals" (/FT /Sig) > "director" > a separate widget; the AcroForm is
+# inline in the catalog and has no /SigFlags.
+raw_pdf(P("field-nested.pdf"), {
+    1: b"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] /DA (/Helv 0 Tf 0 g) >> >>",
+    2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 595.2756 841.8898] >>",
+    3: b"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 8 0 R >> >> /Contents 4 0 R /Annots [7 0 R] >>",
+    4: (b"", b"BT /F1 14 Tf 72 760 Td (Nested signature field) Tj ET"),
+    5: b"<< /T (approvals) /FT /Sig /Kids [6 0 R] >>",
+    6: b"<< /T (director) /Parent 5 0 R /Kids [7 0 R] >>",
+    7: b"<< /Type /Annot /Subtype /Widget /Parent 6 0 R /Rect [340 90 540 150] /F 4 /P 3 0 R >>",
+    8: font,
+})
+# /Rotate 90 with /MK /R 90 on the widget, /Rotate 270 without /MK.
+raw_pdf(P("field-rotated.pdf"), {
+    1: b"<< /Type /Catalog /Pages 2 0 R /AcroForm 9 0 R >>",
+    2: b"<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 /MediaBox [0 0 595.2756 841.8898] >>",
+    3: b"<< /Type /Page /Parent 2 0 R /Rotate 90 /Resources << /Font << /F1 8 0 R >> >> /Contents 4 0 R /Annots [7 0 R] >>",
+    4: (b"", b"BT /F1 14 Tf 72 760 Td (Rotated pages with signature fields) Tj ET"),
+    5: b"<< /Type /Page /Parent 2 0 R /Rotate 270 /Resources << /Font << /F1 8 0 R >> >> /Contents 4 0 R /Annots [10 0 R] >>",
+    7: b"<< /Type /Annot /Subtype /Widget /FT /Sig /T (Rotated90) /Rect [60 560 120 760] /F 4 /P 3 0 R /MK << /R 90 >> >>",
+    8: font,
+    9: b"<< /Fields [7 0 R 10 0 R] /SigFlags 0 >>",
+    10: b"<< /Type /Annot /Subtype /Widget /FT /Sig /T (Rotated270) /Rect [480 80 540 280] /F 4 /P 5 0 R >>",
+})
 # 9. handwritten signature images: transparent left half / red right half
 # (PNG, RGBA and palette + tRNS), green left / red right (JPEG)
 from PIL import Image

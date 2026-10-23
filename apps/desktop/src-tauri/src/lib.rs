@@ -106,11 +106,31 @@ struct PageDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct RectDto {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FieldDto {
+    name: String,
+    page: Option<usize>,
+    /// Points from the top-left of the displayed page; none when invisible.
+    rect: Option<RectDto>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct PdfDto {
     path: String,
     name: String,
     pages: Vec<PageDto>,
     signatures: usize,
+    /// Signature fields waiting to be signed.
+    empty_fields: Vec<FieldDto>,
 }
 
 #[tauri::command]
@@ -133,6 +153,20 @@ fn pdf_info(path: String) -> CmdResult<PdfDto> {
             })
             .collect(),
         signatures: info.signatures,
+        empty_fields: info
+            .empty_fields
+            .into_iter()
+            .map(|f| FieldDto {
+                name: f.name,
+                page: f.page,
+                rect: f.rect.map(|r| RectDto {
+                    x: r.x,
+                    y: r.y,
+                    w: r.w,
+                    h: r.h,
+                }),
+            })
+            .collect(),
     })
 }
 
@@ -174,6 +208,9 @@ struct SignArgs {
     /// Show the saved signature image, and where.
     #[serde(default)]
     image: Option<ImageArg>,
+    /// Sign into this empty signature field instead of placing a box.
+    #[serde(default)]
+    field: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -225,6 +262,7 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             image_position: image_position(args.image),
             timestamp: trimmed_url(args.timestamp),
             ltv: args.ltv,
+            field: args.field,
             ..Default::default()
         };
         let signed = sign_pdf(&data, &req, &mut signer)?;

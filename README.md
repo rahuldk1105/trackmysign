@@ -19,6 +19,9 @@ Download from [sign.rahuldk.in](https://sign.rahuldk.in) or the [latest release]
 
 Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`.
 
+Forms from banks and government offices often come with empty signature fields. These are
+highlighted on the page and listed in the side panel: click one and the signature fills that field.
+
 You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows and macOS). Your default PDF viewer stays as it is.
 
 ## Supported tokens
@@ -71,7 +74,8 @@ macOS), or pass `--module` to the command-line tool.
 Other options:
 
 ```powershell
-.\trackmysign.exe info file.pdf                       # pages, existing signatures
+.\trackmysign.exe info file.pdf                       # pages, existing signatures, empty signature fields
+.\trackmysign.exe sign file.pdf --field Director      # sign into an empty signature field
 .\trackmysign.exe verify file.pdf                     # check existing signatures
 .\trackmysign.exe sign file.pdf --page 1 --position top-right
 .\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left

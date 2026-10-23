@@ -3,7 +3,7 @@ import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 // Legacy build: polyfills newer JS so it also runs in older system web views.
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
-import type { ImageChoice, Rect } from "./api";
+import type { EmptyField, ImageChoice, Rect } from "./api";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -91,6 +91,11 @@ interface Props {
   onPageChange?: (page: number) => void;
   /** Scrolls to a page whenever this changes (`n` lets the same page be requested again). */
   goto?: { page: number; n: number } | null;
+  /** Empty signature fields to highlight; clicking one calls `onPickField`. */
+  fields?: EmptyField[];
+  onPickField?: (f: EmptyField) => void;
+  /** The box sits in this signature field: it cannot be moved or resized. */
+  field?: string | null;
 }
 
 const MIN_W = 90;
@@ -112,7 +117,22 @@ function fitFont(lines: string[], w: number, h: number, pad = boxPad(w, h)): num
 }
 const MIN_H = 30;
 
-export function PdfView({ doc, sizes, placement, pages, preview, image, zoom, onPlace, onScale, onPageChange, goto }: Props) {
+export function PdfView({
+  doc,
+  sizes,
+  placement,
+  pages,
+  preview,
+  image,
+  zoom,
+  onPlace,
+  onScale,
+  onPageChange,
+  goto,
+  fields,
+  onPickField,
+  field,
+}: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -202,6 +222,9 @@ export function PdfView({ doc, sizes, placement, pages, preview, image, zoom, on
             preview={preview}
             image={image ?? null}
             onPlace={onPlace}
+            fields={fields?.filter((f) => f.page === i && f.rect) ?? []}
+            onPickField={onPickField}
+            field={field ?? null}
           />
         );
       })}
@@ -220,9 +243,12 @@ interface PageProps {
   preview: string[];
   image: StampImage | null;
   onPlace: (p: Placement) => void;
+  fields: EmptyField[];
+  onPickField?: (f: EmptyField) => void;
+  field: string | null;
 }
 
-function Page({ doc, index, size, scale, placement, ghost, preview, image, onPlace }: PageProps) {
+function Page({ doc, index, size, scale, placement, ghost, preview, image, onPlace, fields, onPickField, field }: PageProps) {
   const holder = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
@@ -274,7 +300,7 @@ function Page({ doc, index, size, scale, placement, ghost, preview, image, onPla
   };
 
   const onPageDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest(".sig-box")) return;
+    if ((e.target as HTMLElement).closest(".sig-box, .sig-field")) return;
     const pt = toPoints(e.clientX, e.clientY);
     const w = placement?.w ?? 170;
     const h = placement?.h ?? 55;
@@ -282,7 +308,7 @@ function Page({ doc, index, size, scale, placement, ghost, preview, image, onPla
   };
 
   const drag = (mode: "move" | "resize") => (e: React.PointerEvent) => {
-    if (!placement) return;
+    if (!placement || field) return;
     e.stopPropagation();
     e.preventDefault();
     const start = toPoints(e.clientX, e.clientY);
@@ -312,10 +338,28 @@ function Page({ doc, index, size, scale, placement, ghost, preview, image, onPla
         onPointerDown={onPageDown}
       >
         <canvas ref={canvas} style={{ width: "100%", height: "100%" }} />
+        {fields.map(
+          (f) =>
+            f.rect && (
+              <div
+                key={f.name}
+                className="sig-field"
+                style={{ left: f.rect.x * scale, top: f.rect.y * scale, width: f.rect.w * scale, height: f.rect.h * scale }}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  onPickField?.(f);
+                }}
+                title={`Sign into the field "${f.name}"`}
+              >
+                <span>{f.name}</span>
+              </div>
+            ),
+        )}
         {placement && image && (
           <ImageBox
             placement={placement}
             ghost={ghost}
+            field={field}
             preview={preview}
             image={image}
             scale={scale}
@@ -325,7 +369,7 @@ function Page({ doc, index, size, scale, placement, ghost, preview, image, onPla
         )}
         {placement && !image && (
           <div
-            className={`sig-box ${ghost ? "ghost" : ""}`}
+            className={`sig-box ${ghost ? "ghost" : ""} ${field ? "in-field" : ""}`}
             style={{
               left: placement.x * scale,
               top: placement.y * scale,
@@ -334,14 +378,14 @@ function Page({ doc, index, size, scale, placement, ghost, preview, image, onPla
               fontSize: fitFont(preview, placement.w, placement.h) * scale,
             }}
             onPointerDown={drag("move")}
-            title={ghost ? "Not signed on this page (not in the selection). Drag to move" : "Drag to move"}
+            title={boxTitle(ghost, field)}
           >
             {preview.map((l, i) => (
               <div key={i} className={i === 1 ? "sig-name" : undefined}>
                 {l}
               </div>
             ))}
-            <div className="sig-resize" onPointerDown={drag("resize")} title="Drag to resize" />
+            {!field && <div className="sig-resize" onPointerDown={drag("resize")} title="Drag to resize" />}
           </div>
         )}
       </div>
@@ -350,9 +394,15 @@ function Page({ doc, index, size, scale, placement, ghost, preview, image, onPla
   );
 }
 
+function boxTitle(ghost: boolean, field: string | null) {
+  if (field) return `Signature field "${field}". Click elsewhere on the page to place a box of your own instead`;
+  return ghost ? "Not signed on this page (not in the selection). Drag to move" : "Drag to move";
+}
+
 function ImageBox(props: {
   placement: Placement;
   ghost: boolean;
+  field: string | null;
   preview: string[];
   image: StampImage;
   scale: number;
@@ -365,10 +415,10 @@ function ImageBox(props: {
   const at = ([x, y, w, h]: Area) => ({ left: x * scale, top: y * scale, width: w * scale, height: h * scale });
   return (
     <div
-      className={`sig-box with-image ${props.ghost ? "ghost" : ""}`}
+      className={`sig-box with-image ${props.ghost ? "ghost" : ""} ${props.field ? "in-field" : ""}`}
       style={{ left: p.x * scale, top: p.y * scale, width: p.w * scale, height: p.h * scale }}
       onPointerDown={props.onMove}
-      title={props.ghost ? "Not signed on this page (not in the selection). Drag to move" : "Drag to move"}
+      title={boxTitle(props.ghost, props.field)}
     >
       <img className="sig-img" src={image.url} alt="" draggable={false} style={at(im)} />
       <div className="sig-text" style={{ ...at(text), padding: pad * scale, fontSize: fitFont(props.preview, text[2], text[3], pad) * scale }}>
@@ -378,7 +428,7 @@ function ImageBox(props: {
           </div>
         ))}
       </div>
-      <div className="sig-resize" onPointerDown={props.onResize} title="Drag to resize" />
+      {!props.field && <div className="sig-resize" onPointerDown={props.onResize} title="Drag to resize" />}
     </div>
   );
 }

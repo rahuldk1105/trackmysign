@@ -78,6 +78,9 @@ pub struct SignRequest {
     pub timestamp: Option<String>,
     /// Append OCSP/CRL data for the certificates in a `/DSS` (needs the internet).
     pub ltv: bool,
+    /// Sign into this empty signature field (fully qualified name, as in
+    /// [`PdfInfo::empty_fields`]); `page`, `rect` and `pages` are then unused.
+    pub field: Option<String>,
 }
 
 /// Signs `input` and returns the complete new file.
@@ -95,11 +98,13 @@ pub fn sign_pdf(
         time,
         image: req.image.clone(),
         image_position: req.image_position,
+        timestamp: req.timestamp.is_some(),
     };
     let placement = Placement {
         page: req.page,
         rect: req.rect,
         pages: req.pages.clone(),
+        field: req.field.clone(),
     };
     let mut reserve = cms::estimate_size(signer);
     if req.timestamp.is_some() {
@@ -142,16 +147,28 @@ pub struct PageSize {
     pub rotate: i32,
 }
 
+/// A signature field in the document that has not been signed yet.
+#[derive(Debug, Clone)]
+pub struct EmptyField {
+    /// Fully qualified name, e.g. `approvals.director`.
+    pub name: String,
+    /// Zero-based page of its (first visible) widget.
+    pub page: Option<usize>,
+    /// As displayed on `page`; `None` for an invisible field.
+    pub rect: Option<DisplayRect>,
+}
+
 #[derive(Debug, Clone)]
 pub struct PdfInfo {
     pub pages: Vec<PageSize>,
     pub signatures: usize,
+    pub empty_fields: Vec<EmptyField>,
 }
 
 pub fn inspect(input: &[u8]) -> Result<PdfInfo, Error> {
     let doc = pdf::reader::Document::parse(input)?;
-    let pages = doc
-        .pages()?
+    let page_info = doc.pages()?;
+    let pages = page_info
         .iter()
         .map(|p| {
             let (width, height) = p.display_size();
@@ -162,8 +179,33 @@ pub fn inspect(input: &[u8]) -> Result<PdfInfo, Error> {
             }
         })
         .collect();
-    let (_, signatures) = doc.form_fields()?;
-    Ok(PdfInfo { pages, signatures })
+    let fields = pdf::fields::signature_fields(&doc, &page_info)?;
+    let signatures = fields.iter().filter(|f| f.signed).count();
+    let empty_fields = fields
+        .iter()
+        .filter(|f| !f.signed)
+        .map(|f| {
+            let widget = f
+                .widgets
+                .iter()
+                .find(|w| w.visible() && w.page.is_some())
+                .or_else(|| f.widgets.iter().find(|w| w.page.is_some()));
+            let page = widget.and_then(|w| w.page);
+            EmptyField {
+                name: f.name.clone(),
+                page,
+                rect: widget.filter(|w| w.visible()).and_then(|w| {
+                    let p = &page_info[w.page?];
+                    Some(pdf::fields::user_to_display(p, w.rect))
+                }),
+            }
+        })
+        .collect();
+    Ok(PdfInfo {
+        pages,
+        signatures,
+        empty_fields,
+    })
 }
 
 /// Parses a page selection such as `all` or `1-3,5` (numbered from 1) into

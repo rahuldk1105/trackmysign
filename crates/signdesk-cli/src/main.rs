@@ -28,7 +28,7 @@ struct Cli {
 enum Cmd {
     /// List certificates on the connected token(s).
     Certs,
-    /// Show page count, page sizes and existing signatures.
+    /// Show page count, page sizes, existing signatures and empty signature fields.
     Info { pdf: PathBuf },
     /// Sign one or more PDFs with one PIN entry. Writes <name>_signed.pdf
     /// next to each unless --out is given (single PDF only).
@@ -54,6 +54,10 @@ enum Cmd {
         /// Make the signature invisible (no box on the page).
         #[arg(long)]
         invisible: bool,
+        /// Sign into this empty signature field of the PDF (name as shown by
+        /// `trackmysign info`); the box takes the field's place and size.
+        #[arg(long, conflicts_with_all = ["page", "pages", "position", "rect", "invisible"])]
+        field: Option<String>,
         #[arg(long)]
         reason: Option<String>,
         #[arg(long)]
@@ -129,9 +133,28 @@ fn read_and_place(
     position: Corner,
     rect: Option<DisplayRect>,
     invisible: bool,
+    field: Option<&str>,
 ) -> Result<Job> {
     let data = std::fs::read(pdf).with_context(|| format!("reading {}", pdf.display()))?;
     let info = inspect(&data)?;
+    if let Some(name) = field {
+        if !info.empty_fields.iter().any(|f| f.name == name) {
+            let names: Vec<&str> = info.empty_fields.iter().map(|f| f.name.as_str()).collect();
+            if names.is_empty() {
+                bail!("no empty signature field \"{name}\": the PDF has none");
+            }
+            bail!(
+                "no empty signature field \"{name}\"; empty fields: {}",
+                names.join(", ")
+            );
+        }
+        return Ok(Job {
+            data,
+            page: 0,
+            pages: Vec::new(),
+            rect: None,
+        });
+    }
     let pages = match pages {
         Some(_) if invisible => bail!("--pages needs a visible signature"),
         Some(spec) => parse_pages(spec, info.pages.len()).map_err(anyhow::Error::msg)?,
@@ -352,6 +375,24 @@ fn run() -> Result<()> {
                 );
             }
             println!("Existing signatures: {}", info.signatures);
+            if !info.empty_fields.is_empty() {
+                println!("Empty signature fields: {}", info.empty_fields.len());
+            }
+            for f in &info.empty_fields {
+                let place = match (f.page, f.rect) {
+                    (Some(p), Some(r)) => format!(
+                        "page {}, {:.0},{:.0},{:.0},{:.0}",
+                        p + 1,
+                        r.x,
+                        r.y,
+                        r.w,
+                        r.h
+                    ),
+                    (Some(p), None) => format!("page {}, invisible", p + 1),
+                    _ => "invisible".into(),
+                };
+                println!("  {}: {place}", f.name);
+            }
         }
         Cmd::Sign {
             pdfs,
@@ -361,6 +402,7 @@ fn run() -> Result<()> {
             position,
             rect,
             invisible,
+            field,
             reason,
             location,
             image,
@@ -397,7 +439,15 @@ fn run() -> Result<()> {
             // Read and place everything first, so problems show before the PIN prompt.
             let mut jobs = Vec::new();
             for pdf in &pdfs {
-                match read_and_place(pdf, page, pages.as_deref(), position, rect, invisible) {
+                match read_and_place(
+                    pdf,
+                    page,
+                    pages.as_deref(),
+                    position,
+                    rect,
+                    invisible,
+                    field.as_deref(),
+                ) {
                     Ok(job) => jobs.push((pdf, job)),
                     Err(e) => report(pdf, e)?,
                 }
@@ -434,6 +484,7 @@ fn run() -> Result<()> {
                     },
                     timestamp: timestamp.clone(),
                     ltv,
+                    field: field.clone(),
                     ..Default::default()
                 };
                 let out = out.clone().unwrap_or_else(|| signed_path(pdf));

@@ -24,6 +24,7 @@ use x509_cert::ext::pkix::{BasicConstraints, SubjectKeyIdentifier};
 use x509_cert::spki::SubjectPublicKeyInfoOwned;
 use x509_cert::time::Time;
 
+use crate::pdf::fields::text;
 use crate::pdf::object::{Dict, Obj, is_ws};
 use crate::pdf::reader::{Document, XrefEntry, find};
 use crate::{Error, KeyKind, certinfo};
@@ -197,22 +198,6 @@ fn collect_fields(
         for k in &kids {
             collect_fields(doc, k, &name, is_sig, seen, out, depth + 1);
         }
-    }
-}
-
-/// PDF text string: UTF-16BE with BOM, UTF-8 with BOM, else PDFDocEncoding
-/// (close enough to Latin-1 for names and reasons).
-fn text(b: &[u8]) -> String {
-    if let Some(rest) = b.strip_prefix(&[0xfe, 0xff]) {
-        let u: Vec<u16> = rest
-            .chunks(2)
-            .map(|c| u16::from_be_bytes([c[0], *c.get(1).unwrap_or(&0)]))
-            .collect();
-        String::from_utf16_lossy(&u)
-    } else if let Some(rest) = b.strip_prefix(&[0xef, 0xbb, 0xbf]) {
-        String::from_utf8_lossy(rest).into_owned()
-    } else {
-        b.iter().map(|&c| c as char).collect()
     }
 }
 
@@ -981,11 +966,11 @@ fn changed_dict(doc: &Document, rev: &Document, old: &Dict, new: &Dict) -> Chang
         Changes::Signatures
     } else if new.get("Fields").is_some() && !is_type(new, "Annot") {
         acroform(doc, rev, old, new)
-    } else if new.get("FT").is_some_and(|t| t.is_name("Sig"))
+    } else if is_signature_field(doc, new)
         && !is_type(new, "Sig")
         && only(&["V", "AP", "AS", "F", "Lock"])
     {
-        // An empty signature field that was signed.
+        // An empty signature field (or its widget) that was signed.
         Changes::Signatures
     } else if (new.get("FT").is_some() || is_type(new, "Annot"))
         && only(&["V", "AP", "AS", "MK", "F", "M", "Contents"])
@@ -1052,15 +1037,19 @@ fn grown_array(doc: &Document, old: &[Obj], new: &[Obj]) -> Changes {
     worst
 }
 
+/// `/FT /Sig` on the dictionary or inherited from a parent field.
 fn is_signature_field(doc: &Document, d: &Dict) -> bool {
-    let ft = match d.get("FT") {
-        Some(ft) => Some(ft.clone()),
-        None => d
-            .get("Parent")
-            .and_then(|p| doc.resolve(p).ok())
-            .and_then(|p| p.as_dict().and_then(|p| p.get("FT").cloned())),
-    };
-    ft.is_some_and(|t| t.is_name("Sig"))
+    let mut d = d.clone();
+    for _ in 0..32 {
+        if let Some(ft) = d.get("FT") {
+            return ft.is_name("Sig");
+        }
+        match d.get("Parent").and_then(|p| doc.resolve(p).ok()) {
+            Some(Obj::Dict(p)) => d = p,
+            _ => return false,
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -1345,6 +1334,154 @@ mod tests {
         assert_eq!(r[1].field, "Signature2");
         assert_eq!(r[1].status, Status::Valid);
         assert!(r[1].covers_whole_file());
+    }
+
+    /// "approvals" > "director" > separate widget, the AcroForm inline in
+    /// the catalog; the field locks the text field "company".
+    fn empty_field_pdf() -> Vec<u8> {
+        write_pdf(&[
+            b"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 8 0 R] >> >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Rotate 90 /Contents 4 0 R /Annots [7 0 R] >>",
+            b"<< /Length 23 >>\nstream\nBT 72 760 Td (Hi) Tj ET\nendstream",
+            b"<< /T (approvals) /FT /Sig /Kids [6 0 R] >>",
+            b"<< /T (director) /Parent 5 0 R /Kids [7 0 R] /Lock << /Type /SigFieldLock /Action /Include /Fields [(company)] >> >>",
+            b"<< /Type /Annot /Subtype /Widget /Parent 6 0 R /Rect [60 500 120 700] /F 4 /P 3 0 R >>",
+            b"<< /T (company) /FT /Tx /V (TrackMyTech) >>",
+        ])
+    }
+
+    fn signed_into(pdf: &[u8], field: &str, signer: &mut dyn Signer) -> Result<Vec<u8>, Error> {
+        let req = SignRequest {
+            field: Some(field.into()),
+            time: Some(DateTime::parse_from_rfc3339(LATER).unwrap()),
+            ..Default::default()
+        };
+        sign_pdf(pdf, &req, signer)
+    }
+
+    #[test]
+    fn signing_into_an_empty_field() {
+        let pdf = empty_field_pdf();
+        let info = crate::inspect(&pdf).unwrap();
+        assert_eq!(info.signatures, 0);
+        assert_eq!(info.empty_fields.len(), 1);
+        let f = &info.empty_fields[0];
+        assert_eq!(f.name, "approvals.director");
+        assert_eq!(f.page, Some(0));
+        // /Rotate 90: displayed 842 wide; the field shows 200 x 60.
+        let r = f.rect.unwrap();
+        assert_eq!((r.x, r.y, r.w, r.h), (500.0, 60.0, 200.0, 60.0));
+
+        // A free box first, then the field: the first signature stays valid.
+        let once = signed(&pdf, &mut SoftSigner::rsa(), LATER);
+        let twice = signed_into(&once, "approvals.director", &mut SoftSigner::ec()).unwrap();
+        let r = verify(&twice).unwrap();
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].field, "Signature1");
+        assert_eq!(r[0].changes, Changes::Signatures);
+        assert_eq!(r[1].field, "approvals.director");
+        assert_eq!(r[1].status, Status::Valid, "{:?}", r[1].notes);
+        assert!(r[1].covers_whole_file());
+        let info = crate::inspect(&twice).unwrap();
+        assert_eq!(info.signatures, 2);
+        assert!(info.empty_fields.is_empty());
+
+        let doc = Document::parse(&twice).unwrap();
+        let widget = doc.get(7).unwrap().as_dict().cloned().unwrap();
+        let Some(Obj::Ref(ap, _)) = widget
+            .get("AP")
+            .and_then(|a| a.as_dict())
+            .and_then(|a| a.get("N"))
+            .cloned()
+        else {
+            panic!("widget has no appearance");
+        };
+        let ap = doc.get(ap).unwrap().as_dict().cloned().unwrap();
+        let nums = |k: &str| -> Vec<f64> {
+            ap.get(k)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_f64().unwrap())
+                .collect()
+        };
+        assert_eq!(nums("BBox"), [0.0, 0.0, 200.0, 60.0]);
+        assert_eq!(nums("Matrix"), [0.0, 1.0, -1.0, 0.0, 60.0, 0.0]);
+        // The widget keeps everything it had, the field gains only /V.
+        let before = Document::parse(&pdf).unwrap();
+        let old = before.get(7).unwrap().as_dict().cloned().unwrap();
+        assert_eq!(
+            widget.clone().with("AP", Obj::Null),
+            old.with("AP", Obj::Null)
+        );
+        let field = doc.get(6).unwrap().as_dict().cloned().unwrap();
+        let old = before.get(6).unwrap().as_dict().cloned().unwrap();
+        assert_eq!(field.clone().with("V", Obj::Null), old.with("V", Obj::Null));
+        let Some(Obj::Ref(sig, _)) = field.get("V").cloned() else {
+            panic!("field has no /V");
+        };
+        let sig = doc.get(sig).unwrap().as_dict().cloned().unwrap();
+        let mdp = &sig.get("Reference").unwrap().as_array().unwrap()[0];
+        let params = mdp
+            .as_dict()
+            .unwrap()
+            .get("TransformParams")
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        assert!(params.get("Action").unwrap().is_name("Include"));
+        assert_eq!(
+            params.get("Fields"),
+            Some(&Obj::Array(vec![Obj::str("company")]))
+        );
+
+        let err = signed_into(&twice, "approvals.director", &mut SoftSigner::rsa()).unwrap_err();
+        assert!(err.to_string().contains("already signed"), "{err}");
+        let err = signed_into(&pdf, "nope", &mut SoftSigner::rsa()).unwrap_err();
+        assert!(err.to_string().contains("approvals.director"), "{err}");
+    }
+
+    #[test]
+    fn seed_values_are_honoured() {
+        let with_sv = |sv: &str| {
+            let field = format!(
+                "<< /Type /Annot /Subtype /Widget /FT /Sig /T (Sig) /Rect [0 0 0 0] /P 3 0 R /SV << {sv} >> >>"
+            );
+            write_pdf(&[
+                b"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] >> >>",
+                b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Annots [5 0 R] >>",
+                b"null",
+                field.as_bytes(),
+            ])
+        };
+        let sign = |sv: &str| signed_into(&with_sv(sv), "Sig", &mut SoftSigner::rsa());
+        let pdf = sign("/Ff 2 /SubFilter [/ETSI.CAdES.detached]").unwrap();
+        let r = &verify(&pdf).unwrap()[0];
+        assert_eq!(r.status, Status::Valid, "{:?}", r.notes);
+        assert_eq!(r.sub_filter.as_deref(), Some("ETSI.CAdES.detached"));
+        // Not required: our own format is kept.
+        let pdf = sign("/SubFilter [/ETSI.CAdES.detached]").unwrap();
+        assert_eq!(
+            verify(&pdf).unwrap()[0].sub_filter.as_deref(),
+            Some("adbe.pkcs7.detached")
+        );
+        for (sv, msg) in [
+            ("/Ff 64 /DigestMethod [/SHA512]", "SHA512"),
+            ("/Ff 2 /SubFilter [/adbe.pkcs7.sha1]", "adbe.pkcs7.sha1"),
+            ("/Ff 1 /Filter /Entrust.PPKEF", "Entrust.PPKEF"),
+            (
+                "/TimeStamp << /URL (http://tsa.example) /Ff 1 >>",
+                "timestamp",
+            ),
+        ] {
+            let err = sign(sv).unwrap_err().to_string();
+            assert!(err.contains(msg), "{sv}: {err}");
+        }
+        assert!(sign("/Ff 64 /DigestMethod [/SHA256 /SHA512]").is_ok());
+        assert!(sign("/Ff 8 /Reasons [(Approved)]").is_ok());
     }
 
     #[test]

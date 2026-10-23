@@ -77,6 +77,43 @@ else
   echo "FAIL batch: $(cat "$W/batch.out" "$W/batch.err")"; fail=1
 fi
 for f in plain objstm presigned; do check "$W/fx/$f.pdf" "$W/batch/${f}_signed.pdf"; done
+# Signing into existing empty signature fields: original, field, output, check_field.py options.
+field() {
+  "$BIN" sign "$1" --field "$2" --reason Approved --out "$W/signed/$3.pdf" >/dev/null
+  check "$1" "$W/signed/$3.pdf"
+  python3 -W ignore "$ROOT/tests/check_field.py" "${@:4}" "$1" "$W/signed/$3.pdf" "$2" "${ROOTS[@]}" || fail=1
+}
+field "$W/fx/field-simple.pdf" ClientSignature field-simple --rotate 0
+field "$W/fx/field-mixed.pdf" Director field-mixed
+field "$W/fx/field-nested.pdf" approvals.director field-nested
+field "$W/fx/field-rotated.pdf" Rotated90 field-rot90 --rotate 90
+field "$W/signed/field-rot90.pdf" Rotated270 field-rot270 --rotate 270
+field "$W/fx/field-lock.pdf" Approver field-lock --lock company
+field "$W/fx/field-sv.pdf" CadesOnly field-cades --subfilter ETSI.CAdES.detached
+"$BIN" sign "$W/fx/field-simple.pdf" --field ClientSignature --image "$W/fx/sig.png" --out "$W/signed/field-img.pdf" >/dev/null
+check "$W/fx/field-simple.pdf" "$W/signed/field-img.pdf"
+if "$BIN" info "$W/fx/field-nested.pdf" | grep -q "approvals.director: page 1, 340,692,200,60" \
+   && "$BIN" info "$W/fx/field-rotated.pdf" | grep -q "Rotated90: page 1, 560,60,200,60" \
+   && "$BIN" info "$W/fx/field-mixed.pdf" | grep -q "Existing signatures: 1" \
+   && ! "$BIN" info "$W/signed/field-mixed.pdf" | grep -q "Empty signature fields"; then
+  echo "PASS info lists empty signature fields"
+else
+  echo "FAIL info: $("$BIN" info "$W/fx/field-nested.pdf")"; fail=1
+fi
+# Refused: a seed value the signature cannot meet, a signed field, a missing one.
+refused() {
+  if "$BIN" sign "$W/fx/$1.pdf" --field "$2" --out "$W/refused.pdf" 2>"$W/err" >/dev/null; then
+    echo "FAIL signed into $1 / $2"; fail=1
+  elif grep -q "$3" "$W/err" && [ ! -e "$W/refused.pdf" ]; then
+    echo "PASS $1 / $2 refused"
+  else
+    echo "FAIL: $(cat "$W/err")"; fail=1
+  fi
+}
+refused field-sv Sha512Only "requires the digest sha512"
+refused field-mixed Auditor "empty fields: Director"
+refused field-simple Nope "empty fields: ClientSignature"
+for f in field-simple field-mixed field-nested field-rot270 field-lock field-cades; do vcheck "$W/signed/$f.pdf" valid; done
 for f in presigned presigned-objstm presigned-form; do vcheck "$W/fx/$f.pdf" valid; done
 for f in plain objstm form broken presigned presigned-form rot2 invisible twice; do vcheck "$W/signed/$f.pdf" valid; done
 for f in plain twice; do

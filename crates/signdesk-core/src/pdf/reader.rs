@@ -18,6 +18,9 @@ pub enum PdfError {
     Malformed(String),
     #[error("page {0} does not exist")]
     NoSuchPage(usize),
+    /// An existing signature field that cannot be signed as asked.
+    #[error("{0}")]
+    Field(String),
 }
 
 impl From<super::object::SyntaxError> for PdfError {

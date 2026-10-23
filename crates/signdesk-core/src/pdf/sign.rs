@@ -32,6 +32,8 @@ pub struct SignatureFields {
     pub time: DateTime<FixedOffset>,
     pub image: Option<StampImage>,
     pub image_position: ImagePosition,
+    /// A timestamp will be added (some fields require one).
+    pub timestamp: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +46,9 @@ pub struct Placement {
     /// than one, the signature field gets one widget per page, each placed
     /// by [`rect_on_page`] from the box as drawn on `page`.
     pub pages: Vec<usize>,
+    /// Sign into this existing empty signature field (fully qualified name)
+    /// instead of adding one; `page`, `rect` and `pages` are then unused.
+    pub field: Option<String>,
 }
 
 /// A PDF with the signature dictionary in place but `/Contents` still empty.
@@ -148,6 +153,161 @@ pub fn text_string(s: &str) -> Obj {
     }
 }
 
+type Objects = BTreeMap<u32, (u16, Obj)>;
+
+fn take(next: &mut u32) -> u32 {
+    let id = *next;
+    *next += 1;
+    id
+}
+
+/// What every appearance of one signature shares: the text, the image
+/// slot and resources (fonts and image written once to `objs`).
+struct Stamp {
+    lines: Vec<Line>,
+    slot: Option<ImageSlot>,
+    resources: Dict,
+}
+
+fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp {
+    let f1 = take(next);
+    let f2 = take(next);
+    let mut lines = vec![
+        Line {
+            text: "Digitally signed by".into(),
+            face: Face::Regular,
+            scale: 1.0,
+        },
+        Line {
+            text: fields.signer_name.clone(),
+            face: Face::Bold,
+            scale: 1.15,
+        },
+        Line {
+            text: format!("Date: {}", fields.time.format("%Y.%m.%d %H:%M:%S %:z")),
+            face: Face::Regular,
+            scale: 1.0,
+        },
+    ];
+    if let Some(reason) = fields.reason.as_ref().filter(|s| !s.is_empty()) {
+        lines.push(Line {
+            text: format!("Reason: {reason}"),
+            face: Face::Regular,
+            scale: 1.0,
+        });
+    }
+    if let Some(loc) = fields.location.as_ref().filter(|s| !s.is_empty()) {
+        lines.push(Line {
+            text: format!("Location: {loc}"),
+            face: Face::Regular,
+            scale: 1.0,
+        });
+    }
+    let slot = fields.image.as_ref().map(|img| ImageSlot {
+        aspect: img.aspect(),
+        position: fields.image_position,
+    });
+    let font = |base: &str| {
+        Obj::Dict(
+            Dict::new()
+                .with("Type", Obj::name("Font"))
+                .with("Subtype", Obj::name("Type1"))
+                .with("BaseFont", Obj::name(base))
+                .with("Encoding", Obj::name("WinAnsiEncoding")),
+        )
+    };
+    objs.insert(f1, (0, font("Helvetica")));
+    objs.insert(f2, (0, font("Helvetica-Bold")));
+    let mut resources = Dict::new().with(
+        "Font",
+        Obj::Dict(
+            Dict::new()
+                .with("F1", Obj::Ref(f1, 0))
+                .with("F2", Obj::Ref(f2, 0)),
+        ),
+    );
+    // One image object, shared by the appearances on every page.
+    if let Some(img) = &fields.image {
+        let im = take(next);
+        let smask = img.mask_obj().map(|m| {
+            let id = take(next);
+            objs.insert(id, (0, m));
+            Obj::Ref(id, 0)
+        });
+        objs.insert(im, (0, img.image_obj(smask)));
+        resources.set(
+            "XObject",
+            Obj::Dict(Dict::new().with("Im1", Obj::Ref(im, 0))),
+        );
+    }
+    Stamp {
+        lines,
+        slot,
+        resources,
+    }
+}
+
+/// Appearance stream for a `w`×`h` box (upright as the reader sees it),
+/// turned `rotate` degrees counterclockwise onto the page.
+fn appearance_obj(stamp: &Stamp, w: f64, h: f64, rotate: i32) -> Obj {
+    let content = appearance::content_stream_with_image(w, h, &stamp.lines, stamp.slot);
+    let m = appearance::rotation_matrix(rotate, w, h);
+    let ap = Dict::new()
+        .with("Type", Obj::name("XObject"))
+        .with("Subtype", Obj::name("Form"))
+        .with(
+            "BBox",
+            Obj::Array(vec![Obj::int(0), Obj::int(0), Obj::real(w), Obj::real(h)]),
+        )
+        .with(
+            "Matrix",
+            Obj::Array(m.iter().map(|v| Obj::real(*v)).collect()),
+        )
+        .with("Resources", Obj::Dict(stamp.resources.clone()));
+    Obj::Stream(ap, content)
+}
+
+/// Lists each widget in its page's `/Annots`. An indirect `/Annots` array
+/// is updated in place and the page left alone; pages sharing one array get
+/// all their widgets added to it.
+fn add_to_annots(
+    doc: &Document,
+    widgets: &[(&PageInfo, u32, u16)],
+    objs: &mut Objects,
+) -> Result<()> {
+    let mut annot_arrays: BTreeMap<u32, (u16, Vec<Obj>)> = BTreeMap::new();
+    for (target, id, gn) in widgets {
+        let widget_ref = Obj::Ref(*id, *gn);
+        let mut page_dict = target.dict.clone();
+        match page_dict.get("Annots").cloned() {
+            Some(Obj::Ref(aid, agen)) => {
+                if let Some((_, a)) = annot_arrays.get_mut(&aid) {
+                    a.push(widget_ref);
+                    continue;
+                }
+                match doc.get(aid)? {
+                    Obj::Array(mut a) => {
+                        a.push(widget_ref);
+                        annot_arrays.insert(aid, (agen, a));
+                        continue;
+                    }
+                    _ => page_dict.set("Annots", Obj::Array(vec![widget_ref])),
+                }
+            }
+            Some(Obj::Array(mut a)) => {
+                a.push(widget_ref);
+                page_dict.set("Annots", Obj::Array(a));
+            }
+            _ => page_dict.set("Annots", Obj::Array(vec![widget_ref])),
+        }
+        objs.insert(target.id.0, (target.id.1, Obj::Dict(page_dict)));
+    }
+    for (aid, (agen, a)) in annot_arrays {
+        objs.insert(aid, (agen, Obj::Array(a)));
+    }
+    Ok(())
+}
+
 pub fn prepare(
     input: &[u8],
     placement: &Placement,
@@ -156,6 +316,9 @@ pub fn prepare(
 ) -> Result<Prepared> {
     let doc = Document::parse(input)?;
     let pages = doc.pages()?;
+    if let Some(name) = &placement.field {
+        return prepare_field(&doc, &pages, name, fields, reserved);
+    }
     let page = pages
         .get(placement.page)
         .ok_or(PdfError::NoSuchPage(placement.page + 1))?;
@@ -173,17 +336,12 @@ pub fn prepare(
     let mut catalog = doc.catalog()?;
 
     let mut next = doc.next_object_id();
-    let mut alloc = || {
-        let id = next;
-        next += 1;
-        id
-    };
-    let sig_id = alloc();
-    let field_id = alloc();
+    let sig_id = take(&mut next);
+    let field_id = take(&mut next);
     let field_ref = Obj::Ref(field_id, 0);
 
     // Objects to write: id -> (gn, object). BTreeMap keeps the output tidy.
-    let mut objs: BTreeMap<u32, (u16, Obj)> = BTreeMap::new();
+    let mut objs: Objects = BTreeMap::new();
 
     // --- form field name -------------------------------------------------
     let (existing, _) = doc.form_fields()?;
@@ -212,81 +370,12 @@ pub fn prepare(
         }
         w.set("F", Obj::int(132));
         w.set("P", Obj::Ref(target.id.0, target.id.1));
-        let id = if single { field_id } else { alloc() };
+        let id = if single { field_id } else { take(&mut next) };
         widgets.push((target, id, w));
     }
     match placement.rect {
         Some(r) => {
-            let f1 = alloc();
-            let f2 = alloc();
-            let mut lines = vec![
-                Line {
-                    text: "Digitally signed by".into(),
-                    face: Face::Regular,
-                    scale: 1.0,
-                },
-                Line {
-                    text: fields.signer_name.clone(),
-                    face: Face::Bold,
-                    scale: 1.15,
-                },
-                Line {
-                    text: format!("Date: {}", fields.time.format("%Y.%m.%d %H:%M:%S %:z")),
-                    face: Face::Regular,
-                    scale: 1.0,
-                },
-            ];
-            if let Some(reason) = fields.reason.as_ref().filter(|s| !s.is_empty()) {
-                lines.push(Line {
-                    text: format!("Reason: {reason}"),
-                    face: Face::Regular,
-                    scale: 1.0,
-                });
-            }
-            if let Some(loc) = fields.location.as_ref().filter(|s| !s.is_empty()) {
-                lines.push(Line {
-                    text: format!("Location: {loc}"),
-                    face: Face::Regular,
-                    scale: 1.0,
-                });
-            }
-            let slot = fields.image.as_ref().map(|img| ImageSlot {
-                aspect: img.aspect(),
-                position: fields.image_position,
-            });
-            let font = |base: &str| {
-                Obj::Dict(
-                    Dict::new()
-                        .with("Type", Obj::name("Font"))
-                        .with("Subtype", Obj::name("Type1"))
-                        .with("BaseFont", Obj::name(base))
-                        .with("Encoding", Obj::name("WinAnsiEncoding")),
-                )
-            };
-            objs.insert(f1, (0, font("Helvetica")));
-            objs.insert(f2, (0, font("Helvetica-Bold")));
-            let mut resources = Dict::new().with(
-                "Font",
-                Obj::Dict(
-                    Dict::new()
-                        .with("F1", Obj::Ref(f1, 0))
-                        .with("F2", Obj::Ref(f2, 0)),
-                ),
-            );
-            // One image object, shared by the appearances on every page.
-            if let Some(img) = &fields.image {
-                let im = alloc();
-                let smask = img.mask_obj().map(|m| {
-                    let id = alloc();
-                    objs.insert(id, (0, m));
-                    Obj::Ref(id, 0)
-                });
-                objs.insert(im, (0, img.image_obj(smask)));
-                resources.set(
-                    "XObject",
-                    Obj::Dict(Dict::new().with("Im1", Obj::Ref(im, 0))),
-                );
-            }
+            let stamp = stamp(fields, &mut objs, &mut next);
             // Each page gets its own appearance: the box may be clamped to a
             // smaller page, and the matrix follows the page's /Rotate.
             for (target, _, widget) in &mut widgets {
@@ -296,27 +385,9 @@ pub fn prepare(
                     "Rect",
                     Obj::Array(user.iter().map(|v| Obj::real(*v)).collect()),
                 );
-                let ap_id = alloc();
-                let content = appearance::content_stream_with_image(r.w, r.h, &lines, slot);
-                let m = appearance::rotation_matrix(target.rotate, r.w, r.h);
-                let ap = Dict::new()
-                    .with("Type", Obj::name("XObject"))
-                    .with("Subtype", Obj::name("Form"))
-                    .with(
-                        "BBox",
-                        Obj::Array(vec![
-                            Obj::int(0),
-                            Obj::int(0),
-                            Obj::real(r.w),
-                            Obj::real(r.h),
-                        ]),
-                    )
-                    .with(
-                        "Matrix",
-                        Obj::Array(m.iter().map(|v| Obj::real(*v)).collect()),
-                    )
-                    .with("Resources", Obj::Dict(resources.clone()));
-                objs.insert(ap_id, (0, Obj::Stream(ap, content)));
+                let ap_id = take(&mut next);
+                let ap = appearance_obj(&stamp, r.w, r.h, target.rotate);
+                objs.insert(ap_id, (0, ap));
                 widget.set("AP", Obj::Dict(Dict::new().with("N", Obj::Ref(ap_id, 0))));
             }
         }
@@ -338,41 +409,12 @@ pub fn prepare(
     }
 
     // --- page /Annots ---------------------------------------------------
-    // An indirect /Annots array is updated in place and the page left alone.
-    // Pages sharing one array get all their widgets added to it.
-    let mut annot_arrays: BTreeMap<u32, (u16, Vec<Obj>)> = BTreeMap::new();
-    for (target, id, _) in &widgets {
-        let widget_ref = Obj::Ref(*id, 0);
-        let mut page_dict = target.dict.clone();
-        match page_dict.get("Annots").cloned() {
-            Some(Obj::Ref(aid, agen)) => {
-                if let Some((_, a)) = annot_arrays.get_mut(&aid) {
-                    a.push(widget_ref);
-                    continue;
-                }
-                match doc.get(aid)? {
-                    Obj::Array(mut a) => {
-                        a.push(widget_ref);
-                        annot_arrays.insert(aid, (agen, a));
-                        continue;
-                    }
-                    _ => page_dict.set("Annots", Obj::Array(vec![widget_ref])),
-                }
-            }
-            Some(Obj::Array(mut a)) => {
-                a.push(widget_ref);
-                page_dict.set("Annots", Obj::Array(a));
-            }
-            _ => page_dict.set("Annots", Obj::Array(vec![widget_ref])),
-        }
-        objs.insert(target.id.0, (target.id.1, Obj::Dict(page_dict)));
-    }
-    for (aid, (agen, a)) in annot_arrays {
-        objs.insert(aid, (agen, Obj::Array(a)));
-    }
+    let listed: Vec<(&PageInfo, u32, u16)> =
+        widgets.iter().map(|(p, id, _)| (*p, *id, 0)).collect();
+    add_to_annots(&doc, &listed, &mut objs)?;
 
     // --- AcroForm -------------------------------------------------------
-    let add_field = |af: &mut Dict, objs: &mut BTreeMap<u32, (u16, Obj)>| -> Result<()> {
+    let add_field = |af: &mut Dict, objs: &mut Objects| -> Result<()> {
         match af.get("Fields").cloned() {
             Some(Obj::Ref(fid, fgen)) => match doc.get(fid)? {
                 Obj::Array(mut a) => {
@@ -403,7 +445,7 @@ pub fn prepare(
             objs.insert(cat_id, (cat_gen, Obj::Dict(catalog)));
         }
         _ => {
-            let afid = alloc();
+            let afid = take(&mut next);
             let mut af = Dict::new();
             add_field(&mut af, &mut objs)?;
             objs.insert(afid, (0, Obj::Dict(af)));
@@ -412,20 +454,132 @@ pub fn prepare(
         }
     }
 
-    // --- write ----------------------------------------------------------
-    let mut out = input.to_vec();
-    if !matches!(out.last(), Some(b'\n') | Some(b'\r')) {
-        out.push(b'\n');
-    }
-    let mut offsets: BTreeMap<u32, (usize, u16)> = BTreeMap::new();
+    let sig = sig_dict(fields, "adbe.pkcs7.detached", None);
+    write_update(&doc, sig_id, sig, objs, next, reserved)
+}
 
-    // Signature dictionary first, with fixed-width placeholders.
-    offsets.insert(sig_id, (out.len(), 0));
-    out.extend_from_slice(format!("{sig_id} 0 obj\n<<").as_bytes());
+/// Signs into the existing empty signature field `name`: the field gets
+/// `/V`, each visible widget an appearance sized to its `/Rect`; nothing
+/// else about the field changes. A `/Lock` is carried into the signature as
+/// a FieldMDP reference, and required `/SV` seed values are honoured.
+fn prepare_field(
+    doc: &Document,
+    pages: &[PageInfo],
+    name: &str,
+    fields: &SignatureFields,
+    reserved: usize,
+) -> Result<Prepared> {
+    let all = super::fields::signature_fields(doc, pages)?;
+    let Some(field) = all.iter().find(|f| f.name == name) else {
+        let empty: Vec<&str> = all
+            .iter()
+            .filter(|f| !f.signed)
+            .map(|f| f.name.as_str())
+            .collect();
+        return Err(PdfError::Field(if empty.is_empty() {
+            format!("There is no signature field \"{name}\"; this PDF has no empty ones.")
+        } else {
+            format!(
+                "There is no signature field \"{name}\". Empty signature fields: {}.",
+                empty.join(", ")
+            )
+        }));
+    };
+    if field.signed {
+        return Err(PdfError::Field(format!(
+            "The signature field \"{name}\" is already signed."
+        )));
+    }
+    let format =
+        super::fields::check_seed_values(doc, field, fields.reason.as_deref(), fields.timestamp)?;
+    let (cat_id, cat_gen) = doc.catalog_ref()?;
+    let reference = super::fields::field_mdp_reference(doc, field, (cat_id, cat_gen))?;
+
+    let mut next = doc.next_object_id();
+    let sig_id = take(&mut next);
+    let mut objs: Objects = BTreeMap::new();
+
+    let stamp = field
+        .widgets
+        .iter()
+        .any(|w| w.visible())
+        .then(|| stamp(fields, &mut objs, &mut next));
+    let mut unlisted = Vec::new();
+    for w in &field.widgets {
+        let mut wd = w.dict.clone();
+        let page = w.page.map(|p| &pages[p]);
+        if let Some(stamp) = &stamp
+            && w.visible()
+        {
+            let [x0, y0, x1, y1] = w.rect;
+            let rotate = w.rotation(doc, page);
+            // The box as the reader sees it: turned a quarter, it swaps sides.
+            let (w, h) = if rotate % 180 == 0 {
+                (x1 - x0, y1 - y0)
+            } else {
+                (y1 - y0, x1 - x0)
+            };
+            let ap_id = take(&mut next);
+            objs.insert(ap_id, (0, appearance_obj(stamp, w, h, rotate)));
+            wd.set("AP", Obj::Dict(Dict::new().with("N", Obj::Ref(ap_id, 0))));
+        }
+        if w.id == field.id {
+            wd.set("V", Obj::Ref(sig_id, 0));
+        }
+        objs.insert(w.id.0, (w.id.1, Obj::Dict(wd)));
+        if let Some(p) = page {
+            let listed = match p.dict.get("Annots").map(|a| doc.resolve(a)) {
+                Some(Ok(Obj::Array(a))) => a
+                    .iter()
+                    .any(|r| matches!(r, Obj::Ref(id, _) if *id == w.id.0)),
+                _ => false,
+            };
+            if !listed {
+                unlisted.push((p, w.id.0, w.id.1));
+            }
+        }
+    }
+    if !field.widgets.iter().any(|w| w.id == field.id) {
+        let fd = field.dict.clone().with("V", Obj::Ref(sig_id, 0));
+        objs.insert(field.id.0, (field.id.1, Obj::Dict(fd)));
+    }
+    // A widget found only through its /P is added to that page.
+    add_to_annots(doc, &unlisted, &mut objs)?;
+
+    // --- AcroForm /SigFlags ----------------------------------------------
+    let mut catalog = doc.catalog()?;
+    let with_flags = |mut af: Dict| {
+        let flags = af.get("SigFlags").and_then(Obj::as_i64).unwrap_or(0);
+        (flags & 3 != 3).then(|| {
+            af.set("SigFlags", Obj::int(flags | 3));
+            af
+        })
+    };
+    match catalog.get("AcroForm").cloned() {
+        Some(Obj::Ref(afid, afgen)) => {
+            if let Some(af) = doc.get(afid)?.as_dict().cloned().and_then(with_flags) {
+                objs.insert(afid, (afgen, Obj::Dict(af)));
+            }
+        }
+        Some(Obj::Dict(af)) => {
+            if let Some(af) = with_flags(af) {
+                catalog.set("AcroForm", Obj::Dict(af));
+                objs.insert(cat_id, (cat_gen, Obj::Dict(catalog)));
+            }
+        }
+        _ => {}
+    }
+
+    let sig = sig_dict(fields, format.sub_filter, reference);
+    write_update(doc, sig_id, sig, objs, next, reserved)
+}
+
+/// The signature dictionary, without `/ByteRange` and `/Contents`.
+fn sig_dict(fields: &SignatureFields, sub_filter: &str, reference: Option<Obj>) -> Dict {
     let mut sig = Dict::new()
         .with("Type", Obj::name("Sig"))
         .with("Filter", Obj::name("Adobe.PPKLite"))
-        .with("SubFilter", Obj::name("adbe.pkcs7.detached"))
+        .with("SubFilter", Obj::name(sub_filter))
         .with("Name", text_string(&fields.signer_name))
         .with("M", Obj::Str(pdf_date(&fields.time).into_bytes()));
     if let Some(r) = fields.reason.as_ref().filter(|s| !s.is_empty()) {
@@ -434,6 +588,9 @@ pub fn prepare(
     if let Some(l) = fields.location.as_ref().filter(|s| !s.is_empty()) {
         sig.set("Location", text_string(l));
     }
+    if let Some(r) = reference {
+        sig.set("Reference", r);
+    }
     sig.set(
         "Prop_Build",
         Obj::Dict(Dict::new().with(
@@ -441,6 +598,29 @@ pub fn prepare(
             Obj::Dict(Dict::new().with("Name", Obj::name("TrackMySign"))),
         )),
     );
+    sig
+}
+
+/// Appends the signature dictionary (with placeholders), `objs` and a new
+/// cross-reference section to the original bytes.
+fn write_update(
+    doc: &Document,
+    sig_id: u32,
+    sig: Dict,
+    objs: Objects,
+    next: u32,
+    reserved: usize,
+) -> Result<Prepared> {
+    let (cat_id, cat_gen) = doc.catalog_ref()?;
+    let mut out = doc.data.to_vec();
+    if !matches!(out.last(), Some(b'\n') | Some(b'\r')) {
+        out.push(b'\n');
+    }
+    let mut offsets: BTreeMap<u32, (usize, u16)> = BTreeMap::new();
+
+    // Signature dictionary first, with fixed-width placeholders.
+    offsets.insert(sig_id, (out.len(), 0));
+    out.extend_from_slice(format!("{sig_id} 0 obj\n<<").as_bytes());
     for (k, v) in &sig.0 {
         super::object::write_name(&mut out, k);
         out.push(b' ');

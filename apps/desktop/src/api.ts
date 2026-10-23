@@ -23,18 +23,29 @@ export interface Driver {
   path: string;
 }
 
-export interface PdfInfo {
-  path: string;
-  name: string;
-  pages: { width: number; height: number }[];
-  signatures: number;
-}
-
 export interface Rect {
   x: number;
   y: number;
   w: number;
   h: number;
+}
+
+/** A signature field in the PDF that has not been signed yet. */
+export interface EmptyField {
+  /** Fully qualified name, e.g. `approvals.director`. */
+  name: string;
+  /** Zero-based page, or null when no page shows it. */
+  page: number | null;
+  /** Points from the top-left of the displayed page; null when invisible. */
+  rect: Rect | null;
+}
+
+export interface PdfInfo {
+  path: string;
+  name: string;
+  pages: { width: number; height: number }[];
+  signatures: number;
+  emptyFields: EmptyField[];
 }
 
 /** Whether the handwritten signature image is shown, and where. */
@@ -55,10 +66,12 @@ export interface SignArgs {
   timestamp: string | null;
   ltv: boolean;
   image?: Exclude<ImageChoice, "off"> | null;
+  /** Sign into this empty signature field; `page`, `rect` and `pages` are then unused. */
+  field?: string | null;
 }
 
 /** Several PDFs, one PIN entry. The box goes on the same page and spot of each. */
-export interface BatchArgs extends Omit<SignArgs, "path" | "page"> {
+export interface BatchArgs extends Omit<SignArgs, "path" | "page" | "field"> {
   paths: string[];
   /** "first", "last" or a page number (1 = first). */
   page: "first" | "last" | number;
@@ -132,7 +145,16 @@ export async function listCertificates(): Promise<Cert[]> {
 
 export async function pdfInfo(path: string): Promise<PdfInfo> {
   if (inTauri) return invoke("pdf_info", { path });
-  return { path, name: path.split(/[\\/]/).pop() ?? path, pages: [], signatures: 1 };
+  return {
+    path,
+    name: path.split(/[\\/]/).pop() ?? path,
+    pages: [],
+    signatures: 1,
+    emptyFields: [
+      { name: "Director", page: 0, rect: { x: 340, y: 700, w: 200, h: 60 } },
+      { name: "approvals.cfo", page: 0, rect: { x: 60, y: 700, w: 200, h: 60 } },
+    ],
+  };
 }
 
 export async function readPdf(path: string): Promise<ArrayBuffer> {
