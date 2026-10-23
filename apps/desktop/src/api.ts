@@ -42,7 +42,12 @@ export interface PdfInfo {
   name: string;
   pages: { width: number; height: number }[];
   signatures: number;
+  /** DocMDP level when the document is certified. */
+  certified: CertifyLevel | null;
 }
+
+/** What a certification allows afterwards: 1 no changes, 2 form filling and signing, 3 also comments. */
+export type CertifyLevel = 1 | 2 | 3;
 
 export interface Rect {
   x: number;
@@ -69,6 +74,8 @@ export interface SignArgs {
   timestamp: string | null;
   ltv: boolean;
   image?: Exclude<ImageChoice, "off"> | null;
+  /** Certify instead of approving. */
+  certify?: CertifyLevel | null;
 }
 
 /** Several PDFs, one PIN entry. The box goes on the same page and spot of each. */
@@ -160,7 +167,7 @@ export async function knownCertificates(): Promise<KnownCert[]> {
 
 export async function pdfInfo(path: string): Promise<PdfInfo> {
   if (inTauri) return invoke("pdf_info", { path });
-  return { path, name: path.split(/[\\/]/).pop() ?? path, pages: [], signatures: 1 };
+  return { path, name: path.split(/[\\/]/).pop() ?? path, pages: [], signatures: 1, certified: 2 };
 }
 
 export async function readPdf(path: string): Promise<ArrayBuffer> {
@@ -287,6 +294,8 @@ export interface SignatureCheck {
   bytesAfter: number;
   chain: string[];
   trust: "cca" | "notChecked";
+  /** Set for a certification signature. */
+  certification: CertifyLevel | null;
 }
 
 export async function verifyPdf(path: string): Promise<SignatureCheck[]> {
@@ -313,6 +322,7 @@ export async function verifyPdf(path: string): Promise<SignatureCheck[]> {
       bytesAfter: 11785,
       chain: ["CA AUDITOR PARTNER", "Verasys Sub CA 2022", "Verasys CA 2022", "CCA India 2022"],
       trust: "cca",
+      certification: 2,
     },
   ];
 }

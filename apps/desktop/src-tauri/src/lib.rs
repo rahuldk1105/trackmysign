@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use signdesk_core::certinfo::{Validity, days_until};
 use signdesk_core::token::{Token, TokenCert, Tokens, installed_drivers};
 use signdesk_core::{
-    DisplayRect, Error, ImagePosition, SignRequest, StampImage, inspect, sign_pdf, signed_path,
+    DisplayRect, DocMdp, Error, ImagePosition, SignRequest, StampImage, inspect, sign_pdf,
+    signed_path,
 };
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -31,7 +32,7 @@ impl From<Error> for CommandError {
             Error::WrongPin { .. } => "wrongPin",
             Error::PinLocked => "pinLocked",
             Error::Token(_) => "token",
-            Error::Pdf(_) => "pdf",
+            Error::Pdf(_) | Error::NotPermitted(_) => "pdf",
             Error::Timestamp(_) => "timestamp",
             Error::Ltv(_) => "ltv",
             _ => "other",
@@ -162,6 +163,8 @@ struct PdfDto {
     name: String,
     pages: Vec<PageDto>,
     signatures: usize,
+    /// DocMDP level (1-3) when the document is certified.
+    certified: Option<u8>,
 }
 
 #[tauri::command]
@@ -184,6 +187,7 @@ fn pdf_info(path: String) -> CmdResult<PdfDto> {
             })
             .collect(),
         signatures: info.signatures,
+        certified: info.certified.map(DocMdp::level),
     })
 }
 
@@ -225,6 +229,9 @@ struct SignArgs {
     /// Show the saved signature image, and where.
     #[serde(default)]
     image: Option<ImageArg>,
+    /// Certify with this DocMDP level (1-3) instead of approving.
+    #[serde(default)]
+    certify: Option<u8>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -277,6 +284,7 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             image_position: image_position(args.image),
             timestamp: trimmed_url(args.timestamp),
             ltv: args.ltv,
+            certify: args.certify.map(|p| DocMdp::from_level(p.into())),
             ..Default::default()
         };
         let signed = sign_pdf(&data, &req, &mut signer)?;
@@ -356,6 +364,8 @@ struct BatchArgs {
     ltv: bool,
     #[serde(default)]
     image: Option<ImageArg>,
+    #[serde(default)]
+    certify: Option<u8>,
 }
 
 #[derive(Serialize, Clone)]
@@ -421,6 +431,7 @@ fn sign_one(
         image_position: image_position(args.image),
         timestamp: trimmed_url(args.timestamp.clone()),
         ltv: args.ltv,
+        certify: args.certify.map(|p| DocMdp::from_level(p.into())),
         ..Default::default()
     };
     let signed = sign_pdf(&data, &req, signer)?;

@@ -1180,7 +1180,11 @@ section > label:first-of-type {
 .segmented button:last-child {
   border-right: 0;
 }
-.segmented button:hover:not(.on) {
+.segmented button:disabled {
+  color: var(--muted);
+  opacity: 0.6;
+}
+.segmented button:hover:not(.on):not(:disabled) {
   background: var(--surface-2);
 }
 .segmented button.on {

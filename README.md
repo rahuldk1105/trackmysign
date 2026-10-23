@@ -85,6 +85,7 @@ Other options:
 .\trackmysign.exe --module C:\Windows\System32\eps2003csp11v2.dll certs   # explicit driver
 .\trackmysign.exe sign file.pdf --timestamp --ltv     # long-term validity (needs internet)
 .\trackmysign.exe sign file.pdf --timestamp=http://timestamp.sectigo.com
+.\trackmysign.exe sign file.pdf --certify forms       # certify as the author (first signature only)
 ```
 
 Long-term validity is off by default, so signing works fully offline. `--timestamp`
@@ -98,6 +99,12 @@ An expired certificate is refused, since a signature made with it is not valid
 (`--allow-expired` signs anyway, with a warning). The desktop app reminds you to
 renew 30 days ahead (15, 60 or off under *Settings → Expiry reminder*), also
 when the token is not plugged in, and turns signing off once the DSC has expired.
+
+`--certify none|forms|annotations` makes the signature a certification (author)
+signature that says what may change afterwards: nothing, form filling and
+signing, or also comments. Only an unsigned document can be certified, and a
+document certified with `none` cannot be signed again. In the desktop app this
+is *Signature type → Certify* in the side panel.
 
 ## Development
 
