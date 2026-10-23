@@ -46,7 +46,12 @@ export interface PdfInfo {
   encrypted: boolean;
   /** The PDF's security settings, or the password given, allow signing. */
   signingAllowed: boolean;
+  /** DocMDP level when the document is certified. */
+  certified: CertifyLevel | null;
 }
+
+/** What a certification allows afterwards: 1 no changes, 2 form filling and signing, 3 also comments. */
+export type CertifyLevel = 1 | 2 | 3;
 
 export interface Rect {
   x: number;
@@ -75,6 +80,8 @@ export interface SignArgs {
   image?: Exclude<ImageChoice, "off"> | null;
   /** Password the PDF was opened with; kept in memory only. */
   password?: string | null;
+  /** Certify instead of approving. */
+  certify?: CertifyLevel | null;
 }
 
 /** Several PDFs, one PIN entry. The box goes on the same page and spot of each. */
@@ -167,7 +174,7 @@ export async function knownCertificates(): Promise<KnownCert[]> {
 /** `password` unlocks a protected PDF (open or owner password). */
 export async function pdfInfo(path: string, password?: string): Promise<PdfInfo> {
   if (inTauri) return invoke("pdf_info", { path, password: password ?? null });
-  return { path, name: path.split(/[\\/]/).pop() ?? path, pages: [], signatures: 1, encrypted: false, signingAllowed: true };
+  return { path, name: path.split(/[\\/]/).pop() ?? path, pages: [], signatures: 1, certified: 2, encrypted: false, signingAllowed: true };
 }
 
 export async function readPdf(path: string): Promise<ArrayBuffer> {
@@ -294,6 +301,8 @@ export interface SignatureCheck {
   bytesAfter: number;
   chain: string[];
   trust: "cca" | "notChecked";
+  /** Set for a certification signature. */
+  certification: CertifyLevel | null;
 }
 
 export async function verifyPdf(path: string, password?: string): Promise<SignatureCheck[]> {
@@ -320,6 +329,7 @@ export async function verifyPdf(path: string, password?: string): Promise<Signat
       bytesAfter: 11785,
       chain: ["CA AUDITOR PARTNER", "Verasys Sub CA 2022", "Verasys CA 2022", "CCA India 2022"],
       trust: "cca",
+      certification: 2,
     },
   ];
 }

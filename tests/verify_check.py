@@ -3,8 +3,9 @@
 Usage: python3 tests/verify_check.py [--password=PW] <trackmysign> <signed.pdf> <valid|invalid> <trust-root.pem>...
 Checks, per signature field: same fields found, VALID exactly when pyHanko
 says intact + valid, whole-document coverage when pyHanko says ENTIRE_FILE,
-and "content changed" only when pyHanko reports modifications beyond
-annotations. `invalid` expects every signature to be INVALID.
+"content changed" only when pyHanko reports modifications beyond
+annotations (judged as Acrobat does, see acrobat_policy.py), and the same
+certification (DocMDP) level. `invalid` expects every signature to be INVALID.
 """
 import logging
 import re
@@ -17,6 +18,8 @@ from pyhanko.pdf_utils.reader import PdfFileReader
 from pyhanko.sign.diff_analysis import ModificationLevel
 from pyhanko.sign.validation import validate_pdf_signature
 from pyhanko_certvalidator import ValidationContext
+
+from acrobat_policy import ACROBAT_POLICY
 
 args = sys.argv[1:]
 password = next((a.split("=", 1)[1] for a in args if a.startswith("--password=")), None)
@@ -45,9 +48,11 @@ with open(path, "rb") as f:
     r = PdfFileReader(f, strict=False)
     theirs = {}
     readable = not r.encrypted or r.decrypt(password or "").status != AuthStatus.FAILED
+    levels = {}
     for s in r.embedded_signatures if readable else []:
-        st = validate_pdf_signature(s, vc)
+        st = validate_pdf_signature(s, vc, diff_policy=ACROBAT_POLICY)
         theirs[s.field_name] = st
+        levels[s.field_name] = s.docmdp_level.value if s.docmdp_level else None
 
 if not readable:
     # pyHanko does not read the deprecated AES-256 revision 5: compare with
@@ -79,6 +84,10 @@ for name, st in theirs.items():
     other = st.modification_level is not None and st.modification_level > ModificationLevel.ANNOTATIONS
     if ("CONTENT CHANGED" in coverage) != other:
         problems.append(f"{name}: coverage '{coverage}' but pyHanko modifications {st.modification_level}")
+    m = re.match(r"level (\d)", fields.get("Certifies", ""))
+    level = int(m.group(1)) if m else None
+    if level != levels[name]:
+        problems.append(f"{name}: certification level {level} but pyHanko {levels[name]}")
 
 if problems:
     print("FAIL verify", path)

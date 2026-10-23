@@ -152,6 +152,53 @@ for f in plain presigned-objstm; do cp "$W/fx/$f.pdf" "$W/batch-ltv/"; done
 "$BIN" sign "$W/batch-ltv/plain.pdf" "$W/batch-ltv/presigned-objstm.pdf" --pages all --image "$W/fx/sig.jpg" \
   --timestamp "$TSA" --ltv >/dev/null || fail=1
 for f in plain presigned-objstm; do check --timestamp --ltv "$W/fx/$f.pdf" "$W/batch-ltv/${f}_signed.pdf"; done
+# Certification (DocMDP): each level, approvals after levels 2 and 3, refusals.
+n=1
+for lvl in none forms annotations; do
+  "$BIN" sign "$W/fx/plain.pdf" --certify $lvl --out "$W/signed/cert-$lvl.pdf" >/dev/null
+  check --certify=$n "$W/fx/plain.pdf" "$W/signed/cert-$lvl.pdf"
+  vcheck "$W/signed/cert-$lvl.pdf" valid
+  n=$((n + 1))
+done
+for f in objstm form indirect broken; do
+  "$BIN" sign "$W/fx/$f.pdf" --certify forms --pages all --out "$W/signed/cert-$f.pdf" >/dev/null
+  check --certify=2 "$W/fx/$f.pdf" "$W/signed/cert-$f.pdf"
+done
+for lvl in forms annotations; do
+  n=$([ $lvl = forms ] && echo 2 || echo 3)
+  "$BIN" sign "$W/signed/cert-$lvl.pdf" --position top-left --image "$W/fx/sig.png" --out "$W/signed/cert-$lvl-approved.pdf" >/dev/null
+  check --certify=$n "$W/signed/cert-$lvl.pdf" "$W/signed/cert-$lvl-approved.pdf"
+  vcheck "$W/signed/cert-$lvl-approved.pdf" valid
+done
+"$BIN" sign "$W/signed/cert-objstm.pdf" --position top-left --out "$W/signed/cert-objstm-approved.pdf" >/dev/null
+check --certify=2 "$W/signed/cert-objstm.pdf" "$W/signed/cert-objstm-approved.pdf"
+# Visible approvals pass as in Acrobat (above); invisible ones even pyHanko's stricter default.
+"$BIN" sign "$W/signed/cert-forms.pdf" --invisible --out "$W/signed/cert-forms-invisible.pdf" >/dev/null
+check --certify=2 --strict "$W/signed/cert-forms.pdf" "$W/signed/cert-forms-invisible.pdf"
+"$BIN" sign "$W/fx/plain.pdf" --certify none --timestamp "$TSA" --ltv --out "$W/signed/cert-ltv.pdf" >/dev/null
+check --certify=1 --timestamp --ltv "$W/fx/plain.pdf" "$W/signed/cert-ltv.pdf"
+# Certifying an encrypted PDF: /Perms and /Reference go into the encrypted update.
+for f in enc-aes256:user enc-rc128:user enc-aes128:; do
+  name=${f%%:*} pw=${f#*:}
+  "$BIN" sign "$W/fx/$name.pdf" --password "$pw" --certify forms --out "$W/signed/cert-$name.pdf" >/dev/null
+  check --certify=2 --password="$pw" "$W/fx/$name.pdf" "$W/signed/cert-$name.pdf"
+  python3 -W ignore "$ROOT/tests/verify_check.py" --password="$pw" "$BIN" "$W/signed/cert-$name.pdf" valid "${ROOTS[@]}" || fail=1
+done
+"$BIN" sign "$W/signed/cert-enc-aes256.pdf" --password user --position top-left --out "$W/signed/cert-enc-approved.pdf" >/dev/null
+check --certify=2 --password=user "$W/signed/cert-enc-aes256.pdf" "$W/signed/cert-enc-approved.pdf"
+refused() {
+  if "$BIN" sign "$1" "${@:3}" --out "$W/refused.pdf" >"$W/out" 2>"$W/err"; then
+    echo "FAIL signed $1 although it should be refused"; fail=1
+  elif grep -q "$2" "$W/err" && ! grep -q "^Signing as" "$W/out" && [ ! -e "$W/refused.pdf" ]; then
+    echo "PASS refused: $(basename "$1") ${*:3}"
+  else
+    echo "FAIL refusal of $1: $(cat "$W/out" "$W/err")"; fail=1
+  fi
+}
+refused "$W/signed/cert-none.pdf" "no changes allowed"
+refused "$W/signed/cert-none.pdf" "no changes allowed" --invisible
+refused "$W/fx/presigned.pdf" "Only the first signature can certify" --certify forms
+refused "$W/signed/cert-forms.pdf" "Only the first signature can certify" --certify annotations
 if TRACKMYSIGN_PIN=00000000 "$BIN" sign "$W/fx/plain.pdf" --out "$W/x.pdf" 2>"$W/err"; then
   echo "FAIL wrong PIN accepted"; fail=1
 else

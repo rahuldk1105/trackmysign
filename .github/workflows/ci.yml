@@ -34,7 +34,7 @@ jobs:
           node-version: 22
       - name: Build desktop frontend
         working-directory: apps/desktop
-        run: npm ci && npm run build
+        run: npm ci && npm run build && npm test
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
@@ -106,16 +106,22 @@ jobs:
             build-args: --bundles nsis
             file: target/release/bundle/nsis/*.exe
             assets: TrackMySign-Setup-windows-x64.exe
+            # The updater runs the NSIS installer itself (passive mode).
+            updater-file: target/release/bundle/nsis/*.exe
+            updater-asset: TrackMySign-Setup-windows-x64.exe
           - name: macOS
             os: macos-latest
             # One dmg for Apple Silicon and Intel Macs. Intel also matters on
             # Apple Silicon: a token driver shipped only as an x86_64 .dylib
             # loads if the app is started under Rosetta.
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
-            build-args: --bundles dmg --target universal-apple-darwin
+            # "app" too: the updater archive (.app.tar.gz) is made from it.
+            build-args: --bundles app,dmg --target universal-apple-darwin
             file: target/universal-apple-darwin/release/bundle/dmg/*.dmg
             # The arm64 name is kept so existing download links keep working.
             assets: TrackMySign-macos-universal.dmg TrackMySign-macos-arm64.dmg
+            updater-file: target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
+            updater-asset: TrackMySign-macos-universal.app.tar.gz
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -231,6 +237,25 @@ jobs:
           Set-Content -Path (Join-Path $env:TAURI_CONFIG_DIR "30-windows-sign.json") -Value $cfg -Encoding utf8NoBOM
           Write-Output "Windows signing enabled (certificate $($cert.Subject))"
 
+      # ---- In-app updates: updater artifacts signed with the key whose public half
+      # is in tauri.conf.json (plugins.updater.pubkey), only once the secret exists.
+      - name: Configure updater signing
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "No updater signing key set: building without update artifacts"
+            exit 0
+          fi
+          for v in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            { echo "$v<<__EOF__"; printenv "$v"; echo "__EOF__"; } >> "$GITHUB_ENV"
+          done
+          echo '{"bundle":{"createUpdaterArtifacts":true}}' > "$TAURI_CONFIG_DIR/40-updater.json"
+          echo "UPDATER_SIGNED=1" >> "$GITHUB_ENV"
+          echo "Updater artifacts enabled"
+
       - name: Build installer
         working-directory: apps/desktop
         shell: bash
@@ -280,3 +305,46 @@ jobs:
             cp ${{ matrix.file }} "$asset"
             gh release upload "$REL" "$asset" --clobber
           done
+          if [ "$UPDATER_SIGNED" = "1" ]; then
+            u="${{ matrix.updater-asset }}"
+            files=("$u.sig")
+            if [ ! -e "$u" ]; then
+              cp ${{ matrix.updater-file }} "$u"
+              files+=("$u")
+            fi
+            cp ${{ matrix.updater-file }}.sig "$u.sig"
+            gh release upload "$REL" "${files[@]}" --clobber
+          fi
+
+  # latest.json, which installed apps check for updates. Only for real releases:
+  # test builds must never be offered as updates.
+  updater-manifest:
+    name: Update manifest
+    needs: desktop
+    if: github.event_name != 'pull_request' && (inputs.release_tag || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Publish latest.json
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          REL="${RELEASE_TAG:-$GITHUB_REF_NAME}"
+          dir="$RUNNER_TEMP/updater"
+          mkdir -p "$dir"
+          win=TrackMySign-Setup-windows-x64.exe.sig
+          mac=TrackMySign-macos-universal.app.tar.gz.sig
+          gh release download "$REL" --dir "$dir" --clobber --pattern "$win" --pattern "$mac" || true
+          if [ ! -e "$dir/$win" ] || [ ! -e "$dir/$mac" ]; then
+            echo "::warning::Release $REL has no updater signatures (TAURI_SIGNING_PRIVATE_KEY not set?); latest.json not published"
+            exit 0
+          fi
+          gh release view "$REL" --json body --jq .body > "$dir/notes.md"
+          node apps/desktop/scripts/updater-manifest.mjs --tag "$REL" --repo "$GITHUB_REPOSITORY" \
+            --windows-sig "$dir/$win" --macos-sig "$dir/$mac" --notes-file "$dir/notes.md" --out latest.json
+          gh release upload "$REL" latest.json --clobber

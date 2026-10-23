@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import * as api from "./api";
-import type { ApiError, BatchProgress, Cert, Driver, ImageChoice, KnownCert, PdfInfo, PinStatus, Signed } from "./api";
+import type { ApiError, BatchProgress, Cert, CertifyLevel, Driver, ImageChoice, KnownCert, PdfInfo, PinStatus, Signed } from "./api";
 import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, remindAbout, today, type ReminderDays } from "./expiry";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
 import { SignaturesPanel } from "./SignaturesPanel";
+import { UpdateBanner } from "./UpdateBanner";
+import { useUpdater, type UpdateState } from "./updater";
 import { useTheme, type ThemePref } from "./theme";
 import { activePreset, describePage, fromPresetPlacement, pageChoice, toPresetPlacement, type Preset } from "./presets";
 import {
@@ -42,6 +44,8 @@ interface Saved {
   expiryReminder: ReminderDays;
   /** Day the reminder for certificates not plugged in was dismissed. */
   reminderDismissed: string;
+  /** Look for a new version on launch. */
+  autoUpdate: boolean;
 }
 
 const KEY = "trackmysign.settings.v1";
@@ -65,6 +69,7 @@ const defaults: Saved = {
   image: "off",
   expiryReminder: 30,
   reminderDismissed: "",
+  autoUpdate: true,
 };
 
 function loadSaved(): Saved {
@@ -121,6 +126,12 @@ const MOD = isMac ? "⌘" : "Ctrl+";
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
 
 type PagesMode = "this" | "all" | "custom";
+
+const CERTIFY_LEVELS: { value: CertifyLevel; label: string; help: string }[] = [
+  { value: 1, label: "No changes", help: "Any later change, even another signature, invalidates the certification." },
+  { value: 2, label: "Form fill & sign", help: "Others can still fill in forms and sign." },
+  { value: 3, label: "+ Comments", help: "Others can still fill in forms, sign and add comments." },
+];
 
 const PAGE_MODES: { value: PagesMode; label: string }[] = [
   { value: "this", label: "This page" },
@@ -232,6 +243,8 @@ export default function App() {
   const [batch, setBatch] = useState<string[] | null>(null);
   const [pagesMode, setPagesMode] = useState<PagesMode>("this");
   const [pagesSpec, setPagesSpec] = useState("");
+  /** Certify (an author signature) instead of approving; per document. */
+  const [certify, setCertify] = useState<CertifyLevel | null>(null);
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [hover, setHover] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -242,6 +255,7 @@ export default function App() {
   const [theme, setTheme] = useTheme();
   const [sigImage, setSigImage] = useState<{ url: string; aspect: number } | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const updater = useUpdater(saved.autoUpdate);
 
   const update = (patch: Partial<Saved>) =>
     setSaved((s) => {
@@ -342,6 +356,7 @@ export default function App() {
       setPlacement(initialPlacement(sizes, loadSaved()));
       setPagesMode("this");
       setPagesSpec("");
+      setCertify(null);
     } catch (e) {
       const err = api.errorOf(e);
       setDoc(null);
@@ -471,7 +486,11 @@ export default function App() {
     pagesMode === "all" ? Array.from({ length: pages }, (_, i) => i) : pagesMode === "custom" ? parsePages(pagesSpec, pages) : null;
   const pagesError = typeof selection === "string" ? selection : null;
   const targetPages = Array.isArray(selection) ? selection : null;
-  const canSign = !!doc && doc.info.signingAllowed && !!placement && !!cert && !cert.expired && !loading && !pagesError;
+  // Only the first signature certifies; "no changes" rules out any further one.
+  const canCertify = !!doc && doc.info.signatures === 0 && doc.info.certified === null;
+  const locked = doc?.info.certified === 1;
+  const canSign =
+    !!doc && doc.info.signingAllowed && !!placement && !!cert && !cert.expired && !loading && !pagesError && !locked && (!certify || canCertify);
   const certTone = cert ? expiryTone(cert.daysLeft, saved.expiryReminder) : null;
   // Certificates to renew soon: those on the token, or those seen before while it is out.
   const reminders =
@@ -534,6 +553,7 @@ export default function App() {
           ltv: saved.ltv && skip !== "ltv",
           image: stampImage?.position ?? null,
           password: doc.password ?? null,
+          certify,
         },
         (p) => {
           if (!started) {
@@ -582,6 +602,7 @@ export default function App() {
         ltv: saved.ltv && skip !== "ltv",
         image: stampImage?.position ?? null,
         password: doc.password ?? null,
+        certify,
       });
       update({ certName: cert.name });
       setStep({ kind: "done", result });
@@ -659,6 +680,8 @@ export default function App() {
           <GearIcon />
         </button>
       </header>
+
+      <UpdateBanner state={updater.state} busy={step.kind === "signing" || (step.kind === "batch" && step.running)} onInstall={updater.install} onDismiss={updater.dismiss} />
 
       <div className="workspace">
         <main className="viewer">
@@ -864,6 +887,62 @@ export default function App() {
               </section>
 
               <section>
+                <h3>Signature type</h3>
+                <div className="segmented" role="radiogroup" aria-label="Signature type">
+                  <button role="radio" aria-checked={!certify} className={!certify ? "on" : ""} onClick={() => setCertify(null)}>
+                    Approval
+                  </button>
+                  <button
+                    role="radio"
+                    aria-checked={!!certify}
+                    className={certify ? "on" : ""}
+                    onClick={() => setCertify(certify ?? 2)}
+                    disabled={!canCertify}
+                  >
+                    Certify
+                  </button>
+                </div>
+                {certify && canCertify && (
+                  <>
+                    <label id="certify-label">Allowed after certifying</label>
+                    <div className="segmented" role="radiogroup" aria-labelledby="certify-label">
+                      {CERTIFY_LEVELS.map((l) => (
+                        <button
+                          key={l.value}
+                          role="radio"
+                          aria-checked={certify === l.value}
+                          className={certify === l.value ? "on" : ""}
+                          onClick={() => setCertify(l.value)}
+                        >
+                          {l.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="muted small">
+                      {CERTIFY_LEVELS.find((l) => l.value === certify)?.help}
+                      {batch && " Already signed documents in the batch are skipped."}
+                    </p>
+                  </>
+                )}
+                {locked ? (
+                  <div className="warn-row">
+                    <AlertIcon size={14} />
+                    <div>
+                      <strong>Certified, no changes allowed</strong>
+                      <span>Another signature would invalidate the author's certification.</span>
+                    </div>
+                  </div>
+                ) : doc.info.certified ? (
+                  <p className="muted small">
+                    Certified by its author; {doc.info.certified === 3 ? "form filling, signing and comments" : "form filling and signing"}{" "}
+                    still allowed.
+                  </p>
+                ) : (
+                  !canCertify && <p className="muted small">Only the first signature can certify a document, and this one is already signed.</p>
+                )}
+              </section>
+
+              <section>
                 <h3>Placement</h3>
                 {placement && (
                   <>
@@ -1036,6 +1115,8 @@ export default function App() {
           onChooseImage={chooseImage}
           onRemoveImage={removeImage}
           onRefresh={refreshCerts}
+          updateState={updater.state}
+          onCheckUpdate={updater.check}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -1304,6 +1385,30 @@ const THEMES: { value: ThemePref; label: string }[] = [
   { value: "system", label: "System" },
 ];
 
+function updateStatus(s: UpdateState): string {
+  switch (s.kind) {
+    case "checking":
+      return "Checking…";
+    case "latest":
+      return `You have the latest version (${__APP_VERSION__}).`;
+    case "available":
+      return `TrackMySign ${s.update.version} is available.`;
+    case "installing":
+      return `Downloading ${s.update.version}…`;
+    case "error":
+      return s.update ? `Could not install ${s.update.version}: ${s.message}` : `Could not check for updates: ${s.message}`;
+    default:
+      return `Version ${__APP_VERSION__}`;
+  }
+}
+
+function onlineNote(signing: boolean, updates: boolean): string {
+  if (signing && updates) return "Only timestamp, revocation and update requests go online.";
+  if (signing) return "Only timestamp and revocation requests go online.";
+  if (updates) return "Only the update check goes online.";
+  return "Nothing leaves this computer.";
+}
+
 function Settings(props: {
   theme: ThemePref;
   setTheme: (t: ThemePref) => void;
@@ -1317,6 +1422,8 @@ function Settings(props: {
   onChooseImage: () => void;
   onRemoveImage: () => void;
   onRefresh: () => void;
+  updateState: UpdateState;
+  onCheckUpdate: () => void;
   onClose: () => void;
 }) {
   const { onClose } = props;
@@ -1541,6 +1648,21 @@ function Settings(props: {
           </section>
 
           <section>
+            <h3>Updates</h3>
+            <label className="check-row">
+              <input type="checkbox" checked={props.saved.autoUpdate} onChange={(e) => props.update({ autoUpdate: e.target.checked })} />
+              Check for updates on launch
+            </label>
+            <p className="muted small">Asks GitHub whether a newer version is out. Nothing is installed without your click.</p>
+            <div className="setting-row">
+              <span className={`small ${props.updateState.kind === "error" ? "bad" : "muted"}`}>{updateStatus(props.updateState)}</span>
+              <button className="btn" onClick={props.onCheckUpdate} disabled={props.updateState.kind === "checking" || props.updateState.kind === "installing"}>
+                <RefreshIcon size={14} /> Check for updates
+              </button>
+            </div>
+          </section>
+
+          <section>
             <h3>About</h3>
             <div className="about">
               <Logo size={28} />
@@ -1550,7 +1672,7 @@ function Settings(props: {
                 </div>
                 <span className="muted small">
                   Signs PDFs with your DSC.{" "}
-                  {props.saved.timestamp || props.saved.ltv ? "Only timestamp and revocation requests go online." : "Nothing leaves this computer."}
+                  {onlineNote(props.saved.timestamp || props.saved.ltv, props.saved.autoUpdate)}
                 </span>
                 <button className="link" onClick={() => api.openWebsite()}>
                   sign.rahuldk.in

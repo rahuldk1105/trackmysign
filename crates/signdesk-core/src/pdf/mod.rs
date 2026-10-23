@@ -1,5 +1,6 @@
 pub mod appearance;
 pub mod crypt;
+pub mod docmdp;
 pub mod dss;
 pub mod object;
 pub mod reader;

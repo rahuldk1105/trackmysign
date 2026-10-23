@@ -22,6 +22,19 @@ Open a PDF (or drag it into the window), click where the signature should go, pr
 
 You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows and macOS). Your default PDF viewer stays as it is.
 
+### Updates
+
+On launch the app asks GitHub whether a newer release is out (it fetches
+`latest.json` from the latest release; nothing about you or your documents is sent).
+If there is one, a bar offers **Install and restart**: the update is downloaded,
+checked against the signing key built into the app, installed and the app
+reopens. Turn the check off, or check by hand, under *Settings → Updates*.
+
+Releases: CI signs the update files when the `TAURI_SIGNING_PRIVATE_KEY` and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets are set (public key in
+`tauri.conf.json`), and attaches `latest.json` only to tagged releases, never to
+`test-build`. The tag must match the version in `tauri.conf.json` (`v0.1.5` ↔ `0.1.5`).
+
 ## Supported tokens
 
 Install the driver software that came with your token, then plug it in. TrackMySign
@@ -86,6 +99,7 @@ Other options:
 .\trackmysign.exe sign file.pdf --timestamp --ltv     # long-term validity (needs internet)
 .\trackmysign.exe sign file.pdf --timestamp=http://timestamp.sectigo.com
 .\trackmysign.exe sign file.pdf --password "secret"  # password-protected PDF
+.\trackmysign.exe sign file.pdf --certify forms       # certify as the author (first signature only)
 ```
 
 Long-term validity is off by default, so signing works fully offline. `--timestamp`
@@ -105,6 +119,12 @@ keeps the same password and restrictions. Most of them only restrict editing and
 without a password. If a PDF needs one, the app asks for it (the command-line tool
 asks too, or takes `--password`); it is never stored. If the PDF's security settings
 do not allow signing, give its owner (permissions) password instead.
+
+`--certify none|forms|annotations` makes the signature a certification (author)
+signature that says what may change afterwards: nothing, form filling and
+signing, or also comments. Only an unsigned document can be certified, and a
+document certified with `none` cannot be signed again. In the desktop app this
+is *Signature type → Certify* in the side panel.
 
 ## Development
 

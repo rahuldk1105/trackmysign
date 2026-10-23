@@ -31,6 +31,8 @@ pub struct SignatureDto {
     chain: Vec<String>,
     /// "cca" | "notChecked"
     trust: &'static str,
+    /// DocMDP level (1-3) of a certification signature.
+    certification: Option<u8>,
 }
 
 impl From<&SignatureReport> for SignatureDto {
@@ -81,6 +83,7 @@ impl From<&SignatureReport> for SignatureDto {
                 Trust::CcaIndia => "cca",
                 Trust::NotChecked => "notChecked",
             },
+            certification: r.certification.map(|p| p.level()),
         }
     }
 }

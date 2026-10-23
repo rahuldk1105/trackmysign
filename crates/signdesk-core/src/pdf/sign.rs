@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, FixedOffset};
 
 use super::appearance::{self, Face, ImageSlot, Line};
+use super::docmdp::DocMdp;
 use super::object::{Dict, Obj, write_obj};
 use super::reader::{Document, PageInfo, PdfError, Result, XrefEntry};
 use crate::image::{ImagePosition, StampImage};
@@ -32,6 +33,8 @@ pub struct SignatureFields {
     pub time: DateTime<FixedOffset>,
     pub image: Option<StampImage>,
     pub image_position: ImagePosition,
+    /// Make this the certification signature, allowing only these changes.
+    pub certify: Option<DocMdp>,
 }
 
 #[derive(Debug, Clone)]
@@ -407,6 +410,9 @@ pub fn prepare_with_password(
         af.set("SigFlags", Obj::int(flags | 3));
         Ok(())
     };
+    // The catalog itself changes only for an inline /AcroForm, a new one,
+    // or a certification.
+    let mut catalog_changed = false;
     match catalog.get("AcroForm").cloned() {
         Some(Obj::Ref(afid, afgen)) if doc.get(afid)?.as_dict().is_some() => {
             let mut af = doc.get(afid)?.as_dict().cloned().unwrap();
@@ -416,7 +422,7 @@ pub fn prepare_with_password(
         Some(Obj::Dict(mut af)) => {
             add_field(&mut af, &mut objs)?;
             catalog.set("AcroForm", Obj::Dict(af));
-            objs.insert(cat_id, (cat_gen, Obj::Dict(catalog)));
+            catalog_changed = true;
         }
         _ => {
             let afid = alloc();
@@ -424,8 +430,23 @@ pub fn prepare_with_password(
             add_field(&mut af, &mut objs)?;
             objs.insert(afid, (0, Obj::Dict(af)));
             catalog.set("AcroForm", Obj::Ref(afid, 0));
-            objs.insert(cat_id, (cat_gen, Obj::Dict(catalog)));
+            catalog_changed = true;
         }
+    }
+    // --- certification ----------------------------------------------------
+    // /Perms keeps any other entries (such as usage rights) and gets an
+    // inline copy if it was indirect.
+    if fields.certify.is_some() {
+        let mut perms = match catalog.get("Perms") {
+            Some(p) => doc.resolve(p)?.as_dict().cloned().unwrap_or_default(),
+            None => Dict::new(),
+        };
+        perms.set("DocMDP", Obj::Ref(sig_id, 0));
+        catalog.set("Perms", Obj::Dict(perms));
+        catalog_changed = true;
+    }
+    if catalog_changed {
+        objs.insert(cat_id, (cat_gen, Obj::Dict(catalog)));
     }
 
     // --- write ----------------------------------------------------------
@@ -449,6 +470,9 @@ pub fn prepare_with_password(
     }
     if let Some(l) = fields.location.as_ref().filter(|s| !s.is_empty()) {
         sig.set("Location", text_string(l));
+    }
+    if let Some(p) = fields.certify {
+        sig.set("Reference", p.reference());
     }
     sig.set(
         "Prop_Build",
