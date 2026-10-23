@@ -435,7 +435,7 @@ fn runs(ids: &[u32]) -> Vec<(u32, u32)> {
     out
 }
 
-fn write_xref_table(
+pub(super) fn write_xref_table(
     out: &mut Vec<u8>,
     entries: &BTreeMap<u32, XrefEntry>,
     size: u32,
@@ -465,7 +465,7 @@ fn write_xref_table(
     out.push(b'\n');
 }
 
-fn write_xref_stream(
+pub(super) fn write_xref_stream(
     out: &mut Vec<u8>,
     xid: u32,
     entries: &BTreeMap<u32, XrefEntry>,

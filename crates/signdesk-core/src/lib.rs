@@ -2,8 +2,11 @@
 
 pub mod certinfo;
 pub mod cms;
+mod http;
+pub mod ltv;
 pub mod pdf;
 pub mod token;
+pub mod tsa;
 
 use std::path::{Path, PathBuf};
 
@@ -12,6 +15,7 @@ use sha2::{Digest, Sha256};
 
 pub use pdf::reader::PdfError;
 pub use pdf::sign::{DisplayRect, Placement};
+pub use tsa::DEFAULT_TSA_URL;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyKind {
@@ -44,6 +48,10 @@ pub enum Error {
     Cms(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    #[error("Timestamp failed: {0}")]
+    Timestamp(String),
+    #[error("Could not embed revocation info (LTV): {0}")]
+    Ltv(String),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -54,6 +62,10 @@ pub struct SignRequest {
     pub location: Option<String>,
     /// Defaults to now, in local time.
     pub time: Option<DateTime<FixedOffset>>,
+    /// RFC 3161 timestamp authority to countersign with (needs the internet).
+    pub timestamp: Option<String>,
+    /// Append OCSP/CRL data for the certificates in a `/DSS` (needs the internet).
+    pub ltv: bool,
 }
 
 /// Signs `input` and returns the complete new file.
@@ -74,14 +86,38 @@ pub fn sign_pdf(
         page: req.page,
         rect: req.rect,
     };
-    let prepared = pdf::sign::prepare(input, &placement, &fields, cms::estimate_size(signer))?;
+    let mut reserve = cms::estimate_size(signer);
+    if req.timestamp.is_some() {
+        reserve += tsa::TOKEN_RESERVE;
+    }
+    let prepared = pdf::sign::prepare(input, &placement, &fields, reserve)?;
     let mut h = Sha256::new();
     for part in prepared.signed_parts() {
         h.update(part);
     }
     let digest: [u8; 32] = h.finalize().into();
-    let cms = cms::build_signed_data(signer, &digest, &time)?;
-    Ok(prepared.finish(&cms)?)
+    let mut cms = cms::build_signed_data(signer, &digest, &time)?;
+    if let Some(url) = &req.timestamp {
+        let token = tsa::timestamp(url, &cms::signature_value(&cms)?)?;
+        cms = cms::add_unsigned_attr(&cms, tsa::ID_AA_SIGNATURE_TIME_STAMP_TOKEN, &token)?;
+    }
+    let reserved = prepared.reserved;
+    let signed = prepared.finish(&cms)?;
+    if !req.ltv {
+        return Ok(signed);
+    }
+    let data = ltv::collect(&cms)?;
+    let mut contents = cms;
+    contents.resize(reserved, 0);
+    Ok(pdf::dss::append(
+        &signed,
+        &pdf::dss::Validation {
+            contents: &contents,
+            certs: &data.certs,
+            ocsps: &data.ocsps,
+            crls: &data.crls,
+        },
+    )?)
 }
 
 #[derive(Debug, Clone)]

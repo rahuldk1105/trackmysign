@@ -12,7 +12,7 @@ without Adobe.
 | Token access | PKCS#11 directly (token does **not** appear in Windows cert store) via Hypersecu middleware; OpenSC as fallback |
 | Signature appearance | Visible, text only ("Digitally signed by NAME / Date / Reason"), click to place; last position remembered |
 | Existing signatures | Must be preserved — incremental-update signing only, top test priority |
-| Timestamp / LTV | None; PC clock |
+| Timestamp / LTV | Off by default (PC clock, fully offline). Opt-in: RFC 3161 timestamp (default TSA DigiCert) and LTV — OCSP/CRL + issuer certs in a `/DSS` added as a second incremental update |
 | Batch signing | Not needed |
 | Output | Same folder, `<name>_signed.pdf`; original untouched |
 | Code signing | macOS: Apple Developer ID + notarization. Windows: unsigned for now (one-time SmartScreen warning) |

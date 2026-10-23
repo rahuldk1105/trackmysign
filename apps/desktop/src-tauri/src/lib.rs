@@ -25,6 +25,8 @@ impl From<Error> for CommandError {
             Error::PinLocked => "pinLocked",
             Error::Token(_) => "token",
             Error::Pdf(_) => "pdf",
+            Error::Timestamp(_) => "timestamp",
+            Error::Ltv(_) => "ltv",
             _ => "other",
         };
         CommandError {
@@ -150,6 +152,11 @@ struct SignArgs {
     location: Option<String>,
     cert_index: usize,
     pin: String,
+    /// TSA URL when "Add trusted timestamp" is on.
+    #[serde(default)]
+    timestamp: Option<String>,
+    #[serde(default)]
+    ltv: bool,
 }
 
 #[derive(Serialize)]
@@ -183,6 +190,11 @@ async fn sign(args: SignArgs) -> CmdResult<SignedDto> {
             reason: args.reason.filter(|s| !s.trim().is_empty()),
             location: args.location.filter(|s| !s.trim().is_empty()),
             time: None,
+            timestamp: args
+                .timestamp
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            ltv: args.ltv,
         };
         let signed = sign_pdf(&data, &req, &mut signer)?;
         let out = signed_path(&input);

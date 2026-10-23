@@ -935,6 +935,28 @@ section > label:first-of-type {
 .setting-row span {
   flex: 1;
 }
+label.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 4px;
+  font-size: 13px;
+  color: var(--text);
+}
+section > label.check-row:first-of-type {
+  margin-top: 0;
+}
+.check-row input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.check-row + p.small {
+  margin: 0 0 8px 22px;
+}
 .about {
   display: flex;
   gap: 12px;

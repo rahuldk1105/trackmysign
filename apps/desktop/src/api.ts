@@ -36,6 +36,9 @@ export interface SignArgs {
   location: string;
   certIndex: number;
   pin: string;
+  /** RFC 3161 server, or null for no timestamp. */
+  timestamp: string | null;
+  ltv: boolean;
 }
 
 export interface Signed {
@@ -44,7 +47,7 @@ export interface Signed {
 }
 
 export interface ApiError {
-  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "io" | "other";
+  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "io" | "timestamp" | "ltv" | "other";
   message: string;
 }
 

@@ -50,7 +50,16 @@ Other options:
 .\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
 .\trackmysign.exe sign file.pdf --invisible
 .\trackmysign.exe --module C:\Windows\System32\eps2003csp11v2.dll certs   # explicit driver
+.\trackmysign.exe sign file.pdf --timestamp --ltv     # long-term validity (needs internet)
+.\trackmysign.exe sign file.pdf --timestamp=http://timestamp.sectigo.com
 ```
+
+Long-term validity is off by default, so signing works fully offline. `--timestamp`
+adds an RFC 3161 trusted timestamp (default server `http://timestamp.digicert.com`;
+only a hash of the signature is sent). `--ltv` embeds your CA's OCSP/CRL answers
+in the PDF so the signature can be validated after the certificate expires. The
+desktop app has the same options under *Settings → Long-term validity*. If a
+server cannot be reached, nothing is saved and you can sign again without it.
 
 ## Development
 
@@ -61,7 +70,8 @@ tests/run.sh               # end-to-end: SoftHSM virtual token + generated PDFs,
                            # validated independently with pyHanko and qpdf
 ```
 
-`tests/run.sh` needs `softhsm2`, `opensc`, `qpdf`, `openssl` and `pip install pyhanko reportlab`.
+`tests/run.sh` needs `softhsm2`, `opensc`, `qpdf`, `openssl`, `curl` and `pip install pyhanko reportlab`.
+The timestamp and LTV tests run a local TSA, OCSP responder and CRL server (`tests/services.py`), so no internet is needed.
 
 Layout:
 
