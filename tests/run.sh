@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end test: virtual token + generated PDFs + independent validation.
-# Needs: softhsm2, opensc (pkcs11-tool), qpdf, openssl, python3 with pyhanko + reportlab.
+# Needs: softhsm2, opensc (pkcs11-tool), qpdf, poppler-utils, openssl, python3 with pyhanko + reportlab.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=${WORK:-$(mktemp -d)}
@@ -19,6 +19,18 @@ for p in 1 2 3 4; do
   "$BIN" sign "$W/fx/rotated.pdf" --page $p --out "$W/signed/rot$p.pdf" >/dev/null
   check "$W/fx/rotated.pdf" "$W/signed/rot$p.pdf"
 done
+image() { python3 -W ignore "$ROOT/tests/check_image.py" "$@" || fail=1; }
+for img in sig.png sig-palette.png sig.jpg; do
+  kind=${img##*.}
+  for p in 1 2 3 4; do
+    "$BIN" sign "$W/fx/rotated.pdf" --page $p --image "$W/fx/$img" --out "$W/signed/img-$img-$p.pdf" >/dev/null
+    check "$W/fx/rotated.pdf" "$W/signed/img-$img-$p.pdf"
+    image "$W/fx/rotated.pdf" "$W/signed/img-$img-$p.pdf" $p "$kind" left
+  done
+done
+"$BIN" sign "$W/fx/presigned.pdf" --image "$W/fx/sig.png" --image-position above --out "$W/signed/img-above.pdf" >/dev/null
+check "$W/fx/presigned.pdf" "$W/signed/img-above.pdf"
+image "$W/fx/presigned.pdf" "$W/signed/img-above.pdf" 2 png above
 "$BIN" sign "$W/fx/presigned.pdf" --invisible --out "$W/signed/invisible.pdf" >/dev/null
 check "$W/fx/presigned.pdf" "$W/signed/invisible.pdf"
 "$BIN" sign "$W/signed/presigned.pdf" --position top-left --out "$W/signed/twice.pdf" >/dev/null

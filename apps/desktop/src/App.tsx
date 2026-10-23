@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import * as api from "./api";
-import type { ApiError, Cert, PdfInfo, Signed } from "./api";
-import { loadPdf, PdfView, type PageSize, type Placement } from "./PdfView";
+import type { ApiError, Cert, ImageChoice, PdfInfo, Signed } from "./api";
+import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
 import { useTheme, type ThemePref } from "./theme";
 import { activePreset, describePage, fromPresetPlacement, toPresetPlacement, type Preset } from "./presets";
 import {
@@ -30,10 +30,12 @@ interface Saved {
   /** Last box, as fractions of the page, and which page counted from the end. */
   box: { fx: number; fy: number; fw: number; fh: number; fromEnd: number } | null;
   presets: Preset[];
+  /** Show the signature image (kept in the app's data folder) in the box. */
+  image: ImageChoice;
 }
 
 const KEY = "trackmysign.settings.v1";
-const defaults: Saved = { reason: "Approved", location: "", certName: "", box: null, presets: [] };
+const defaults: Saved = { reason: "Approved", location: "", certName: "", box: null, presets: [], image: "off" };
 
 function loadSaved(): Saved {
   try {
@@ -123,6 +125,8 @@ export default function App() {
   const [goto, setGoto] = useState<{ page: number; n: number } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [theme, setTheme] = useTheme();
+  const [sigImage, setSigImage] = useState<{ url: string; aspect: number } | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   const update = (patch: Partial<Saved>) =>
     setSaved((s) => {
@@ -154,6 +158,45 @@ export default function App() {
   useEffect(() => {
     refreshCerts();
   }, [refreshCerts]);
+
+  // ---- signature image
+  const loadImage = useCallback(async () => {
+    const url = await api.signatureImage().catch(() => null);
+    if (!url) return setSigImage(null);
+    const img = new Image();
+    img.onload = () => setSigImage({ url, aspect: img.naturalWidth / img.naturalHeight });
+    img.onerror = () => setSigImage(null);
+    img.src = url;
+  }, []);
+
+  useEffect(() => {
+    loadImage();
+  }, [loadImage]);
+
+  useEffect(() => {
+    if (sigImage) return () => URL.revokeObjectURL(sigImage.url);
+  }, [sigImage]);
+
+  const chooseImage = async () => {
+    const path = await api.pickImage();
+    if (!path) return;
+    try {
+      await api.setSignatureImage(path);
+      setImageError(null);
+      await loadImage();
+      if (saved.image === "off") update({ image: "left" });
+    } catch (e) {
+      setImageError(api.errorOf(e).message);
+    }
+  };
+
+  const removeImage = async () => {
+    await api.clearSignatureImage().catch(() => {});
+    setSigImage(null);
+    update({ image: "off" });
+  };
+
+  const stampImage: StampImage | null = sigImage && saved.image !== "off" ? { ...sigImage, position: saved.image } : null;
 
   // Keep looking for the token while it is missing.
   const busy = step.kind === "signing";
@@ -241,12 +284,13 @@ export default function App() {
   const current = {
     reason: saved.reason,
     location: saved.location,
+    image: saved.image,
     placement: doc && placement ? toPresetPlacement(placement, doc.sizes.length) : null,
   };
   const active = activePreset(saved.presets, current);
 
   const applyPreset = (p: Preset) => {
-    update({ reason: p.reason, location: p.location });
+    update({ reason: p.reason, location: p.location, ...(p.image && { image: p.image }) });
     if (doc && p.placement) {
       const pl = fromPresetPlacement(p.placement, doc.sizes);
       place(pl);
@@ -303,6 +347,7 @@ export default function App() {
         location: saved.location,
         certIndex: cert.index,
         pin,
+        image: stampImage?.position ?? null,
       });
       update({ certName: cert.name });
       setStep({ kind: "done", result });
@@ -387,6 +432,7 @@ export default function App() {
                 sizes={doc.sizes}
                 placement={placement}
                 preview={preview}
+                image={stampImage}
                 zoom={zoom}
                 onPlace={place}
                 onScale={onScale}
@@ -488,12 +534,40 @@ export default function App() {
                 <input id="reason" value={saved.reason} onChange={(e) => update({ reason: e.target.value })} placeholder="e.g. Approved" />
                 <label htmlFor="location">Location</label>
                 <input id="location" value={saved.location} onChange={(e) => update({ location: e.target.value })} placeholder="e.g. Chennai" />
-                <div className="stamp-preview" aria-label="Signature preview">
-                  {preview.map((l, i) => (
-                    <div key={i} className={i === 1 ? "sig-name" : undefined}>
-                      {l}
-                    </div>
-                  ))}
+                <label>Signature image</label>
+                {sigImage ? (
+                  <div className="segmented" role="radiogroup" aria-label="Signature image">
+                    {IMAGE_CHOICES.map((c) => (
+                      <button
+                        key={c.value}
+                        role="radio"
+                        aria-checked={saved.image === c.value}
+                        className={saved.image === c.value ? "on" : ""}
+                        onClick={() => update({ image: c.value })}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <button className="link" onClick={chooseImage}>
+                    Add a handwritten signature…
+                  </button>
+                )}
+                {imageError && (
+                  <p className="inline-error">
+                    <AlertIcon size={14} /> {imageError}
+                  </p>
+                )}
+                <div className={`stamp-preview ${stampImage ? `img-${stampImage.position}` : ""}`} aria-label="Signature preview">
+                  {stampImage && <img src={stampImage.url} alt="" />}
+                  <div>
+                    {preview.map((l, i) => (
+                      <div key={i} className={i === 1 ? "sig-name" : undefined}>
+                        {l}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </section>
 
@@ -576,6 +650,10 @@ export default function App() {
           certs={certs}
           certError={certError}
           driver={driver}
+          image={sigImage?.url ?? null}
+          imageError={imageError}
+          onChooseImage={chooseImage}
+          onRemoveImage={removeImage}
           onRefresh={refreshCerts}
           onClose={() => setSettingsOpen(false)}
         />
@@ -710,6 +788,12 @@ function PinDialog(props: {
   );
 }
 
+const IMAGE_CHOICES: { value: ImageChoice; label: string }[] = [
+  { value: "off", label: "Off" },
+  { value: "left", label: "Left of text" },
+  { value: "above", label: "Above text" },
+];
+
 const THEMES: { value: ThemePref; label: string }[] = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
@@ -724,6 +808,10 @@ function Settings(props: {
   certs: Cert[] | null;
   certError: string | null;
   driver: string | null | undefined;
+  image: string | null;
+  imageError: string | null;
+  onChooseImage: () => void;
+  onRemoveImage: () => void;
   onRefresh: () => void;
   onClose: () => void;
 }) {
@@ -777,6 +865,33 @@ function Settings(props: {
               onChange={(e) => props.update({ location: e.target.value })}
               placeholder="e.g. Chennai"
             />
+          </section>
+
+          <section>
+            <h3>Signature image</h3>
+            {props.image ? (
+              <div className="setting-row">
+                <img className="image-thumb" src={props.image} alt="Signature image" />
+                <button className="btn" onClick={props.onChooseImage}>
+                  Replace…
+                </button>
+                <button className="btn ghost" onClick={props.onRemoveImage}>
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div className="setting-row">
+                <span className="muted small">A scan or photo of your signature (PNG or JPEG), shown in the box next to the text.</span>
+                <button className="btn" onClick={props.onChooseImage}>
+                  Choose…
+                </button>
+              </div>
+            )}
+            {props.imageError && (
+              <p className="inline-error">
+                <AlertIcon size={14} /> {props.imageError}
+              </p>
+            )}
           </section>
 
           <section>

@@ -8,9 +8,10 @@ use std::collections::BTreeMap;
 
 use chrono::{DateTime, FixedOffset};
 
-use super::appearance::{self, Face, Line};
+use super::appearance::{self, Face, ImageSlot, Line};
 use super::object::{Dict, Obj, write_obj};
 use super::reader::{Document, PageInfo, PdfError, Result, XrefEntry};
+use crate::image::{ImagePosition, StampImage};
 
 /// Rectangle on the page as the user sees it: points, origin at the top-left
 /// of the displayed (cropped and rotated) page — the same space as a PDF.js
@@ -29,6 +30,8 @@ pub struct SignatureFields {
     pub reason: Option<String>,
     pub location: Option<String>,
     pub time: DateTime<FixedOffset>,
+    pub image: Option<StampImage>,
+    pub image_position: ImagePosition,
 }
 
 #[derive(Debug, Clone)]
@@ -198,7 +201,11 @@ pub fn prepare(
                     scale: 1.0,
                 });
             }
-            let content = appearance::content_stream(r.w, r.h, &lines);
+            let slot = fields.image.as_ref().map(|img| ImageSlot {
+                aspect: img.aspect(),
+                position: fields.image_position,
+            });
+            let content = appearance::content_stream_with_image(r.w, r.h, &lines, slot);
             let m = appearance::rotation_matrix(page.rotate, r.w, r.h);
             let font = |base: &str| {
                 Obj::Dict(
@@ -211,6 +218,27 @@ pub fn prepare(
             };
             objs.insert(f1, (0, font("Helvetica")));
             objs.insert(f2, (0, font("Helvetica-Bold")));
+            let mut resources = Dict::new().with(
+                "Font",
+                Obj::Dict(
+                    Dict::new()
+                        .with("F1", Obj::Ref(f1, 0))
+                        .with("F2", Obj::Ref(f2, 0)),
+                ),
+            );
+            if let Some(img) = &fields.image {
+                let im = alloc();
+                let smask = img.mask_obj().map(|m| {
+                    let id = alloc();
+                    objs.insert(id, (0, m));
+                    Obj::Ref(id, 0)
+                });
+                objs.insert(im, (0, img.image_obj(smask)));
+                resources.set(
+                    "XObject",
+                    Obj::Dict(Dict::new().with("Im1", Obj::Ref(im, 0))),
+                );
+            }
             let ap = Dict::new()
                 .with("Type", Obj::name("XObject"))
                 .with("Subtype", Obj::name("Form"))
@@ -227,19 +255,7 @@ pub fn prepare(
                     "Matrix",
                     Obj::Array(m.iter().map(|v| Obj::real(*v)).collect()),
                 )
-                .with(
-                    "Resources",
-                    Obj::Dict(
-                        Dict::new().with(
-                            "Font",
-                            Obj::Dict(
-                                Dict::new()
-                                    .with("F1", Obj::Ref(f1, 0))
-                                    .with("F2", Obj::Ref(f2, 0)),
-                            ),
-                        ),
-                    ),
-                );
+                .with("Resources", Obj::Dict(resources));
             objs.insert(ap_id, (0, Obj::Stream(ap, content)));
             widget.set("AP", Obj::Dict(Dict::new().with("N", Obj::Ref(ap_id, 0))));
         }

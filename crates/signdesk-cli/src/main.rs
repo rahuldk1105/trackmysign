@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use signdesk_core::token::{Token, TokenCert};
-use signdesk_core::{DisplayRect, SignRequest, inspect, sign_pdf, signed_path};
+use signdesk_core::{
+    DisplayRect, ImagePosition, SignRequest, StampImage, inspect, sign_pdf, signed_path,
+};
 
 #[derive(Parser)]
 #[command(name = "trackmysign", version, about = "Sign PDFs with your DSC token")]
@@ -44,6 +46,12 @@ enum Cmd {
         reason: Option<String>,
         #[arg(long)]
         location: Option<String>,
+        /// Handwritten signature (PNG or JPEG) to show in the box.
+        #[arg(long)]
+        image: Option<PathBuf>,
+        /// Where the image goes, relative to the text.
+        #[arg(long, value_enum, default_value_t = ImageSide::Left)]
+        image_position: ImageSide,
         /// Which certificate to use (number from `trackmysign certs`).
         #[arg(long, default_value_t = 1)]
         cert: usize,
@@ -59,6 +67,12 @@ enum Corner {
     BottomLeft,
     TopRight,
     TopLeft,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum ImageSide {
+    Left,
+    Above,
 }
 
 fn parse_rect(s: &str) -> Result<DisplayRect, String> {
@@ -162,9 +176,14 @@ fn run() -> Result<()> {
             invisible,
             reason,
             location,
+            image,
+            image_position,
             cert,
             pin,
         } => {
+            let image = image
+                .map(|p| StampImage::open(&p).with_context(|| format!("reading {}", p.display())))
+                .transpose()?;
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
             let info = inspect(&data)?;
             let page_idx = match page {
@@ -210,7 +229,12 @@ fn run() -> Result<()> {
                 rect,
                 reason,
                 location,
-                time: None,
+                image,
+                image_position: match image_position {
+                    ImageSide::Left => ImagePosition::Left,
+                    ImageSide::Above => ImagePosition::Above,
+                },
+                ..Default::default()
             };
             let signed = sign_pdf(&data, &req, &mut signer)?;
             let out = out.unwrap_or_else(|| signed_path(&pdf));

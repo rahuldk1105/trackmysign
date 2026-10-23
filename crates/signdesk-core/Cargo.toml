@@ -10,6 +10,7 @@ const-oid = { version = "0.9", features = ["db"] }
 cryptoki = "0.12.1"
 der = { version = "0.7", features = ["derive", "oid", "alloc"] }
 flate2 = "1.1.10"
+png = "0.18"
 sha2 = "0.10"
 thiserror = "2.0.21"
 x509-cert = "0.2"

@@ -28,6 +28,9 @@ export interface Rect {
   h: number;
 }
 
+/** Whether the handwritten signature image is shown, and where. */
+export type ImageChoice = "off" | "left" | "above";
+
 export interface SignArgs {
   path: string;
   page: number;
@@ -36,6 +39,7 @@ export interface SignArgs {
   location: string;
   certIndex: number;
   pin: string;
+  image?: Exclude<ImageChoice, "off"> | null;
 }
 
 export interface Signed {
@@ -108,6 +112,29 @@ export async function onOpenFiles(cb: (paths: string[]) => void): Promise<() => 
   if (!inTauri) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen<string[]>("open-files", (e) => cb(e.payload));
+}
+
+/** Object URL of the saved signature image, or null when none is set. */
+export async function signatureImage(): Promise<string | null> {
+  if (!inTauri) return null;
+  const bytes: ArrayBuffer = await invoke("signature_image");
+  return bytes.byteLength ? URL.createObjectURL(new Blob([bytes])) : null;
+}
+
+/** Copies a PNG or JPEG into the app's data folder (after checking it). */
+export async function setSignatureImage(path: string): Promise<void> {
+  if (inTauri) await invoke("set_signature_image", { path });
+}
+
+export async function clearSignatureImage(): Promise<void> {
+  if (inTauri) await invoke("clear_signature_image");
+}
+
+export async function pickImage(): Promise<string | null> {
+  if (!inTauri) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const r = await open({ multiple: false, filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg"] }] });
+  return typeof r === "string" ? r : null;
 }
 
 export async function openFile(path: string): Promise<void> {

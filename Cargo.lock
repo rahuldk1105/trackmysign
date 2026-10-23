@@ -3375,6 +3375,7 @@ dependencies = [
  "cryptoki",
  "der",
  "flate2",
+ "png 0.18.1",
  "sha2",
  "thiserror 2.0.21",
  "x509-cert",

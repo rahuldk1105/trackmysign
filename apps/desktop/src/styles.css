@@ -484,6 +484,21 @@ button.token {
   font-weight: 700;
   font-size: 1.15em;
 }
+.sig-box.with-image {
+  padding: 0;
+}
+.sig-img {
+  position: absolute;
+  object-fit: contain;
+  pointer-events: none;
+}
+.sig-text {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
 .sig-resize {
   position: absolute;
   right: -1px;
@@ -711,6 +726,36 @@ section > label:first-of-type {
 .stamp-preview .sig-name {
   font-weight: 700;
   font-size: 11.5px;
+}
+.stamp-preview > div {
+  min-width: 0;
+}
+.stamp-preview img {
+  display: block;
+  object-fit: contain;
+}
+.stamp-preview.img-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stamp-preview.img-left img {
+  height: 44px;
+  max-width: 40%;
+}
+.stamp-preview.img-above img {
+  height: 30px;
+  max-width: 100%;
+  margin: 0 auto 4px;
+}
+.image-thumb {
+  flex: 1;
+  min-width: 0;
+  height: 48px;
+  object-fit: contain;
+  object-position: left center;
+  background: #fff;
+  border: 1px solid var(--line);
 }
 
 .preset-form {

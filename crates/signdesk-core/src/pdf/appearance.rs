@@ -1,6 +1,8 @@
-//! The visible signature box: a text-only Form XObject in Helvetica.
+//! The visible signature box: a Form XObject with Helvetica text and, if
+//! chosen, a signature image (`/Im1`).
 
 use super::object::fmt_real;
+use crate::image::ImagePosition;
 
 #[rustfmt::skip]
 const HELVETICA: [u16; 95] = [
@@ -74,20 +76,74 @@ fn escape(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
+/// An image in the box: its width / height and where it goes.
+#[derive(Debug, Clone, Copy)]
+pub struct ImageSlot {
+    pub aspect: f64,
+    pub position: ImagePosition,
+}
+
+/// `[x, y, w, h]` in form space.
+pub type Area = [f64; 4];
+
+fn padding(w: f64, h: f64) -> f64 {
+    (h.min(w) * 0.08).clamp(1.5, 6.0)
+}
+
+/// Splits a `w`×`h` box into the image area and the text area. The text
+/// area keeps the box padding on its own edges; the image takes at most
+/// 45% of the width (left) or half the height (above).
+pub fn layout(w: f64, h: f64, slot: ImageSlot) -> (Area, Area) {
+    let pad = padding(w, h);
+    match slot.position {
+        ImagePosition::Left => {
+            let mut ih = h - 2.0 * pad;
+            let iw = (ih * slot.aspect).min((w - 2.0 * pad) * 0.45);
+            ih = ih.min(iw / slot.aspect);
+            let image = [pad, (h - ih) / 2.0, iw, ih];
+            (image, [pad + iw, 0.0, w - pad - iw, h])
+        }
+        ImagePosition::Above => {
+            let mut iw = w - 2.0 * pad;
+            let ih = (iw / slot.aspect).min((h - 2.0 * pad) * 0.5);
+            iw = iw.min(ih * slot.aspect);
+            let image = [(w - iw) / 2.0, h - pad - ih, iw, ih];
+            (image, [0.0, 0.0, w, h - pad - ih])
+        }
+    }
+}
+
 /// Content stream for a `w`×`h` box (form space, upright). Fonts: `/F1`
 /// regular, `/F2` bold.
 pub fn content_stream(w: f64, h: f64, lines: &[Line]) -> Vec<u8> {
-    let pad = (h.min(w) * 0.08).clamp(1.5, 6.0);
+    content_stream_with_image(w, h, lines, None)
+}
+
+/// [`content_stream`] with the signature image `/Im1` placed by [`layout`].
+pub fn content_stream_with_image(
+    w: f64,
+    h: f64,
+    lines: &[Line],
+    image: Option<ImageSlot>,
+) -> Vec<u8> {
+    let pad = padding(w, h);
     let encoded: Vec<Vec<u8>> = lines.iter().map(|l| win_ansi(&l.text)).collect();
+    let (image, [tx, ty, tw, th]) = match image {
+        Some(slot) => {
+            let (i, t) = layout(w, h, slot);
+            (Some(i), t)
+        }
+        None => (None, [0.0, 0.0, w, h]),
+    };
 
     // Largest body size such that every line fits horizontally and all lines
     // (at 1.2 leading) fit vertically.
     let total_scale: f64 = lines.iter().map(|l| l.scale * 1.2).sum();
-    let mut size = ((h - 2.0 * pad) / total_scale).min(11.0);
+    let mut size = ((th - 2.0 * pad) / total_scale).min(11.0);
     for (l, e) in lines.iter().zip(&encoded) {
         let wu = width_units(e, l.face) * l.scale / 1000.0;
         if wu > 0.0 {
-            size = size.min((w - 2.0 * pad) / wu);
+            size = size.min((tw - 2.0 * pad) / wu);
         }
     }
     let size = size.max(2.0);
@@ -104,9 +160,21 @@ pub fn content_stream(w: f64, h: f64, lines: &[Line]) -> Vec<u8> {
         )
         .as_bytes(),
     );
+    if let Some([ix, iy, iw, ih]) = image {
+        s.extend_from_slice(
+            format!(
+                "q\n{} 0 0 {} {} {} cm\n/Im1 Do\nQ\n",
+                r(iw),
+                r(ih),
+                r(ix),
+                r(iy)
+            )
+            .as_bytes(),
+        );
+    }
     s.extend_from_slice(b"BT\n0 0 0 rg\n");
     let block: f64 = lines.iter().map(|l| l.scale * size * 1.2).sum();
-    let mut y = h - (h - block) / 2.0;
+    let mut y = ty + th - (th - block) / 2.0;
     for (l, e) in lines.iter().zip(&encoded) {
         let fs = l.scale * size;
         y -= fs * 1.2;
@@ -118,7 +186,7 @@ pub fn content_stream(w: f64, h: f64, lines: &[Line]) -> Vec<u8> {
             format!(
                 "{font} {} Tf\n1 0 0 1 {} {} Tm\n",
                 r(fs),
-                r(pad),
+                r(tx + pad),
                 r(y + fs * 0.25)
             )
             .as_bytes(),
@@ -172,6 +240,45 @@ mod tests {
         let width =
             width_units(b"A VERY LONG DIRECTOR NAME INDEED", Face::Bold) * bold_size / 1000.0;
         assert!(width <= 150.0);
+    }
+
+    #[test]
+    fn image_layout() {
+        let left = ImageSlot {
+            aspect: 2.0,
+            position: ImagePosition::Left,
+        };
+        // 170x55 box, pad 4.4: image limited by height (46.2 tall, 92.4 wide)
+        // would exceed 45% of the width, so it is narrowed to 72.54.
+        let ([ix, iy, iw, ih], [tx, _, tw, th]) = layout(170.0, 55.0, left);
+        assert!((iw - (170.0 - 8.8) * 0.45).abs() < 1e-9);
+        assert!((ih - iw / 2.0).abs() < 1e-9);
+        assert!((iy - (55.0 - ih) / 2.0).abs() < 1e-9);
+        assert_eq!(ix, 4.4);
+        assert!((tx + tw - 170.0).abs() < 1e-9 && th == 55.0);
+
+        let above = ImageSlot {
+            aspect: 4.0,
+            position: ImagePosition::Above,
+        };
+        // 170x80 box, pad 6: limited to half the inner height (34 tall).
+        let ([ix, iy, iw, ih], [_, ty, tw, th]) = layout(170.0, 80.0, above);
+        assert_eq!([ix, iy, iw, ih], [17.0, 40.0, 136.0, 34.0]);
+        assert_eq!([ty, tw, th], [0.0, 170.0, 40.0]);
+
+        let lines = [Line {
+            text: "Digitally signed by".into(),
+            face: Face::Regular,
+            scale: 1.0,
+        }];
+        let cs =
+            String::from_utf8(content_stream_with_image(170.0, 55.0, &lines, Some(left))).unwrap();
+        assert!(cs.contains("/Im1 Do"));
+        assert!(
+            !String::from_utf8(content_stream(170.0, 55.0, &lines))
+                .unwrap()
+                .contains("/Im1")
+        );
     }
 
     #[test]

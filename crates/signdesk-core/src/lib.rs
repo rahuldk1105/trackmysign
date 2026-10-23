@@ -2,6 +2,7 @@
 
 pub mod certinfo;
 pub mod cms;
+pub mod image;
 pub mod pdf;
 pub mod token;
 
@@ -10,6 +11,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, FixedOffset, Local};
 use sha2::{Digest, Sha256};
 
+pub use image::{ImagePosition, StampImage};
 pub use pdf::reader::PdfError;
 pub use pdf::sign::{DisplayRect, Placement};
 
@@ -44,6 +46,8 @@ pub enum Error {
     Cms(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    #[error("Signature image: {0}")]
+    Image(String),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -54,6 +58,9 @@ pub struct SignRequest {
     pub location: Option<String>,
     /// Defaults to now, in local time.
     pub time: Option<DateTime<FixedOffset>>,
+    /// Handwritten signature shown in the box (visible signatures only).
+    pub image: Option<StampImage>,
+    pub image_position: ImagePosition,
 }
 
 /// Signs `input` and returns the complete new file.
@@ -69,6 +76,8 @@ pub fn sign_pdf(
         reason: req.reason.clone(),
         location: req.location.clone(),
         time,
+        image: req.image.clone(),
+        image_position: req.image_position,
     };
     let placement = Placement {
         page: req.page,

@@ -1,5 +1,6 @@
 // Saved presets: reason, location and where the box goes, applied in one pick.
 
+import type { ImageChoice } from "./api";
 import type { PageSize, Placement } from "./PdfView";
 
 /** Which page the box goes on: first, last, or a page number (1 = first). */
@@ -19,6 +20,8 @@ export interface Preset {
   reason: string;
   location: string;
   placement: PresetPlacement | null;
+  /** Missing in presets saved before images were supported: leave as is. */
+  image?: ImageChoice;
 }
 
 const PT_PER_MM = 72 / 25.4;
@@ -77,6 +80,7 @@ export function activePreset(presets: Preset[], current: Omit<Preset, "name">): 
     (p) =>
       p.reason === current.reason &&
       p.location === current.location &&
+      (p.image === undefined || p.image === current.image) &&
       (!p.placement || samePlacement(p.placement, current.placement)),
   );
 }

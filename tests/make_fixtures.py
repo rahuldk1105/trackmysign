@@ -1,7 +1,7 @@
 """Generate test PDFs covering the structures TrackMySign must handle.
 
 Usage: python3 tests/make_fixtures.py <outdir>
-Needs: reportlab, pyhanko, qpdf, openssl.
+Needs: reportlab (with Pillow), pyhanko, qpdf, openssl.
 """
 import os
 import subprocess
@@ -117,4 +117,18 @@ for src, dst in (("plain.pdf", "presigned.pdf"), ("objstm.pdf", "presigned-objst
             new_field_spec=fields.SigFieldSpec("AuditorSignature", on_page=-1, box=(60, 60, 240, 110)),
             output=outf,
         )
+# 9. handwritten signature images: transparent left half / red right half
+# (PNG, RGBA and palette + tRNS), green left / red right (JPEG)
+from PIL import Image
+
+sig = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
+sig.paste((220, 0, 0, 255), (100, 0, 200, 100))
+sig.save(P("sig.png"))
+pal = Image.new("P", (200, 100), 0)
+pal.putpalette([0, 0, 0, 220, 0, 0])
+pal.paste(1, (100, 0, 200, 100))
+pal.save(P("sig-palette.png"), transparency=0)
+jpg = Image.new("RGB", (200, 100), (0, 160, 0))
+jpg.paste((220, 0, 0), (100, 0, 200, 100))
+jpg.save(P("sig.jpg"), quality=95)
 print("fixtures written to", out)

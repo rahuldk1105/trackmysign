@@ -5,7 +5,9 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use signdesk_core::token::Token;
-use signdesk_core::{DisplayRect, Error, SignRequest, inspect, sign_pdf, signed_path};
+use signdesk_core::{
+    DisplayRect, Error, ImagePosition, SignRequest, StampImage, inspect, sign_pdf, signed_path,
+};
 use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -151,6 +153,16 @@ struct SignArgs {
     location: Option<String>,
     cert_index: usize,
     pin: String,
+    /// Show the saved signature image, and where.
+    #[serde(default)]
+    image: Option<ImageArg>,
+}
+
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+enum ImageArg {
+    Left,
+    Above,
 }
 
 #[derive(Serialize)]
@@ -161,10 +173,14 @@ struct SignedDto {
 }
 
 #[tauri::command]
-async fn sign(args: SignArgs) -> CmdResult<SignedDto> {
+async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
     tauri::async_runtime::spawn_blocking(move || {
         let input = PathBuf::from(&args.path);
         let data = std::fs::read(&input)?;
+        let image = match args.image {
+            Some(_) => Some(saved_image(&app)?),
+            None => None,
+        };
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let token = Token::open_default()?;
         let certs = token.signing_certificates()?;
@@ -183,7 +199,12 @@ async fn sign(args: SignArgs) -> CmdResult<SignedDto> {
             }),
             reason: args.reason.filter(|s| !s.trim().is_empty()),
             location: args.location.filter(|s| !s.trim().is_empty()),
-            time: None,
+            image,
+            image_position: match args.image {
+                Some(ImageArg::Above) => ImagePosition::Above,
+                _ => ImagePosition::Left,
+            },
+            ..Default::default()
         };
         let signed = sign_pdf(&data, &req, &mut signer)?;
         let out = signed_path(&input);
@@ -201,6 +222,60 @@ async fn sign(args: SignArgs) -> CmdResult<SignedDto> {
         kind: "other",
         message: e.to_string(),
     })?
+}
+
+/// The handwritten signature image, copied into the app's data folder.
+fn image_path(app: &AppHandle) -> CmdResult<PathBuf> {
+    let dir = app.path().app_data_dir().map_err(|e| CommandError {
+        kind: "io",
+        message: e.to_string(),
+    })?;
+    Ok(dir.join("signature-image"))
+}
+
+fn saved_image(app: &AppHandle) -> CmdResult<StampImage> {
+    let path = image_path(app)?;
+    if !path.is_file() {
+        return Err(CommandError {
+            kind: "other",
+            message: "The signature image is missing. Choose it again in Settings.".into(),
+        });
+    }
+    Ok(StampImage::open(&path)?)
+}
+
+/// Bytes of the saved signature image for the preview; empty when there is none.
+#[tauri::command]
+fn signature_image(app: AppHandle) -> CmdResult<Response> {
+    let path = image_path(&app)?;
+    let data = if path.is_file() {
+        std::fs::read(path)?
+    } else {
+        Vec::new()
+    };
+    Ok(Response::new(data))
+}
+
+/// Checks that `path` is a usable PNG or JPEG and keeps a copy.
+#[tauri::command]
+fn set_signature_image(app: AppHandle, path: String) -> CmdResult<()> {
+    let data = std::fs::read(&path)?;
+    StampImage::from_bytes(&data)?;
+    let dest = image_path(&app)?;
+    if let Some(dir) = dest.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(dest, data)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn clear_signature_image(app: AppHandle) -> CmdResult<()> {
+    let path = image_path(&app)?;
+    if path.is_file() {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
 }
 
 /// Path of the PKCS#11 driver that will be used for the token, if one is installed.
@@ -311,6 +386,9 @@ pub fn run() {
             sign,
             startup_file,
             startup_files,
+            signature_image,
+            set_signature_image,
+            clear_signature_image,
             token_driver,
             open_file,
             reveal_file,
