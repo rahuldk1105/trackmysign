@@ -33,6 +33,11 @@ All notable changes to TrackMySign are listed here. The format follows
   The app reminds you 30 days ahead (15, 60 or off in *Settings → Expiry
   reminder*), also when the token is not plugged in, and will not sign with an
   expired certificate. `trackmysign sign` refuses one unless `--allow-expired`.
+- Password-protected PDFs (RC4 40/128-bit, AES-128, AES-256) can be opened,
+  checked and signed; the signed copy keeps the same password and restrictions.
+  PDFs that only restrict editing open without asking; otherwise the app asks
+  for the password (`--password` on the command line). It is never stored. A
+  PDF whose permissions do not allow signing needs its owner password.
 
 More features are in progress.
 
