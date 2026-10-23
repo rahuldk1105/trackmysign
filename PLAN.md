@@ -59,7 +59,9 @@ PIN is never stored. Remaining PIN attempts shown where the token reports them.
 - PKCS#11 library (64-bit): `C:\Windows\System32\eps2003csp11v2.dll` — **use this**
 - 32-bit copy: `C:\Windows\SysWOW64\eps2003csp11v2.dll` (not used; app is 64-bit)
 - Card types registered: `HYP2003v2`, `HYP2003v2_22` (CSP "HyperPKI HYP2003 CSP India v3.0")
-- Auto-detect order: System32 `eps2003csp11v2.dll` → OpenSC `opensc-pkcs11.dll` → user-picked path
+- Auto-detect: every known vendor driver that is installed (HyperPKI first, OpenSC last; table in
+  `token.rs`) is loaded and certificates from all of them are listed; signing uses the driver the
+  certificate came from. `TRACKMYSIGN_PKCS11_MODULE` / `--module` override.
 
 ## Phase 1 result (2026-10-20) — PASSED on the real token
 

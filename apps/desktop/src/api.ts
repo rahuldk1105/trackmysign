@@ -4,7 +4,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export interface Cert {
-  index: number;
+  /** SHA-256 fingerprint of the certificate. */
+  id: string;
   name: string;
   organization: string | null;
   issuer: string;
@@ -12,6 +13,14 @@ export interface Cert {
   expired: boolean;
   canSign: boolean;
   tokenLabel: string;
+  /** Product name of the PKCS#11 driver the certificate was read through. */
+  driver: string;
+  driverPath: string;
+}
+
+export interface Driver {
+  name: string;
+  path: string;
 }
 
 export interface PdfInfo {
@@ -34,7 +43,8 @@ export interface SignArgs {
   rect: Rect | null;
   reason: string;
   location: string;
-  certIndex: number;
+  certId: string;
+  driverPath: string;
   pin: string;
 }
 
@@ -60,7 +70,7 @@ const mock = {
   async listCertificates(): Promise<Cert[]> {
     return [
       {
-        index: 0,
+        id: "mock",
         name: "DK RAHUL",
         organization: "Personal",
         issuer: "Verasys Sub CA 2022",
@@ -68,6 +78,8 @@ const mock = {
         expired: false,
         canSign: true,
         tokenLabel: "HYP2003",
+        driver: "Hypersecu HyperPKI",
+        driverPath: "C:\\Windows\\System32\\eps2003csp11v2.dll",
       },
     ];
   },
@@ -110,9 +122,13 @@ export async function revealFile(path: string): Promise<void> {
   if (inTauri) await invoke("reveal_file", { path });
 }
 
-/** Path of the PKCS#11 driver used for the token, or null when none is installed. */
-export async function tokenDriver(): Promise<string | null> {
-  return inTauri ? invoke("token_driver") : "C:\\Windows\\System32\\eps2003csp11v2.dll";
+/** PKCS#11 drivers installed on this computer, preferred first. */
+export async function tokenDrivers(): Promise<Driver[]> {
+  if (inTauri) return invoke("token_drivers");
+  return [
+    { name: "Hypersecu HyperPKI", path: "C:\\Windows\\System32\\eps2003csp11v2.dll" },
+    { name: "OpenSC", path: "C:\\Program Files\\OpenSC Project\\OpenSC\\pkcs11\\opensc-pkcs11.dll" },
+  ];
 }
 
 export async function openWebsite(): Promise<void> {

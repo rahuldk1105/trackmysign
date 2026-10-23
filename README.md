@@ -19,6 +19,30 @@ Download from [sign.rahuldk.in](https://sign.rahuldk.in) or the [latest release]
 
 Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`.
 
+## Supported tokens
+
+Install the driver software that came with your token, then plug it in. TrackMySign
+looks for these PKCS#11 drivers, loads every one that is installed and lists the
+certificates from all of them (the settings panel shows which drivers were found):
+
+| Token | Windows (`System32` unless noted) | macOS |
+|---|---|---|
+| Hypersecu HyperPKI | `eps2003csp11v2.dll` | `/usr/local/lib/libcastle_v2*.dylib` |
+| Feitian ePass2003 | `eps2003csp11.dll` | `/usr/local/lib/libcastle.*.dylib` |
+| Watchdata ProxKey | `SignatureP11.dll` | `/usr/local/lib/wdProxKeyUsbKeyTool/libwdpkcs_Proxkey.dylib` |
+| Trust Key | `TRUSTKEYP11_ND_v34.dll` (any version) | — |
+| Longmai mToken CryptoID | `CryptoIDA_pkcs11.dll` | `libcryptoid*_pkcs11.dylib` (CryptoID tools) |
+| Watchdata | `wdpkcs.dll` | — |
+| SafeNet / Thales eToken | `eTPKCS11.dll` | `/usr/local/lib/libeTPkcs11.dylib` |
+| Gemalto IDPrime | `IDPrimePKCS11.dll`, `Program Files\Gemalto\IDGo 800 PKCS#11\IDPrimePKCS1164.dll` | `/usr/local/lib/libIDPrimePKCS11.dylib` |
+| Bit4id | `bit4xpki.dll`, `bit4ipki.dll` | `/Library/bit4id/pkcs11/`, PKIManager app |
+| OpenSC (last resort) | `Program Files\OpenSC Project\OpenSC\pkcs11\opensc-pkcs11.dll` | `/Library/OpenSC/lib/opensc-pkcs11.so` |
+
+Signing always goes through the driver the chosen certificate was read from. A driver
+that fails to load is skipped. If your token's driver lives elsewhere, point
+`TRACKMYSIGN_PKCS11_MODULE` at it (several paths separated by `;` on Windows, `:` on
+macOS), or pass `--module` to the command-line tool.
+
 ## Command-line tool (Windows)
 
 1. Download `trackmysign-windows-x64.exe` from the
@@ -30,7 +54,7 @@ Open a PDF (or drag it into the window), click where the signature should go, pr
 .\trackmysign.exe certs
 ```
 
-   You should see your name, the issuing CA and the expiry date.
+   You should see your name, the issuing CA, the expiry date and the driver it was read through.
 
 3. Sign a test PDF (bottom-right of the last page by default):
 

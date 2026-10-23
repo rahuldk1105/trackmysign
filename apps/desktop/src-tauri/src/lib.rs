@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use signdesk_core::token::Token;
+use signdesk_core::token::{Token, Tokens, installed_drivers};
 use signdesk_core::{DisplayRect, Error, SignRequest, inspect, sign_pdf, signed_path};
 use tauri::ipc::Response;
 
@@ -48,7 +48,8 @@ type CmdResult<T> = Result<T, CommandError>;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CertDto {
-    index: usize,
+    /// SHA-256 fingerprint; picks the certificate again when signing.
+    id: String,
     name: String,
     organization: Option<String>,
     issuer: String,
@@ -56,19 +57,20 @@ struct CertDto {
     expired: bool,
     can_sign: bool,
     token_label: String,
+    driver: String,
+    driver_path: String,
 }
 
 #[tauri::command]
 async fn list_certificates() -> CmdResult<Vec<CertDto>> {
     tauri::async_runtime::spawn_blocking(|| {
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let token = Token::open_default()?;
-        let certs = token.signing_certificates()?;
+        let tokens = Tokens::open_installed()?;
+        let certs = tokens.signing_certificates()?;
         Ok(certs
             .iter()
-            .enumerate()
-            .map(|(index, c)| CertDto {
-                index,
+            .map(|c| CertDto {
+                id: c.fingerprint(),
                 name: c.summary.subject_cn.clone(),
                 organization: c.summary.organization.clone(),
                 issuer: c.summary.issuer_cn.clone(),
@@ -76,6 +78,8 @@ async fn list_certificates() -> CmdResult<Vec<CertDto>> {
                 expired: c.summary.expired,
                 can_sign: c.summary.can_sign,
                 token_label: c.token_label.clone(),
+                driver: c.driver.name.clone(),
+                driver_path: c.driver.path.to_string_lossy().into_owned(),
             })
             .collect())
     })
@@ -148,7 +152,9 @@ struct SignArgs {
     rect: Option<RectArg>,
     reason: Option<String>,
     location: Option<String>,
-    cert_index: usize,
+    cert_id: String,
+    /// Driver the certificate was listed from.
+    driver_path: String,
     pin: String,
 }
 
@@ -165,12 +171,15 @@ async fn sign(args: SignArgs) -> CmdResult<SignedDto> {
         let input = PathBuf::from(&args.path);
         let data = std::fs::read(&input)?;
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let token = Token::open_default()?;
+        let token = Token::open(Path::new(&args.driver_path))?;
         let certs = token.signing_certificates()?;
-        let cert = certs.get(args.cert_index).ok_or_else(|| CommandError {
-            kind: "token",
-            message: "The selected certificate is no longer on the token.".into(),
-        })?;
+        let cert = certs
+            .iter()
+            .find(|c| c.fingerprint() == args.cert_id)
+            .ok_or_else(|| CommandError {
+                kind: "token",
+                message: "The selected certificate is no longer on the token.".into(),
+            })?;
         let mut signer = token.signer(cert, &args.pin)?;
         let req = SignRequest {
             page: args.page,
@@ -202,10 +211,23 @@ async fn sign(args: SignArgs) -> CmdResult<SignedDto> {
     })?
 }
 
-/// Path of the PKCS#11 driver that will be used for the token, if one is installed.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DriverDto {
+    name: String,
+    path: String,
+}
+
+/// PKCS#11 drivers installed on this computer, preferred first.
 #[tauri::command]
-fn token_driver() -> Option<String> {
-    signdesk_core::token::find_module().map(|p| p.to_string_lossy().into_owned())
+fn token_drivers() -> Vec<DriverDto> {
+    installed_drivers()
+        .into_iter()
+        .map(|d| DriverDto {
+            name: d.name,
+            path: d.path.to_string_lossy().into_owned(),
+        })
+        .collect()
 }
 
 /// A PDF passed on the command line ("Open with TrackMySign", drag onto the icon).
@@ -253,7 +275,7 @@ pub fn run() {
             read_pdf,
             sign,
             startup_file,
-            token_driver,
+            token_drivers,
             open_file,
             reveal_file,
             open_website

@@ -28,4 +28,12 @@ if TRACKMYSIGN_PIN=00000000 "$BIN" sign "$W/fx/plain.pdf" --out "$W/x.pdf" 2>"$W
 else
   grep -q "Wrong PIN" "$W/err" && echo "PASS wrong PIN rejected" || { echo "FAIL: $(cat "$W/err")"; fail=1; }
 fi
+# A driver that fails to load must not hide the token behind another one.
+: > "$W/broken-pkcs11.so"
+if TRACKMYSIGN_PKCS11_MODULE="$W/broken-pkcs11.so:$TRACKMYSIGN_PKCS11_MODULE" "$BIN" certs >"$W/certs" 2>&1 \
+  && grep -q "not loaded" "$W/certs" && grep -q "RAHUL TEST DIRECTOR" "$W/certs"; then
+  echo "PASS broken driver skipped"
+else
+  echo "FAIL broken driver: $(cat "$W/certs")"; fail=1
+fi
 [ $fail = 0 ] && echo "ALL PASSED" || { echo "SOME TESTS FAILED"; exit 1; }

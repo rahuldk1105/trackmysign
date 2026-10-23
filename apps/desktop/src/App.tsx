@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import * as api from "./api";
-import type { ApiError, Cert, PdfInfo, Signed } from "./api";
+import type { ApiError, Cert, Driver, PdfInfo, Signed } from "./api";
 import { loadPdf, PdfView, type PageSize, type Placement } from "./PdfView";
 import { useTheme, type ThemePref } from "./theme";
 import {
@@ -106,7 +106,7 @@ export default function App() {
   const [certs, setCerts] = useState<Cert[] | null>(null);
   const [certError, setCertError] = useState<string | null>(null);
   const [certIndex, setCertIndex] = useState(0);
-  const [driver, setDriver] = useState<string | null | undefined>(undefined);
+  const [drivers, setDrivers] = useState<Driver[] | undefined>(undefined);
   const [doc, setDoc] = useState<Doc | null>(null);
   const [loading, setLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
@@ -130,9 +130,9 @@ export default function App() {
   // ---- token
   const refreshCerts = useCallback(async () => {
     api
-      .tokenDriver()
-      .then(setDriver)
-      .catch(() => setDriver(null));
+      .tokenDrivers()
+      .then(setDrivers)
+      .catch(() => setDrivers([]));
     try {
       const list = (await api.listCertificates()).filter((c) => c.canSign);
       setCerts(list);
@@ -258,7 +258,8 @@ export default function App() {
         rect: { x: placement.x, y: placement.y, w: placement.w, h: placement.h },
         reason: saved.reason,
         location: saved.location,
-        certIndex: cert.index,
+        certId: cert.id,
+        driverPath: cert.driverPath,
         pin,
       });
       update({ certName: cert.name });
@@ -279,6 +280,8 @@ export default function App() {
   ];
 
   const zoomPct = `${Math.round(view.scale * 100)}%`;
+  const driverPath = cert?.driverPath ?? drivers?.[0]?.path;
+  const manyDrivers = new Set(certs?.map((c) => c.driverPath)).size > 1;
 
   return (
     <div className={`app ${hover ? "drop-hover" : ""}`}>
@@ -409,6 +412,7 @@ export default function App() {
                         {certs.map((c, i) => (
                           <option key={i} value={i}>
                             {c.name} — {c.issuer}
+                            {manyDrivers ? ` (${c.driver})` : ""}
                           </option>
                         ))}
                       </select>
@@ -420,6 +424,8 @@ export default function App() {
                       <dd>{cert.issuer}</dd>
                       <dt>Valid until</dt>
                       <dd className={cert.expired ? "bad" : undefined}>{cert.validUntil}</dd>
+                      <dt>Driver</dt>
+                      <dd title={cert.driverPath}>{cert.driver}</dd>
                     </dl>
                     {cert.expired && (
                       <div className="warn-row">
@@ -506,8 +512,8 @@ export default function App() {
       <footer className="statusbar">
         <TokenStatus certs={certs} error={certError} onRetry={refreshCerts} />
         <div className="spacer" />
-        <span className="mono sb-item" title={driver ?? undefined}>
-          {driver === undefined ? "" : driver ? baseName(driver) : "No PKCS#11 driver found"}
+        <span className="mono sb-item" title={driverPath}>
+          {drivers === undefined ? "" : driverPath ? baseName(driverPath) : "No PKCS#11 driver found"}
         </span>
         {doc && (
           <>
@@ -527,7 +533,7 @@ export default function App() {
           update={update}
           certs={certs}
           certError={certError}
-          driver={driver}
+          drivers={drivers}
           onRefresh={refreshCerts}
           onClose={() => setSettingsOpen(false)}
         />
@@ -675,7 +681,7 @@ function Settings(props: {
   update: (p: Partial<Saved>) => void;
   certs: Cert[] | null;
   certError: string | null;
-  driver: string | null | undefined;
+  drivers: Driver[] | undefined;
   onRefresh: () => void;
   onClose: () => void;
 }) {
@@ -756,10 +762,39 @@ function Settings(props: {
                   <dd>{cert.issuer}</dd>
                 </>
               )}
-              <dt>Driver</dt>
-              <dd className="mono wrap">{props.driver === undefined ? "…" : (props.driver ?? "Not found")}</dd>
+              {cert && (
+                <>
+                  <dt>Driver</dt>
+                  <dd>{cert.driver}</dd>
+                </>
+              )}
             </dl>
             {!cert && props.certError && <p className="muted small">{props.certError}</p>}
+            <h4>Detected drivers</h4>
+            {props.drivers === undefined ? (
+              <p className="muted small">Checking…</p>
+            ) : props.drivers.length === 0 ? (
+              <p className="muted small">None found. Install the software that came with your token.</p>
+            ) : (
+              <ul className="driver-list">
+                {props.drivers.map((d) => {
+                  const n = props.certs?.filter((c) => c.driverPath === d.path).length ?? 0;
+                  return (
+                    <li key={d.path}>
+                      <div className="driver-head">
+                        <span>{d.name}</span>
+                        {n > 0 && (
+                          <span className="ok">
+                            {n} certificate{n > 1 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
+                      <span className="mono wrap">{d.path}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
             <button className="btn" onClick={props.onRefresh}>
               <RefreshIcon size={14} /> Check again
             </button>

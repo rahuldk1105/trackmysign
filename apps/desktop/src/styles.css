@@ -898,6 +898,45 @@ section > label:first-of-type {
 .kv dd.wrap {
   word-break: break-all;
 }
+.settings h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.driver-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 1px solid var(--line);
+}
+.driver-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.driver-list li:last-child {
+  border-bottom: 0;
+}
+.driver-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-2);
+}
+.driver-head .ok {
+  color: var(--ok);
+  font-weight: 500;
+}
+.driver-list .mono {
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+  user-select: text;
+}
 .segmented {
   display: flex;
   border: 1px solid var(--line-strong);

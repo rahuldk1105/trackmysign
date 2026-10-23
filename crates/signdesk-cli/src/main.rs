@@ -4,14 +4,15 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
-use signdesk_core::token::{Token, TokenCert};
+use signdesk_core::token::{Driver, TokenCert, Tokens, driver_name};
 use signdesk_core::{DisplayRect, SignRequest, inspect, sign_pdf, signed_path};
 
 #[derive(Parser)]
 #[command(name = "trackmysign", version, about = "Sign PDFs with your DSC token")]
 struct Cli {
-    /// PKCS#11 driver of the token (auto-detected if omitted).
-    #[arg(long, global = true, env = "TRACKMYSIGN_PKCS11_MODULE")]
+    /// PKCS#11 driver of the token. If omitted, every known driver is tried,
+    /// or the ones listed in TRACKMYSIGN_PKCS11_MODULE.
+    #[arg(long, global = true)]
     module: Option<PathBuf>,
     #[command(subcommand)]
     cmd: Cmd,
@@ -78,10 +79,13 @@ fn parse_rect(s: &str) -> Result<DisplayRect, String> {
     }
 }
 
-fn open_token(module: &Option<PathBuf>) -> Result<Token> {
+fn open_tokens(module: &Option<PathBuf>) -> Result<Tokens> {
     Ok(match module {
-        Some(m) => Token::open(m)?,
-        None => Token::open_default()?,
+        Some(m) => Tokens::open(&[Driver {
+            name: driver_name(m),
+            path: m.clone(),
+        }])?,
+        None => Tokens::open_installed()?,
     })
 }
 
@@ -100,7 +104,7 @@ fn describe(i: usize, c: &TokenCert) -> String {
         format!("  [{}]", flags.join(", "))
     };
     format!(
-        "{i}. {}{}\n   Issued by: {}\n   Valid until: {}\n   Token: {}{}",
+        "{i}. {}{}\n   Issued by: {}\n   Valid until: {}\n   Token: {}\n   Driver: {}{}",
         s.subject_cn,
         s.organization
             .as_ref()
@@ -109,6 +113,7 @@ fn describe(i: usize, c: &TokenCert) -> String {
         s.issuer_cn,
         s.not_after.format("%d %b %Y"),
         c.token_label,
+        c.driver.name,
         flags
     )
 }
@@ -124,9 +129,18 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Certs => {
-            let token = open_token(&cli.module)?;
-            println!("Driver: {}", token.module.display());
-            let certs = token.signing_certificates()?;
+            let tokens = open_tokens(&cli.module)?;
+            for t in &tokens.tokens {
+                println!("Driver: {} ({})", t.driver.name, t.driver.path.display());
+            }
+            for (d, e) in &tokens.failed {
+                println!(
+                    "Driver: {} ({}) — not loaded: {e}",
+                    d.name,
+                    d.path.display()
+                );
+            }
+            let certs = tokens.signing_certificates()?;
             if certs.is_empty() {
                 bail!("no certificates found — is the token plugged in?");
             }
@@ -191,8 +205,8 @@ fn run() -> Result<()> {
                 }))
             };
 
-            let token = open_token(&cli.module)?;
-            let certs = token.signing_certificates()?;
+            let tokens = open_tokens(&cli.module)?;
+            let certs = tokens.signing_certificates()?;
             let chosen = certs
                 .get(cert.wrapping_sub(1))
                 .with_context(|| format!("no certificate #{cert}; run `trackmysign certs`"))?;
@@ -204,7 +218,7 @@ fn run() -> Result<()> {
                 Some(p) => p,
                 None => rpassword::prompt_password("Token PIN: ")?,
             };
-            let mut signer = token.signer(chosen, &pin)?;
+            let mut signer = tokens.signer(chosen, &pin)?;
             let req = SignRequest {
                 page: page_idx,
                 rect,
