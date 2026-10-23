@@ -14,6 +14,9 @@
   --muted: #667085;
   --accent: #1b3a8c;
   --accent-hover: #142c6b;
+  --on-accent: #ffffff;
+  --logo-bg: #1b3a8c;
+  --logo-fg: #ffffff;
   --accent-soft: #e8edf7;
   --accent-text: #1b3a8c;
   --ok: #1f7a37;
@@ -29,28 +32,32 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #0f1318;
-  --viewer: #0a0d11;
-  --surface: #151a21;
-  --surface-2: #1b212a;
-  --line: #29313c;
-  --line-strong: #3a4452;
-  --text: #e7eaee;
-  --text-2: #c3c9d2;
-  --muted: #8b95a3;
-  --accent: #4c6fd1;
-  --accent-hover: #6584db;
-  --accent-soft: #1c2740;
-  --accent-text: #a9bcf0;
+  /* Pitch black: every surface is #000; structure comes from neutral grey lines. */
+  --bg: #000000;
+  --viewer: #000000;
+  --surface: #000000;
+  --surface-2: #000000;
+  --line: #262626;
+  --line-strong: #3d3d3d;
+  --text: #f2f2f2;
+  --text-2: #c9c9c9;
+  --muted: #8c8c8c;
+  --accent: #ffffff;
+  --accent-hover: #d6d6d6;
+  --on-accent: #000000;
+  --logo-bg: #ffffff;
+  --logo-fg: #000000;
+  --accent-soft: #000000;
+  --accent-text: #ffffff;
   --ok: #4fb36b;
-  --ok-soft: #16271c;
+  --ok-soft: #000000;
   --bad: #f0716a;
-  --bad-soft: #2d1716;
-  --focus: #7d9bea;
-  --hover: rgb(231 234 238 / 0.06);
-  --press: rgb(231 234 238 / 0.1);
-  --page-shadow: 0 1px 2px rgb(0 0 0 / 0.5);
-  --dialog-shadow: 0 8px 28px rgb(0 0 0 / 0.5);
+  --bad-soft: #000000;
+  --focus: #ffffff;
+  --hover: rgb(255 255 255 / 0.07);
+  --press: rgb(255 255 255 / 0.12);
+  --page-shadow: none;
+  --dialog-shadow: none;
   color-scheme: dark;
 }
 
@@ -147,7 +154,7 @@ button:disabled {
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .btn.primary:hover:not(:disabled) {
   background: var(--accent-hover);
@@ -785,7 +792,7 @@ section > label:first-of-type {
   color: #fff;
 }
 :root[data-theme="dark"] .dialog-icon.ok {
-  color: #0f1318;
+  color: #000;
 }
 .dialog-body {
   padding: 12px 18px 16px;
@@ -914,7 +921,7 @@ section > label:first-of-type {
 }
 .segmented button.on {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 500;
 }
 .segmented button:focus-visible {

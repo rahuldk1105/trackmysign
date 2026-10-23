@@ -809,9 +809,9 @@ function Modal(props: { title: string; icon?: React.ReactNode; tone?: "ok"; chil
 export function Logo({ size = 24 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden className="logo">
-      <rect width="64" height="64" rx="6.4" fill="#1B3A8C" />
-      <path d="M14 40c6-10 10-14 13-14 4 0-2 12 2 12s6-8 9-8 1 6 4 6 5-3 8-5" stroke="#fff" strokeWidth="4.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M14 49h36" stroke="#fff" strokeOpacity=".45" strokeWidth="3" strokeLinecap="round" />
+      <rect width="64" height="64" rx="6.4" style={{ fill: "var(--logo-bg)" }} />
+      <path d="M14 40c6-10 10-14 13-14 4 0-2 12 2 12s6-8 9-8 1 6 4 6 5-3 8-5" style={{ stroke: "var(--logo-fg)" }} strokeWidth="4.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M14 49h36" style={{ stroke: "var(--logo-fg)" }} strokeOpacity=".45" strokeWidth="3" strokeLinecap="round" />
     </svg>
   );
 }
