@@ -63,17 +63,26 @@ jobs:
           name: ${{ matrix.artifact }}
           path: target/release/${{ matrix.bin }}
       # Release assets don't count against the Actions artifact storage quota.
-      - name: Publish to the "test-build" pre-release
+      # Tags (v1.2.3) publish a normal release, which /releases/latest points at;
+      # other pushes refresh the "test-build" pre-release.
+      - name: Publish release assets
         if: github.event_name != 'pull_request'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            REL="$GITHUB_REF_NAME"
+            gh release view "$REL" >/dev/null 2>&1 || \
+              gh release create "$REL" --verify-tag --title "TrackMySign $REL" --generate-notes || true
+          else
+            REL=test-build
+            gh release view "$REL" >/dev/null 2>&1 || \
+              gh release create "$REL" --prerelease --target "$GITHUB_SHA" \
+                --title "TrackMySign test build" --notes "Latest build from ${GITHUB_REF_NAME}. For testing only." || true
+          fi
           cp "target/release/${{ matrix.bin }}" "${{ matrix.artifact }}"
-          gh release view test-build >/dev/null 2>&1 || \
-            gh release create test-build --prerelease --target "$GITHUB_SHA" \
-              --title "TrackMySign test build" --notes "Latest build from ${GITHUB_REF_NAME}. For testing only."
-          gh release upload test-build "${{ matrix.artifact }}" --clobber
+          gh release upload "$REL" "${{ matrix.artifact }}" --clobber
 
   desktop:
     name: Desktop app ${{ matrix.name }}
@@ -234,16 +243,25 @@ jobs:
           # Finder automation occasionally times out on hosted runners.
           echo "::warning::dmg layout step failed; retrying without the custom Finder layout"
           TAURI_BUNDLER_DMG_IGNORE_CI=false npx tauri build ${{ matrix.build-args }} "${args[@]}"
-      - name: Publish to the "test-build" pre-release
+      # Tags (v1.2.3) publish a normal release, which /releases/latest points at;
+      # other pushes refresh the "test-build" pre-release.
+      - name: Publish release assets
         if: github.event_name != 'pull_request'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view test-build >/dev/null 2>&1 || \
-            gh release create test-build --prerelease --target "$GITHUB_SHA" \
-              --title "TrackMySign test build" --notes "Latest build from ${GITHUB_REF_NAME}. For testing only."
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            REL="$GITHUB_REF_NAME"
+            gh release view "$REL" >/dev/null 2>&1 || \
+              gh release create "$REL" --verify-tag --title "TrackMySign $REL" --generate-notes || true
+          else
+            REL=test-build
+            gh release view "$REL" >/dev/null 2>&1 || \
+              gh release create "$REL" --prerelease --target "$GITHUB_SHA" \
+                --title "TrackMySign test build" --notes "Latest build from ${GITHUB_REF_NAME}. For testing only." || true
+          fi
           for asset in ${{ matrix.assets }}; do
             cp ${{ matrix.file }} "$asset"
-            gh release upload test-build "$asset" --clobber
+            gh release upload "$REL" "$asset" --clobber
           done

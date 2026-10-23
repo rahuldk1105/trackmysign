@@ -12,17 +12,17 @@ Status: desktop app for Windows (installer) and macOS (dmg), plus a command-line
 
 ## Install the app
 
-Download from the [test-build release](../../releases/tag/test-build):
+Download from [sign.rahuldk.in](https://sign.rahuldk.in) or the [latest release](../../releases/latest):
 
 - Windows: `TrackMySign-Setup-windows-x64.exe` — run it (no admin needed). If SmartScreen warns, choose *More info → Run anyway*.
-- macOS: `TrackMySign-macos-arm64.dmg` — not yet notarized; right-click the app → *Open* the first time.
+- macOS: `TrackMySign-macos-universal.dmg` (Apple Silicon and Intel).
 
 Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`.
 
 ## Command-line tool (Windows)
 
 1. Download `trackmysign-windows-x64.exe` from the
-   [test-build release](../../releases/tag/test-build), rename it to `trackmysign.exe`
+   [latest release](../../releases/latest), rename it to `trackmysign.exe`
    and put it in e.g. `Downloads`.
 2. Plug in the token, open PowerShell in that folder:
 
