@@ -4,7 +4,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=${WORK:-$(mktemp -d)}
-BIN=${SIGNDESK_BIN:-$ROOT/target/debug/signdesk}
+BIN=${TRACKMYSIGN_BIN:-$ROOT/target/debug/trackmysign}
 eval "$("$ROOT/tests/make-test-token.sh" "$W/token")"
 python3 "$ROOT/tests/make_fixtures.py" "$W/fx" >/dev/null
 mkdir -p "$W/signed"
@@ -23,7 +23,7 @@ done
 check "$W/fx/presigned.pdf" "$W/signed/invisible.pdf"
 "$BIN" sign "$W/signed/presigned.pdf" --position top-left --out "$W/signed/twice.pdf" >/dev/null
 check "$W/signed/presigned.pdf" "$W/signed/twice.pdf"
-if SIGNDESK_PIN=00000000 "$BIN" sign "$W/fx/plain.pdf" --out "$W/x.pdf" 2>"$W/err"; then
+if TRACKMYSIGN_PIN=00000000 "$BIN" sign "$W/fx/plain.pdf" --out "$W/x.pdf" 2>"$W/err"; then
   echo "FAIL wrong PIN accepted"; fail=1
 else
   grep -q "Wrong PIN" "$W/err" && echo "PASS wrong PIN rejected" || { echo "FAIL: $(cat "$W/err")"; fail=1; }

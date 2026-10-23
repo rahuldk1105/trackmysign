@@ -1,7 +1,7 @@
 // sign.rahuldk.in — theme toggle, OS-aware download button, latest version.
 
 (function () {
-  var REPO = "rahuldk1105/signdesk";
+  var REPO = "rahuldk1105/trackmysign";
   var root = document.documentElement;
 
   // ---- theme: light / dark, defaulting to the OS setting

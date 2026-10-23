@@ -1,4 +1,4 @@
-# SignDesk — Plan
+# TrackMySign — Plan
 
 A lightweight desktop app for signing PDFs with a USB DSC token (Hypersecu HyperPKI HYP2003),
 without Adobe.
@@ -21,7 +21,7 @@ without Adobe.
 ## Architecture
 
 ```
-┌──────────── SignDesk (Tauri) ────────────┐
+┌──────────── TrackMySign (Tauri) ────────────┐
 │ React UI: open PDF → click to place box  │
 │           → choose cert → enter PIN      │
 ├──────────────────────────────────────────┤
@@ -44,7 +44,7 @@ PIN is never stored. Remaining PIN attempts shown where the token reports them.
 2. **MVP (Windows)** — open/drag-drop PDF, page viewer, click-to-place box, cert picker,
    PIN dialog, save `_signed.pdf`, success/failure messages.
 3. **macOS** — build, Developer ID signing, notarization, test with Mac middleware.
-4. **Polish** — "Open with SignDesk" file association, remembered settings, signature verification view.
+4. **Polish** — "Open with TrackMySign" file association, remembered settings, signature verification view.
 5. **Later (optional)** — website + local helper mode, Windows code signing, open-source release.
 
 ## Testing
@@ -63,7 +63,7 @@ PIN is never stored. Remaining PIN attempts shown where the token reports them.
 
 ## Phase 1 result (2026-10-20) — PASSED on the real token
 
-- `signdesk certs` found "DK RAHUL", issued by Verasys Sub CA 2022, via `eps2003csp11v2.dll` (auto-detected).
+- `trackmysign certs` found "DK RAHUL", issued by Verasys Sub CA 2022, via `eps2003csp11v2.dll` (auto-detected).
 - Signed `test.pdf`; Adobe Reader: **Signature is VALID**, not modified since signing,
   trust from **AATL**, certificate valid and not revoked, time +05'30', reason/location shown.
 

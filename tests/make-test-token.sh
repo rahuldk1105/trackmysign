@@ -46,4 +46,4 @@ q $P --write-object enc.der --type cert --id 02 --label "enc"
 q $P --write-object sub.der --type cert --id 10 --label "subca"
 q $P --write-object root.der --type cert --id 11 --label "root"
 
-echo "export SOFTHSM2_CONF=$SOFTHSM2_CONF SIGNDESK_PKCS11_MODULE=$MOD SIGNDESK_PIN=12345678 TEST_PKI=$W/pki"
+echo "export SOFTHSM2_CONF=$SOFTHSM2_CONF TRACKMYSIGN_PKCS11_MODULE=$MOD TRACKMYSIGN_PIN=12345678 TEST_PKI=$W/pki"

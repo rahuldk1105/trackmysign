@@ -1,4 +1,4 @@
-//! SignDesk core: sign PDFs with a DSC token without disturbing the original.
+//! TrackMySign core: sign PDFs with a DSC token without disturbing the original.
 
 pub mod certinfo;
 pub mod cms;

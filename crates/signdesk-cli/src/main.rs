@@ -1,4 +1,4 @@
-//! `signdesk` command-line tool — the test-phase front end for the core library.
+//! `trackmysign` command-line tool — the test-phase front end for the core library.
 
 use std::path::PathBuf;
 
@@ -8,10 +8,10 @@ use signdesk_core::token::{Token, TokenCert};
 use signdesk_core::{DisplayRect, SignRequest, inspect, sign_pdf, signed_path};
 
 #[derive(Parser)]
-#[command(name = "signdesk", version, about = "Sign PDFs with your DSC token")]
+#[command(name = "trackmysign", version, about = "Sign PDFs with your DSC token")]
 struct Cli {
     /// PKCS#11 driver of the token (auto-detected if omitted).
-    #[arg(long, global = true, env = "SIGNDESK_PKCS11_MODULE")]
+    #[arg(long, global = true, env = "TRACKMYSIGN_PKCS11_MODULE")]
     module: Option<PathBuf>,
     #[command(subcommand)]
     cmd: Cmd,
@@ -44,11 +44,11 @@ enum Cmd {
         reason: Option<String>,
         #[arg(long)]
         location: Option<String>,
-        /// Which certificate to use (number from `signdesk certs`).
+        /// Which certificate to use (number from `trackmysign certs`).
         #[arg(long, default_value_t = 1)]
         cert: usize,
         /// PIN (for scripted tests only; normally you are prompted).
-        #[arg(long, env = "SIGNDESK_PIN", hide = true)]
+        #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
         pin: Option<String>,
     },
 }
@@ -195,7 +195,7 @@ fn run() -> Result<()> {
             let certs = token.signing_certificates()?;
             let chosen = certs
                 .get(cert.wrapping_sub(1))
-                .with_context(|| format!("no certificate #{cert}; run `signdesk certs`"))?;
+                .with_context(|| format!("no certificate #{cert}; run `trackmysign certs`"))?;
             if !chosen.summary.can_sign {
                 bail!("certificate #{cert} is for encryption only; pick the signing certificate");
             }

@@ -5,7 +5,7 @@ import { inTauri } from "./api";
 
 export type ThemePref = "light" | "dark" | "system";
 
-const KEY = "signdesk.theme";
+const KEY = "trackmysign.theme";
 const media = window.matchMedia("(prefers-color-scheme: dark)");
 
 export function loadThemePref(): ThemePref {

@@ -17,7 +17,7 @@ use crate::cms::{ecdsa_raw_to_der, sha256_digest_info};
 use crate::{Error, KeyKind, Signer};
 
 /// Environment variable that overrides driver auto-detection.
-pub const MODULE_ENV: &str = "SIGNDESK_PKCS11_MODULE";
+pub const MODULE_ENV: &str = "TRACKMYSIGN_PKCS11_MODULE";
 
 /// Known driver locations, most specific first.
 pub fn module_candidates() -> Vec<PathBuf> {

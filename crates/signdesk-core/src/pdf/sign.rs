@@ -338,7 +338,7 @@ pub fn prepare(
         "Prop_Build",
         Obj::Dict(Dict::new().with(
             "App",
-            Obj::Dict(Dict::new().with("Name", Obj::name("SignDesk"))),
+            Obj::Dict(Dict::new().with("Name", Obj::name("TrackMySign"))),
         )),
     );
     for (k, v) in &sig.0 {

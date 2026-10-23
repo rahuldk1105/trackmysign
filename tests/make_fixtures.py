@@ -1,4 +1,4 @@
-"""Generate test PDFs covering the structures SignDesk must handle.
+"""Generate test PDFs covering the structures TrackMySign must handle.
 
 Usage: python3 tests/make_fixtures.py <outdir>
 Needs: reportlab, pyhanko, qpdf, openssl.

@@ -1,4 +1,4 @@
-# SignDesk
+# TrackMySign
 
 Sign PDFs with your USB DSC token (tested design: Hypersecu HyperPKI HYP2003) — no Adobe.
 
@@ -14,20 +14,20 @@ Status: desktop app for Windows (installer) and macOS (dmg), plus a command-line
 
 Download from the [test-build release](../../releases/tag/test-build):
 
-- Windows: `SignDesk-Setup-windows-x64.exe` — run it (no admin needed). If SmartScreen warns, choose *More info → Run anyway*.
-- macOS: `SignDesk-macos-arm64.dmg` — not yet notarized; right-click the app → *Open* the first time.
+- Windows: `TrackMySign-Setup-windows-x64.exe` — run it (no admin needed). If SmartScreen warns, choose *More info → Run anyway*.
+- macOS: `TrackMySign-macos-arm64.dmg` — not yet notarized; right-click the app → *Open* the first time.
 
 Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`.
 
 ## Command-line tool (Windows)
 
-1. Download `signdesk-windows-x64-signdesk.exe` from the
-   [test-build release](../../releases/tag/test-build), rename it to `signdesk.exe`
+1. Download `trackmysign-windows-x64.exe` from the
+   [test-build release](../../releases/tag/test-build), rename it to `trackmysign.exe`
    and put it in e.g. `Downloads`.
 2. Plug in the token, open PowerShell in that folder:
 
 ```powershell
-.\signdesk.exe certs
+.\trackmysign.exe certs
 ```
 
    You should see your name, the issuing CA and the expiry date.
@@ -35,7 +35,7 @@ Open a PDF (or drag it into the window), click where the signature should go, pr
 3. Sign a test PDF (bottom-right of the last page by default):
 
 ```powershell
-.\signdesk.exe sign "C:\path\to\test.pdf" --reason "Approved" --location "Chennai"
+.\trackmysign.exe sign "C:\path\to\test.pdf" --reason "Approved" --location "Chennai"
 ```
 
    Enter your PIN when asked. The result is `test_signed.pdf` next to the original.
@@ -45,11 +45,11 @@ Open a PDF (or drag it into the window), click where the signature should go, pr
 Other options:
 
 ```powershell
-.\signdesk.exe info file.pdf                       # pages, existing signatures
-.\signdesk.exe sign file.pdf --page 1 --position top-right
-.\signdesk.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
-.\signdesk.exe sign file.pdf --invisible
-.\signdesk.exe --module C:\Windows\System32\eps2003csp11v2.dll certs   # explicit driver
+.\trackmysign.exe info file.pdf                       # pages, existing signatures
+.\trackmysign.exe sign file.pdf --page 1 --position top-right
+.\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
+.\trackmysign.exe sign file.pdf --invisible
+.\trackmysign.exe --module C:\Windows\System32\eps2003csp11v2.dll certs   # explicit driver
 ```
 
 ## Development
@@ -66,6 +66,6 @@ tests/run.sh               # end-to-end: SoftHSM virtual token + generated PDFs,
 Layout:
 
 - `crates/signdesk-core` — PDF reader/incremental writer, CMS, PKCS#11 token access
-- `crates/signdesk-cli` — `signdesk` command
+- `crates/signdesk-cli` — `trackmysign` command
 - `apps/desktop` — Tauri desktop app (React + PDF.js front end)
 - `PLAN.md` — decisions and roadmap

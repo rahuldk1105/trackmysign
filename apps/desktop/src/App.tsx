@@ -33,7 +33,7 @@ interface Saved {
   box: { fx: number; fy: number; fw: number; fh: number; fromEnd: number } | null;
 }
 
-const KEY = "signdesk.settings.v1";
+const KEY = "trackmysign.settings.v1";
 const defaults: Saved = { reason: "Approved", location: "", certName: "", box: null };
 
 function loadSaved(): Saved {
@@ -215,7 +215,7 @@ export default function App() {
     <div className={`app ${hover ? "drop-hover" : ""}`}>
       <header>
         <div className="brand">
-          <Logo /> <span>SignDesk</span>
+          <Logo /> <span>TrackMySign</span>
         </div>
         {doc && (
           <div className="doc-pill" title={doc.info.path}>
@@ -563,7 +563,7 @@ function Settings(props: {
         <section className="about">
           <Logo />
           <div>
-            <strong>SignDesk {__APP_VERSION__}</strong>
+            <strong>TrackMySign {__APP_VERSION__}</strong>
             <span className="muted small">Signs PDFs with your DSC. Nothing leaves this computer.</span>
           </div>
         </section>
