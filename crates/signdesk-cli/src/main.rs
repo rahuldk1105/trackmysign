@@ -1,14 +1,15 @@
 //! `trackmysign` command-line tool — the test-phase front end for the core library.
 
-use std::path::PathBuf;
+use std::io::IsTerminal;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use signdesk_core::token::{Driver, TokenCert, Tokens, driver_name};
 use signdesk_core::verify::{Changes, SignatureReport, Status, Trust};
 use signdesk_core::{
-    DEFAULT_TSA_URL, DisplayRect, Error, ImagePosition, SignRequest, StampImage, inspect,
-    parse_pages, sign_pdf, signed_path, verify,
+    DEFAULT_TSA_URL, DisplayRect, Error, ImagePosition, PdfError, SignRequest, StampImage,
+    inspect_with_password, parse_pages, sign_pdf, signed_path, verify_with_password,
 };
 
 #[derive(Parser)]
@@ -18,6 +19,11 @@ struct Cli {
     /// or the ones listed in TRACKMYSIGN_PKCS11_MODULE.
     #[arg(long, global = true)]
     module: Option<PathBuf>,
+    /// Password of a protected PDF: the user (open) password, or the owner
+    /// (permissions) password when the PDF does not allow signing. Asked
+    /// for when needed and not given.
+    #[arg(long, global = true, env = "TRACKMYSIGN_PDF_PASSWORD", hide_env = true)]
+    password: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -119,11 +125,30 @@ struct Job {
     page: usize,
     pages: Vec<usize>,
     rect: Option<DisplayRect>,
+    password: Option<String>,
+}
+
+/// Runs `f` on a PDF, asking for its password on the terminal when it has
+/// one and --password was not given. Returns the password that worked.
+fn with_password<T>(
+    pdf: &Path,
+    given: Option<&str>,
+    f: impl Fn(Option<&str>) -> Result<T, Error>,
+) -> Result<(T, Option<String>)> {
+    match f(given) {
+        Err(Error::Pdf(PdfError::PasswordRequired)) if std::io::stdin().is_terminal() => {
+            let pw = rpassword::prompt_password(format!("Password for {}: ", pdf.display()))?;
+            Ok((f(Some(&pw))?, Some(pw)))
+        }
+        Err(e @ Error::Pdf(PdfError::PasswordRequired)) => bail!("{e} (--password)"),
+        r => Ok((r?, given.map(str::to_string))),
+    }
 }
 
 /// Reads `pdf` and works out the page index, the extra pages and the box for it.
 fn read_and_place(
     pdf: &PathBuf,
+    password: Option<&str>,
     page: Option<usize>,
     pages: Option<&str>,
     position: Corner,
@@ -131,7 +156,10 @@ fn read_and_place(
     invisible: bool,
 ) -> Result<Job> {
     let data = std::fs::read(pdf).with_context(|| format!("reading {}", pdf.display()))?;
-    let info = inspect(&data)?;
+    let (info, password) = with_password(pdf, password, |pw| inspect_with_password(&data, pw))?;
+    if !info.signing_allowed {
+        bail!("{} (--password)", PdfError::SigningNotAllowed);
+    }
     let pages = match pages {
         Some(_) if invisible => bail!("--pages needs a visible signature"),
         Some(spec) => parse_pages(spec, info.pages.len()).map_err(anyhow::Error::msg)?,
@@ -165,6 +193,7 @@ fn read_and_place(
         page: page_idx,
         pages,
         rect,
+        password,
     })
 }
 
@@ -336,7 +365,9 @@ fn run() -> Result<()> {
         }
         Cmd::Info { pdf } => {
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
-            let info = inspect(&data)?;
+            let (info, _) = with_password(&pdf, cli.password.as_deref(), |pw| {
+                inspect_with_password(&data, pw)
+            })?;
             println!("Pages: {}", info.pages.len());
             for (i, p) in info.pages.iter().enumerate() {
                 println!(
@@ -352,6 +383,16 @@ fn run() -> Result<()> {
                 );
             }
             println!("Existing signatures: {}", info.signatures);
+            if info.encrypted {
+                println!(
+                    "Password-protected{}",
+                    if info.signing_allowed {
+                        ""
+                    } else {
+                        "; signing not allowed without the owner password"
+                    }
+                );
+            }
         }
         Cmd::Sign {
             pdfs,
@@ -397,7 +438,16 @@ fn run() -> Result<()> {
             // Read and place everything first, so problems show before the PIN prompt.
             let mut jobs = Vec::new();
             for pdf in &pdfs {
-                match read_and_place(pdf, page, pages.as_deref(), position, rect, invisible) {
+                let password = cli.password.as_deref();
+                match read_and_place(
+                    pdf,
+                    password,
+                    page,
+                    pages.as_deref(),
+                    position,
+                    rect,
+                    invisible,
+                ) {
                     Ok(job) => jobs.push((pdf, job)),
                     Err(e) => report(pdf, e)?,
                 }
@@ -434,6 +484,7 @@ fn run() -> Result<()> {
                     },
                     timestamp: timestamp.clone(),
                     ltv,
+                    password: job.password,
                     ..Default::default()
                 };
                 let out = out.clone().unwrap_or_else(|| signed_path(pdf));
@@ -461,7 +512,9 @@ fn run() -> Result<()> {
         }
         Cmd::Verify { pdf } => {
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
-            let reports = verify(&data)?;
+            let (reports, _) = with_password(&pdf, cli.password.as_deref(), |pw| {
+                verify_with_password(&data, pw)
+            })?;
             if reports.is_empty() {
                 println!("No signatures found.");
             }

@@ -19,7 +19,7 @@ pub use image::{ImagePosition, StampImage};
 pub use pdf::reader::PdfError;
 pub use pdf::sign::{DisplayRect, Placement};
 pub use tsa::DEFAULT_TSA_URL;
-pub use verify::{SignatureReport, verify};
+pub use verify::{SignatureReport, verify, verify_with_password};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyKind {
@@ -78,6 +78,9 @@ pub struct SignRequest {
     pub timestamp: Option<String>,
     /// Append OCSP/CRL data for the certificates in a `/DSS` (needs the internet).
     pub ltv: bool,
+    /// Password of a protected PDF (owner or user). Without one, the empty
+    /// user password is tried. Never stored.
+    pub password: Option<String>,
 }
 
 /// Signs `input` and returns the complete new file.
@@ -105,7 +108,8 @@ pub fn sign_pdf(
     if req.timestamp.is_some() {
         reserve += tsa::TOKEN_RESERVE;
     }
-    let prepared = pdf::sign::prepare(input, &placement, &fields, reserve)?;
+    let password = req.password.as_deref();
+    let prepared = pdf::sign::prepare_with_password(input, password, &placement, &fields, reserve)?;
     let mut h = Sha256::new();
     for part in prepared.signed_parts() {
         h.update(part);
@@ -124,8 +128,9 @@ pub fn sign_pdf(
     let data = ltv::collect(&cms)?;
     let mut contents = cms;
     contents.resize(reserved, 0);
-    Ok(pdf::dss::append(
+    Ok(pdf::dss::append_with_password(
         &signed,
+        password,
         &pdf::dss::Validation {
             contents: &contents,
             certs: &data.certs,
@@ -146,10 +151,19 @@ pub struct PageSize {
 pub struct PdfInfo {
     pub pages: Vec<PageSize>,
     pub signatures: usize,
+    /// Password-protected (possibly with an empty user password).
+    pub encrypted: bool,
+    /// The security settings, or the password given, allow adding a signature.
+    pub signing_allowed: bool,
 }
 
 pub fn inspect(input: &[u8]) -> Result<PdfInfo, Error> {
-    let doc = pdf::reader::Document::parse(input)?;
+    inspect_with_password(input, None)
+}
+
+/// [`inspect`] for a password-protected PDF.
+pub fn inspect_with_password(input: &[u8], password: Option<&str>) -> Result<PdfInfo, Error> {
+    let doc = pdf::reader::Document::open(input, password)?;
     let pages = doc
         .pages()?
         .iter()
@@ -163,7 +177,12 @@ pub fn inspect(input: &[u8]) -> Result<PdfInfo, Error> {
         })
         .collect();
     let (_, signatures) = doc.form_fields()?;
-    Ok(PdfInfo { pages, signatures })
+    Ok(PdfInfo {
+        pages,
+        signatures,
+        encrypted: doc.crypt.is_some(),
+        signing_allowed: doc.crypt.as_ref().is_none_or(|c| c.may_sign()),
+    })
 }
 
 /// Parses a page selection such as `all` or `1-3,5` (numbered from 1) into

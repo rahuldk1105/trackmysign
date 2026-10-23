@@ -133,7 +133,7 @@ function SignatureItem({ s }: { s: SignatureCheck }) {
   );
 }
 
-export function SignaturesPanel({ path, count }: { path: string; count: number }) {
+export function SignaturesPanel({ path, password, count }: { path: string; password?: string; count: number }) {
   const [checks, setChecks] = useState<SignatureCheck[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -142,13 +142,13 @@ export function SignaturesPanel({ path, count }: { path: string; count: number }
     setChecks(null);
     setError(null);
     api
-      .verifyPdf(path)
+      .verifyPdf(path, password)
       .then((c) => live && setChecks(c))
       .catch((e) => live && setError(api.errorOf(e).message));
     return () => {
       live = false;
     };
-  }, [path]);
+  }, [path, password]);
 
   if (count === 0 && (checks === null || checks.length === 0)) return null;
   return (

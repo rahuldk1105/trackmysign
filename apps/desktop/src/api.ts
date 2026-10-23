@@ -28,6 +28,10 @@ export interface PdfInfo {
   name: string;
   pages: { width: number; height: number }[];
   signatures: number;
+  /** Password-protected (possibly with an empty open password). */
+  encrypted: boolean;
+  /** The PDF's security settings, or the password given, allow signing. */
+  signingAllowed: boolean;
 }
 
 export interface Rect {
@@ -55,6 +59,8 @@ export interface SignArgs {
   timestamp: string | null;
   ltv: boolean;
   image?: Exclude<ImageChoice, "off"> | null;
+  /** Password the PDF was opened with; kept in memory only. */
+  password?: string | null;
 }
 
 /** Several PDFs, one PIN entry. The box goes on the same page and spot of each. */
@@ -77,7 +83,7 @@ export interface Signed {
 }
 
 export interface ApiError {
-  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "io" | "timestamp" | "ltv" | "other";
+  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "password" | "permission" | "io" | "timestamp" | "ltv" | "other";
   message: string;
 }
 
@@ -130,9 +136,10 @@ export async function listCertificates(): Promise<Cert[]> {
   return inTauri ? invoke("list_certificates") : mock.listCertificates();
 }
 
-export async function pdfInfo(path: string): Promise<PdfInfo> {
-  if (inTauri) return invoke("pdf_info", { path });
-  return { path, name: path.split(/[\\/]/).pop() ?? path, pages: [], signatures: 1 };
+/** `password` unlocks a protected PDF (open or owner password). */
+export async function pdfInfo(path: string, password?: string): Promise<PdfInfo> {
+  if (inTauri) return invoke("pdf_info", { path, password: password ?? null });
+  return { path, name: path.split(/[\\/]/).pop() ?? path, pages: [], signatures: 1, encrypted: false, signingAllowed: true };
 }
 
 export async function readPdf(path: string): Promise<ArrayBuffer> {
@@ -256,8 +263,8 @@ export interface SignatureCheck {
   trust: "cca" | "notChecked";
 }
 
-export async function verifyPdf(path: string): Promise<SignatureCheck[]> {
-  if (inTauri) return invoke("verify_pdf", { path });
+export async function verifyPdf(path: string, password?: string): Promise<SignatureCheck[]> {
+  if (inTauri) return invoke("verify_pdf", { path, password: password ?? null });
   return [
     {
       field: "AuditorSignature",

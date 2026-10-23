@@ -86,10 +86,10 @@ impl From<&SignatureReport> for SignatureDto {
 }
 
 #[tauri::command]
-pub async fn verify_pdf(path: String) -> CmdResult<Vec<SignatureDto>> {
+pub async fn verify_pdf(path: String, password: Option<String>) -> CmdResult<Vec<SignatureDto>> {
     tauri::async_runtime::spawn_blocking(move || {
         let data = std::fs::read(&path)?;
-        let reports = signdesk_core::verify(&data)?;
+        let reports = signdesk_core::verify_with_password(&data, password.as_deref())?;
         Ok(reports.iter().map(SignatureDto::from).collect())
     })
     .await

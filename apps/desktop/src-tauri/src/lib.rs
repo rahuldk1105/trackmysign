@@ -8,7 +8,8 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use signdesk_core::token::{Token, Tokens, installed_drivers};
 use signdesk_core::{
-    DisplayRect, Error, ImagePosition, SignRequest, StampImage, inspect, sign_pdf, signed_path,
+    DisplayRect, Error, ImagePosition, PdfError, SignRequest, StampImage, inspect_with_password,
+    sign_pdf, signed_path,
 };
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -29,6 +30,8 @@ impl From<Error> for CommandError {
             Error::WrongPin { .. } => "wrongPin",
             Error::PinLocked => "pinLocked",
             Error::Token(_) => "token",
+            Error::Pdf(PdfError::PasswordRequired | PdfError::WrongPassword) => "password",
+            Error::Pdf(PdfError::SigningNotAllowed) => "permission",
             Error::Pdf(_) => "pdf",
             Error::Timestamp(_) => "timestamp",
             Error::Ltv(_) => "ltv",
@@ -111,12 +114,15 @@ struct PdfDto {
     name: String,
     pages: Vec<PageDto>,
     signatures: usize,
+    encrypted: bool,
+    signing_allowed: bool,
 }
 
+/// `password` unlocks a protected PDF; it is only used for this call.
 #[tauri::command]
-fn pdf_info(path: String) -> CmdResult<PdfDto> {
+fn pdf_info(path: String, password: Option<String>) -> CmdResult<PdfDto> {
     let data = std::fs::read(&path)?;
-    let info = inspect(&data)?;
+    let info = inspect_with_password(&data, password.as_deref())?;
     let name = Path::new(&path)
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -133,6 +139,8 @@ fn pdf_info(path: String) -> CmdResult<PdfDto> {
             })
             .collect(),
         signatures: info.signatures,
+        encrypted: info.encrypted,
+        signing_allowed: info.signing_allowed,
     })
 }
 
@@ -174,6 +182,9 @@ struct SignArgs {
     /// Show the saved signature image, and where.
     #[serde(default)]
     image: Option<ImageArg>,
+    /// Password of a protected PDF, as entered when opening it.
+    #[serde(default)]
+    password: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -225,6 +236,7 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             image_position: image_position(args.image),
             timestamp: trimmed_url(args.timestamp),
             ltv: args.ltv,
+            password: args.password,
             ..Default::default()
         };
         let signed = sign_pdf(&data, &req, &mut signer)?;
@@ -289,6 +301,9 @@ struct BatchArgs {
     ltv: bool,
     #[serde(default)]
     image: Option<ImageArg>,
+    /// Password entered for the first file; tried on each file that has one.
+    #[serde(default)]
+    password: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -315,7 +330,11 @@ fn sign_one(
     signer: &mut dyn signdesk_core::Signer,
 ) -> CmdResult<PathBuf> {
     let data = std::fs::read(path)?;
-    let info = inspect(&data)?;
+    // Files that open without a password are not held up by the batch's one.
+    let (info, password) = match inspect_with_password(&data, args.password.as_deref()) {
+        Err(Error::Pdf(PdfError::WrongPassword)) => (inspect_with_password(&data, None)?, None),
+        r => (r?, args.password.clone()),
+    };
     let pages = info.pages.len();
     if pages == 0 {
         return Err(CommandError {
@@ -354,6 +373,7 @@ fn sign_one(
         image_position: image_position(args.image),
         timestamp: trimmed_url(args.timestamp.clone()),
         ltv: args.ltv,
+        password,
         ..Default::default()
     };
     let signed = sign_pdf(&data, &req, signer)?;

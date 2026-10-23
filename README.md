@@ -84,6 +84,7 @@ Other options:
 .\trackmysign.exe --module C:\Windows\System32\eps2003csp11v2.dll certs   # explicit driver
 .\trackmysign.exe sign file.pdf --timestamp --ltv     # long-term validity (needs internet)
 .\trackmysign.exe sign file.pdf --timestamp=http://timestamp.sectigo.com
+.\trackmysign.exe sign file.pdf --password "secret"  # password-protected PDF
 ```
 
 Long-term validity is off by default, so signing works fully offline. `--timestamp`
@@ -92,6 +93,12 @@ only a hash of the signature is sent). `--ltv` embeds your CA's OCSP/CRL answers
 in the PDF so the signature can be validated after the certificate expires. The
 desktop app has the same options under *Settings → Long-term validity*. If a
 server cannot be reached, nothing is saved and you can sign again without it.
+
+Password-protected PDFs (RC4, AES-128 and AES-256) can be signed too; the signed copy
+keeps the same password and restrictions. Most of them only restrict editing and open
+without a password. If a PDF needs one, the app asks for it (the command-line tool
+asks too, or takes `--password`); it is never stored. If the PDF's security settings
+do not allow signing, give its owner (permissions) password instead.
 
 ## Development
 

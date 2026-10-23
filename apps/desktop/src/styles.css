@@ -1020,6 +1020,12 @@ section > label:first-of-type {
 .pin.invalid {
   border-color: var(--bad);
 }
+.pdf-password {
+  height: 36px;
+}
+.pdf-password.invalid {
+  border-color: var(--bad);
+}
 .dialog-body form p {
   margin: 8px 0 0;
 }

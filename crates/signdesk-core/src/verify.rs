@@ -126,7 +126,15 @@ impl SignatureReport {
 
 /// Checks every signed signature field, in signing order.
 pub fn verify(input: &[u8]) -> Result<Vec<SignatureReport>, Error> {
-    let doc = Document::parse(input)?;
+    verify_with_password(input, None)
+}
+
+/// [`verify`] for a password-protected PDF.
+pub fn verify_with_password(
+    input: &[u8],
+    password: Option<&str>,
+) -> Result<Vec<SignatureReport>, Error> {
+    let doc = Document::open(input, password)?;
     let mut out: Vec<SignatureReport> = signature_fields(&doc)?
         .into_iter()
         .map(|(field, sig)| check(input, &doc, field, &sig))
@@ -879,7 +887,8 @@ fn later_changes(data: &[u8], doc: &Document, end: usize) -> (usize, Changes) {
         revisions += 1;
         i += p + 5;
     }
-    let changes = Document::parse(&data[..end])
+    let changes = doc
+        .revision(&data[..end])
         .ok()
         .and_then(|rev| compare(doc, &rev))
         .unwrap_or(Changes::Unknown);

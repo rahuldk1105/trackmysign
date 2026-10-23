@@ -4,16 +4,21 @@ version = "0.1.4"
 edition = "2024"
 
 [dependencies]
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
 chrono = "0.4"
 cms = { version = "0.2.3", features = ["std"] }
 const-oid = { version = "0.9", features = ["db"] }
 cryptoki = "0.12.1"
 der = { version = "0.7", features = ["derive", "oid", "alloc"] }
 flate2 = "1.1.10"
+getrandom = "0.2"
+md-5 = "0.10"
 num-bigint = "0.4"
 p256 = { version = "0.13", default-features = false, features = ["ecdsa", "pkcs8", "std"] }
 p384 = { version = "0.13", default-features = false, features = ["ecdsa", "pkcs8", "std"] }
 png = "0.18"
+rc4 = "0.1"
 sha1 = { version = "0.10", features = ["oid"] }
 sha2 = { version = "0.10", features = ["oid"] }
 thiserror = "2.0.21"

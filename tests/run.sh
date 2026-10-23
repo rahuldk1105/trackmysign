@@ -86,6 +86,42 @@ done
 python3 -W ignore "$ROOT/tests/tamper.py" content "$W/signed/twice.pdf" "$W/changed.pdf"
 vcheck "$W/changed.pdf" valid
 
+# Password-protected PDFs: name and password ("" = empty user password, opens silently).
+encsign() {
+  local f=$1 pw=$2; shift 2
+  local arg=(); [ -n "$pw" ] && arg=(--password "$pw")
+  "$BIN" sign "$W/fx/$f.pdf" "${arg[@]}" "$@" --reason Approved --out "$W/signed/$f.pdf" >/dev/null
+  check --password="$pw" "$W/fx/$f.pdf" "$W/signed/$f.pdf"
+  python3 -W ignore "$ROOT/tests/verify_check.py" --password="$pw" "$BIN" "$W/signed/$f.pdf" valid "${ROOTS[@]}" || fail=1
+}
+encsign enc-rc40 ""
+encsign enc-rc128 user
+encsign enc-aes128 "" --pages all --image "$W/fx/sig.png"
+encsign enc-aes128-meta user
+encsign enc-aes256 own
+encsign enc-aes256-r5 ""
+encsign presigned-enc-aes256 user
+encsign presigned-enc-rc128 own --invisible
+encsign enc-restricted own
+expect_fail() {
+  local what=$1 pattern=$2; shift 2
+  if "$@" --out "$W/x.pdf" >/dev/null 2>"$W/err" </dev/null; then
+    echo "FAIL $what: signed"; fail=1
+  elif grep -q "$pattern" "$W/err" && [ ! -e "$W/x.pdf" ]; then
+    echo "PASS $what"
+  else
+    echo "FAIL $what: $(cat "$W/err")"; fail=1
+  fi
+}
+expect_fail "restricted PDF refused without the owner password" "do not allow signing" \
+  "$BIN" sign "$W/fx/enc-restricted.pdf"
+expect_fail "wrong PDF password rejected" "password is not correct" \
+  "$BIN" sign "$W/fx/enc-aes256.pdf" --password nope
+expect_fail "missing PDF password reported" "password-protected" \
+  "$BIN" sign "$W/fx/enc-rc128.pdf"
+"$BIN" sign "$W/signed/enc-aes256.pdf" --password user --position top-left --out "$W/signed/enc-twice.pdf" >/dev/null
+check --password=user "$W/signed/enc-aes256.pdf" "$W/signed/enc-twice.pdf"
+
 # Trusted timestamp, and LTV (TSA CA only reachable via AIA, revocation via OCSP and CRLs).
 TSA=$TEST_SERVICES_URL/tsa
 "$BIN" sign "$W/fx/plain.pdf" --timestamp "$TSA" --out "$W/signed/ts.pdf" >/dev/null
@@ -98,6 +134,8 @@ check --timestamp --ltv "$W/fx/presigned-objstm.pdf" "$W/signed/ltv-presigned.pd
 check --timestamp --ltv "$W/signed/ltv.pdf" "$W/signed/ltv-twice.pdf"
 "$BIN" sign "$W/fx/broken.pdf" --ltv --out "$W/signed/ltv-only.pdf" >/dev/null
 check --ltv "$W/fx/broken.pdf" "$W/signed/ltv-only.pdf"
+"$BIN" sign "$W/fx/enc-aes256.pdf" --password user --timestamp "$TSA" --ltv --out "$W/signed/ltv-enc.pdf" >/dev/null
+check --timestamp --ltv --password=user "$W/fx/enc-aes256.pdf" "$W/signed/ltv-enc.pdf"
 if "$BIN" sign "$W/fx/plain.pdf" --timestamp http://127.0.0.1:1/tsa --out "$W/ts-down.pdf" 2>"$W/err"; then
   echo "FAIL signed although the TSA is unreachable"; fail=1
 elif grep -q "Timestamp failed" "$W/err" && [ ! -e "$W/ts-down.pdf" ]; then

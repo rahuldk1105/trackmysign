@@ -1,6 +1,6 @@
 """Independently validate signed PDFs with pyHanko and qpdf.
 
-Usage: python3 tests/validate.py [--timestamp] [--ltv] <original.pdf> <signed.pdf> <trust-root.pem>...
+Usage: python3 tests/validate.py [--timestamp] [--ltv] [--password=PW] <original.pdf> <signed.pdf> <trust-root.pem>...
 Checks: original bytes untouched, qpdf structure check, every signature
 intact + valid + trusted, earlier signatures still valid with only allowed
 modifications after them.
@@ -8,13 +8,16 @@ modifications after them.
 --ltv: the DSS has a VRI entry for the newest signature, and its OCSP/CRL data
        alone (no fetching, revocation checks mandatory) validates the signer
        and timestamp chains.
+--password: open an encrypted PDF with this password (qpdf and pyHanko).
 """
 import hashlib
+import json
 import logging
 import subprocess
 import sys
 
 from pyhanko.keys import load_cert_from_pemder
+from pyhanko.pdf_utils.crypt import AuthStatus
 from pyhanko.pdf_utils.reader import PdfFileReader
 from pyhanko.sign.diff_analysis import ModificationLevel
 from pyhanko.sign.validation import DocumentSecurityStore, validate_pdf_signature
@@ -27,6 +30,8 @@ logging.getLogger("pyhanko_certvalidator").setLevel(logging.CRITICAL)
 args = sys.argv[1:]
 want_ts = "--timestamp" in args
 want_ltv = "--ltv" in args
+password = next((a.split("=", 1)[1] for a in args if a.startswith("--password=")), None)
+args = [a for a in args if not a.startswith("--password=")]
 orig_path, signed_path, *roots = [a for a in args if a not in ("--timestamp", "--ltv")]
 orig = open(orig_path, "rb").read()
 signed = open(signed_path, "rb").read()
@@ -35,7 +40,8 @@ problems = []
 if not signed.startswith(orig):
     problems.append("original bytes were modified")
 
-qc = subprocess.run(["qpdf", "--check", signed_path], capture_output=True, text=True)
+pw_arg = [f"--password={password}"] if password is not None else []
+qc = subprocess.run(["qpdf", "--check", *pw_arg, signed_path], capture_output=True, text=True)
 if qc.returncode not in (0, 3):  # 3 = warnings only
     problems.append("qpdf --check failed: " + qc.stdout[-500:] + qc.stderr[-500:])
 elif "WARNING" in qc.stdout + qc.stderr:
@@ -45,10 +51,21 @@ trust = [load_cert_from_pemder(r) for r in roots]
 vc = ValidationContext(trust_roots=trust, allow_fetching=False)
 with open(signed_path, "rb") as f:
     r = PdfFileReader(f, strict=False)
-    sigs = r.embedded_signatures
-    if not sigs:
-        problems.append("no signatures found")
-    for s in sigs:
+    if r.encrypted and r.decrypt(password or "").status == AuthStatus.FAILED:
+        # pyHanko does not read the deprecated AES-256 revision 5: settle for
+        # qpdf decrypting the signature fields.
+        js = subprocess.run(["qpdf", *pw_arg, "--json", "--json-key=acroform", signed_path],
+                            capture_output=True, text=True)
+        names = [x["fullname"] for x in json.loads(js.stdout)["acroform"]["fields"] if x["fieldtype"] == "/Sig"]
+        print(f"  pyHanko cannot open this encryption; qpdf decrypts signature fields {names}")
+        if not any(n.startswith("Signature") for n in names):
+            problems.append("qpdf finds no readable signature field")
+        sigs = None
+    else:
+        sigs = r.embedded_signatures
+        if not sigs:
+            problems.append("no signatures found")
+    for s in sigs or []:
         st = validate_pdf_signature(s, vc)
         name = s.field_name
         ok = st.intact and st.valid and st.trusted

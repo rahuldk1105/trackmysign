@@ -16,6 +16,7 @@ import {
   FitWidthIcon,
   FolderIcon,
   GearIcon,
+  LockIcon,
   MinusIcon,
   PlusIcon,
   RefreshIcon,
@@ -178,6 +179,16 @@ interface Doc {
   info: PdfInfo;
   pdf: PDFDocumentProxy;
   sizes: PageSize[];
+  /** What the PDF was unlocked with; in memory only, gone with the document. */
+  password?: string;
+}
+
+/** A protected PDF waiting for its password; `owner` when it is open but may not be signed. */
+interface Unlock {
+  path: string;
+  name: string;
+  owner: boolean;
+  error?: string;
 }
 
 interface BatchItem {
@@ -205,6 +216,7 @@ export default function App() {
   const [doc, setDoc] = useState<Doc | null>(null);
   const [loading, setLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
+  const [unlock, setUnlock] = useState<Unlock | null>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
   /** Several PDFs to sign in one go; the first is shown for placing the box. */
   const [batch, setBatch] = useState<string[] | null>(null);
@@ -301,27 +313,51 @@ export default function App() {
   }, [certs, busy, refreshCerts]);
 
   // ---- documents
-  const openPath = useCallback(async (path: string) => {
+  const openPath = useCallback(async (path: string, password?: string) => {
     setLoading(true);
     setDocError(null);
     setStep({ kind: "idle" });
     try {
-      const [info, bytes] = await Promise.all([api.pdfInfo(path), api.readPdf(path)]);
-      const { doc: pdf, sizes } = await loadPdf(bytes);
+      const [info, bytes] = await Promise.all([api.pdfInfo(path, password), api.readPdf(path)]);
+      const { doc: pdf, sizes } = await loadPdf(bytes, password);
       if (!info.pages.length) info.pages = sizes;
-      setDoc({ info, pdf, sizes });
+      setUnlock(null);
+      setDoc({ info, pdf, sizes, password });
       setZoom(1);
       setPage(0);
       setPlacement(initialPlacement(sizes, loadSaved()));
       setPagesMode("this");
       setPagesSpec("");
     } catch (e) {
+      const err = api.errorOf(e);
       setDoc(null);
-      setDocError(api.errorOf(e).message);
+      if (err.kind === "password") {
+        setUnlock({ path, name: baseName(path), owner: false, error: password === undefined ? undefined : err.message });
+      } else {
+        setUnlock(null);
+        setDocError(err.message);
+      }
     } finally {
       setLoading(false);
     }
   }, []);
+
+  /** The owner password lifts the restrictions of a PDF that is already open. */
+  const unlockOwner = async (password: string) => {
+    if (!doc) return;
+    try {
+      const info = await api.pdfInfo(doc.info.path, password);
+      if (!info.signingAllowed) {
+        setUnlock((u) => u && { ...u, error: "This password opens the PDF but does not allow signing. Enter the owner password." });
+        return;
+      }
+      setDoc({ ...doc, info: { ...info, pages: doc.info.pages }, password });
+      setUnlock(null);
+    } catch (e) {
+      const err = api.errorOf(e);
+      setUnlock((u) => u && { ...u, error: err.message });
+    }
+  };
 
   const openFiles = useCallback(
     (paths: string[]) => {
@@ -421,8 +457,8 @@ export default function App() {
     pagesMode === "all" ? Array.from({ length: pages }, (_, i) => i) : pagesMode === "custom" ? parsePages(pagesSpec, pages) : null;
   const pagesError = typeof selection === "string" ? selection : null;
   const targetPages = Array.isArray(selection) ? selection : null;
-  const canSign = !!doc && !!placement && !!cert && !cert.expired && !loading && !pagesError;
-  const dialogOpen = step.kind !== "idle" || settingsOpen;
+  const canSign = !!doc && doc.info.signingAllowed && !!placement && !!cert && !cert.expired && !loading && !pagesError;
+  const dialogOpen = step.kind !== "idle" || settingsOpen || !!unlock;
 
   // ---- keyboard
   const keys = useRef({ pick, zoomBy, dialogOpen, hasDoc: !!doc });
@@ -475,6 +511,7 @@ export default function App() {
           timestamp: useTs ? saved.tsaUrl.trim() : null,
           ltv: saved.ltv && skip !== "ltv",
           image: stampImage?.position ?? null,
+          password: doc.password ?? null,
         },
         (p) => {
           if (!started) {
@@ -519,6 +556,7 @@ export default function App() {
         timestamp: useTs ? saved.tsaUrl.trim() : null,
         ltv: saved.ltv && skip !== "ltv",
         image: stampImage?.position ?? null,
+        password: doc.password ?? null,
       });
       update({ certName: cert.name });
       setStep({ kind: "done", result });
@@ -849,7 +887,27 @@ export default function App() {
                 </button>
               </section>
 
-              <SignaturesPanel path={doc.info.path} count={doc.info.signatures} />
+              {doc.info.encrypted && (
+                <section>
+                  <h3>Protection</h3>
+                  {doc.info.signingAllowed ? (
+                    <p className="muted small">Password-protected. The signed copy keeps the same password and restrictions.</p>
+                  ) : (
+                    <div className="warn-row">
+                      <LockIcon size={14} />
+                      <div>
+                        <strong>Signing not allowed</strong>
+                        <span>The PDF's security settings do not allow signing without the owner password.</span>
+                        <button className="link" onClick={() => setUnlock({ path: doc.info.path, name: doc.info.name, owner: true })}>
+                          Enter owner password…
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              <SignaturesPanel path={doc.info.path} password={doc.password} count={doc.info.signatures} />
             </div>
 
             <div className="insp-foot">
@@ -915,6 +973,16 @@ export default function App() {
           error={step.kind === "pin" ? step.error : undefined}
           onCancel={() => setStep({ kind: "idle" })}
           onSubmit={doSign}
+        />
+      )}
+
+      {unlock && (
+        <PasswordDialog
+          key={`${unlock.path}:${unlock.owner}`}
+          unlock={unlock}
+          busy={loading}
+          onCancel={() => setUnlock(null)}
+          onSubmit={(pw) => (unlock.owner ? unlockOwner(pw) : openPath(unlock.path, pw))}
         />
       )}
 
@@ -1046,6 +1114,63 @@ function PinDialog(props: {
           </button>
           <button type="submit" className="btn primary" disabled={!pin || props.busy || locked}>
             {props.busy ? "Signing…" : online ? "Try again" : "Sign"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function PasswordDialog(props: { unlock: Unlock; busy: boolean; onCancel: () => void; onSubmit: (password: string) => void }) {
+  const { unlock } = props;
+  const [password, setPassword] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (unlock.error) setPassword("");
+    input.current?.focus();
+  }, [unlock.error]);
+  return (
+    <Modal title={unlock.owner ? "Enter owner password" : "Password required"} icon={<LockIcon size={16} />} onClose={props.busy ? undefined : props.onCancel}>
+      <dl className="kv compact">
+        <dt>Document</dt>
+        <dd className="mono ellipsis">{unlock.name}</dd>
+      </dl>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (password && !props.busy) props.onSubmit(password);
+        }}
+      >
+        <label htmlFor="pdf-password">{unlock.owner ? "Owner (permissions) password" : "Password"}</label>
+        <input
+          id="pdf-password"
+          ref={input}
+          type="password"
+          className={`pdf-password ${unlock.error ? "invalid" : ""}`}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={props.busy}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        {unlock.error ? (
+          <p className="inline-error">
+            <AlertIcon size={14} /> {unlock.error}
+          </p>
+        ) : (
+          <p className="muted small">
+            {unlock.owner
+              ? "The document's author set restrictions that prevent signing. The password is not saved."
+              : "This PDF is password-protected. The password is not saved."}
+          </p>
+        )}
+        <div className="dialog-actions">
+          <div className="spacer" />
+          <button type="button" className="btn" onClick={props.onCancel} disabled={props.busy}>
+            Cancel
+          </button>
+          <button type="submit" className="btn primary" disabled={!password || props.busy}>
+            {unlock.owner ? "Unlock" : "Open"}
           </button>
         </div>
       </form>

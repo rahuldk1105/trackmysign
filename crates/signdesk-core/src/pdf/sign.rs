@@ -154,7 +154,23 @@ pub fn prepare(
     fields: &SignatureFields,
     reserved: usize,
 ) -> Result<Prepared> {
-    let doc = Document::parse(input)?;
+    prepare_with_password(input, None, placement, fields, reserved)
+}
+
+/// [`prepare`] for a password-protected PDF. The update is encrypted with
+/// the document's key, except the signature's `/Contents`, which the
+/// standard keeps in the clear.
+pub fn prepare_with_password(
+    input: &[u8],
+    password: Option<&str>,
+    placement: &Placement,
+    fields: &SignatureFields,
+    reserved: usize,
+) -> Result<Prepared> {
+    let doc = Document::open(input, password)?;
+    if doc.crypt.as_ref().is_some_and(|c| !c.may_sign()) {
+        return Err(PdfError::SigningNotAllowed);
+    }
     let pages = doc.pages()?;
     let page = pages
         .get(placement.page)
@@ -441,6 +457,11 @@ pub fn prepare(
             Obj::Dict(Dict::new().with("Name", Obj::name("TrackMySign"))),
         )),
     );
+    if let Some(c) = &doc.crypt
+        && let Obj::Dict(d) = c.encrypt(sig_id, 0, &Obj::Dict(sig.clone()))
+    {
+        sig = d;
+    }
     for (k, v) in &sig.0 {
         super::object::write_name(&mut out, k);
         out.push(b' ');
@@ -458,16 +479,11 @@ pub fn prepare(
     let contents_end = out.len();
     out.extend_from_slice(b"\n>>\nendobj\n");
 
-    for (id, (gn, obj)) in &objs {
-        offsets.insert(*id, (out.len(), *gn));
-        out.extend_from_slice(format!("{id} {gn} obj\n").as_bytes());
-        write_obj(&mut out, obj);
-        out.extend_from_slice(b"\nendobj\n");
-    }
+    write_objects(&mut out, &doc, &objs, &mut offsets);
 
     let mut trailer = Dict::new();
     trailer.set("Root", Obj::Ref(cat_id, cat_gen));
-    for key in ["Info", "ID"] {
+    for key in ["Info", "ID", "Encrypt"] {
         if let Some(v) = doc.trailer.get(key) {
             trailer.set(key, v.clone());
         }
@@ -521,6 +537,24 @@ pub fn prepare(
         byte_range: [0, contents_start, contents_end, rest],
         reserved,
     })
+}
+
+/// Writes `objs` (encrypted when the document is) and records their offsets.
+pub(super) fn write_objects(
+    out: &mut Vec<u8>,
+    doc: &Document,
+    objs: &BTreeMap<u32, (u16, Obj)>,
+    offsets: &mut BTreeMap<u32, (usize, u16)>,
+) {
+    for (id, (gn, obj)) in objs {
+        offsets.insert(*id, (out.len(), *gn));
+        out.extend_from_slice(format!("{id} {gn} obj\n").as_bytes());
+        match &doc.crypt {
+            Some(c) => write_obj(out, &c.encrypt(*id, *gn, obj)),
+            None => write_obj(out, obj),
+        }
+        out.extend_from_slice(b"\nendobj\n");
+    }
 }
 
 /// Consecutive runs of object ids, for xref subsections / `/Index`.
