@@ -801,6 +801,109 @@ section > label:first-of-type {
   white-space: nowrap;
 }
 
+.doc-name em {
+  flex: none;
+  font-style: normal;
+  font-size: 12px;
+}
+.batch-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 168px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+}
+.batch-files li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 2px 0 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+}
+.batch-files li:last-child {
+  border-bottom: 0;
+}
+.batch-files .icon {
+  flex: none;
+  color: var(--muted);
+}
+.batch-files span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batch-files span.strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.batch-files .tb-btn {
+  height: 22px;
+  min-width: 22px;
+  padding: 0;
+}
+.batch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.batch-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.batch-list li:last-child {
+  border-bottom: 0;
+}
+.batch-list li > div {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  user-select: text;
+}
+.batch-list .mono {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batch-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 18px;
+  color: var(--muted);
+}
+.batch-state .sq {
+  width: 7px;
+  height: 7px;
+  background: var(--line-strong);
+}
+.batch-list li.signing .sq {
+  background: var(--accent);
+}
+.batch-list li.done .batch-state {
+  color: var(--ok);
+}
+.batch-list li.failed .batch-state,
+.batch-list li.failed .small {
+  color: var(--bad);
+}
+
 .place-row {
   display: flex;
   align-items: baseline;

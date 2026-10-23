@@ -1,7 +1,7 @@
 // Typed wrappers over the Rust commands. Outside Tauri (plain browser, for UI
 // development) a mock backend is used so the screens can be exercised.
 
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 
 export interface Cert {
   index: number;
@@ -41,6 +41,18 @@ export interface SignArgs {
   pin: string;
   image?: Exclude<ImageChoice, "off"> | null;
 }
+
+/** Several PDFs, one PIN entry. The box goes on the same page and spot of each. */
+export interface BatchArgs extends Omit<SignArgs, "path" | "page"> {
+  paths: string[];
+  /** "first", "last" or a page number (1 = first). */
+  page: "first" | "last" | number;
+}
+
+export type BatchProgress =
+  | { state: "signing"; index: number }
+  | { state: "done"; index: number; output: string; name: string }
+  | { state: "failed"; index: number; message: string };
 
 export interface Signed {
   output: string;
@@ -83,6 +95,16 @@ const mock = {
     if (a.pin !== mock.pin) throw { kind: "wrongPin", message: "Wrong PIN. Careful: few attempts left before the token locks." };
     return { output: a.path.replace(/\.pdf$/i, "_signed.pdf"), name: "sample_signed.pdf" };
   },
+  async signBatch(a: BatchArgs, progress: (p: BatchProgress) => void): Promise<void> {
+    await new Promise((r) => setTimeout(r, 600));
+    if (a.pin !== mock.pin) throw { kind: "wrongPin", message: "Wrong PIN. Careful: few attempts left before the token locks." };
+    for (const [index, path] of a.paths.entries()) {
+      progress({ state: "signing", index });
+      await new Promise((r) => setTimeout(r, 500));
+      const name = (path.split(/[\\/]/).pop() ?? path).replace(/\.pdf$/i, "_signed.pdf");
+      progress({ state: "done", index, output: path.replace(/\.pdf$/i, "_signed.pdf"), name });
+    }
+  },
 };
 
 export async function listCertificates(): Promise<Cert[]> {
@@ -103,6 +125,14 @@ export async function sign(args: SignArgs): Promise<Signed> {
 }
 
 /** PDFs the app was started with (command line, Finder, "Sign with TrackMySign"). */
+/** Signs every file in one token session; per-file results arrive through `progress`. */
+export async function signBatch(args: BatchArgs, progress: (p: BatchProgress) => void): Promise<void> {
+  if (!inTauri) return mock.signBatch(args, progress);
+  const channel = new Channel<BatchProgress>();
+  channel.onmessage = progress;
+  await invoke("sign_batch", { args, progress: channel });
+}
+
 export async function startupFiles(): Promise<string[]> {
   return inTauri ? invoke("startup_files") : [];
 }
@@ -155,14 +185,15 @@ export async function openWebsite(): Promise<void> {
   else window.open("https://sign.rahuldk.in", "_blank");
 }
 
-export async function pickPdf(): Promise<string | null> {
-  if (!inTauri) return "C:\\Users\\rahul\\Downloads\\sample.pdf";
+/** One or more PDFs; several are signed as a batch. */
+export async function pickPdfs(): Promise<string[]> {
+  if (!inTauri) return ["C:\\Users\\rahul\\Downloads\\sample.pdf"];
   const { open } = await import("@tauri-apps/plugin-dialog");
-  const r = await open({ multiple: false, filters: [{ name: "PDF documents", extensions: ["pdf"] }] });
-  return typeof r === "string" ? r : null;
+  const r = await open({ multiple: true, filters: [{ name: "PDF documents", extensions: ["pdf"] }] });
+  return r ?? [];
 }
 
-export async function onFileDrop(cb: (path: string) => void, hover: (on: boolean) => void): Promise<() => void> {
+export async function onFileDrop(cb: (paths: string[]) => void, hover: (on: boolean) => void): Promise<() => void> {
   if (!inTauri) return () => {};
   const { getCurrentWebview } = await import("@tauri-apps/api/webview");
   return getCurrentWebview().onDragDropEvent((e) => {
@@ -171,8 +202,8 @@ export async function onFileDrop(cb: (path: string) => void, hover: (on: boolean
     else if (p.type === "leave") hover(false);
     else if (p.type === "drop") {
       hover(false);
-      const pdf = p.paths.find((x) => x.toLowerCase().endsWith(".pdf"));
-      if (pdf) cb(pdf);
+      const pdfs = p.paths.filter((x) => x.toLowerCase().endsWith(".pdf"));
+      if (pdfs.length) cb(pdfs);
     }
   });
 }

@@ -35,6 +35,21 @@ image "$W/fx/presigned.pdf" "$W/signed/img-above.pdf" 2 png above
 check "$W/fx/presigned.pdf" "$W/signed/invisible.pdf"
 "$BIN" sign "$W/signed/presigned.pdf" --position top-left --out "$W/signed/twice.pdf" >/dev/null
 check "$W/signed/presigned.pdf" "$W/signed/twice.pdf"
+# Batch: one token session for all files; a bad file is skipped, the rest signed.
+mkdir -p "$W/batch"
+for f in plain objstm presigned; do cp "$W/fx/$f.pdf" "$W/batch/"; done
+printf 'not a pdf' > "$W/batch/bad.pdf"
+if "$BIN" sign "$W/batch/plain.pdf" "$W/batch/bad.pdf" "$W/batch/objstm.pdf" "$W/batch/presigned.pdf" \
+     --image "$W/fx/sig.png" >"$W/batch.out" 2>"$W/batch.err"; then
+  echo "FAIL batch with a bad file reported success"; fail=1
+fi
+if grep -q "Failed: .*bad.pdf" "$W/batch.err" && [ "$(grep -c '^Signing as' "$W/batch.out")" = 1 ] \
+   && [ "$(grep -c '^Signed:' "$W/batch.out")" = 3 ] && [ ! -e "$W/batch/bad_signed.pdf" ]; then
+  echo "PASS batch skips the bad file"
+else
+  echo "FAIL batch: $(cat "$W/batch.out" "$W/batch.err")"; fail=1
+fi
+for f in plain objstm presigned; do check "$W/fx/$f.pdf" "$W/batch/${f}_signed.pdf"; done
 if TRACKMYSIGN_PIN=00000000 "$BIN" sign "$W/fx/plain.pdf" --out "$W/x.pdf" 2>"$W/err"; then
   echo "FAIL wrong PIN accepted"; fail=1
 else

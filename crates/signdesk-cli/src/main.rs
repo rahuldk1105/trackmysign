@@ -25,9 +25,11 @@ enum Cmd {
     Certs,
     /// Show page count, page sizes and existing signatures.
     Info { pdf: PathBuf },
-    /// Sign a PDF. Writes <name>_signed.pdf next to it unless --out is given.
+    /// Sign one or more PDFs with one PIN entry. Writes <name>_signed.pdf
+    /// next to each unless --out is given (single PDF only).
     Sign {
-        pdf: PathBuf,
+        #[arg(required = true)]
+        pdfs: Vec<PathBuf>,
         #[arg(long)]
         out: Option<PathBuf>,
         /// Page number (1 = first). Default: last page.
@@ -90,6 +92,42 @@ fn parse_rect(s: &str) -> Result<DisplayRect, String> {
         }),
         _ => Err("expected x,y,width,height".into()),
     }
+}
+
+/// Reads `pdf` and works out the page index and box for it.
+fn read_and_place(
+    pdf: &PathBuf,
+    page: Option<usize>,
+    position: Corner,
+    rect: Option<DisplayRect>,
+    invisible: bool,
+) -> Result<(Vec<u8>, usize, Option<DisplayRect>)> {
+    let data = std::fs::read(pdf).with_context(|| format!("reading {}", pdf.display()))?;
+    let info = inspect(&data)?;
+    let page_idx = match page {
+        Some(0) => bail!("pages are numbered from 1"),
+        Some(n) if n > info.pages.len() => {
+            bail!("the PDF has only {} page(s)", info.pages.len())
+        }
+        Some(n) => n - 1,
+        None => info.pages.len() - 1,
+    };
+    let p = &info.pages[page_idx];
+    let rect = if invisible {
+        None
+    } else {
+        Some(rect.unwrap_or_else(|| {
+            let (w, h, m) = (170.0, 55.0, 36.0);
+            let (x, y) = match position {
+                Corner::BottomRight => (p.width - w - m, p.height - h - m),
+                Corner::BottomLeft => (m, p.height - h - m),
+                Corner::TopRight => (p.width - w - m, m),
+                Corner::TopLeft => (m, m),
+            };
+            DisplayRect { x, y, w, h }
+        }))
+    };
+    Ok((data, page_idx, rect))
 }
 
 fn open_token(module: &Option<PathBuf>) -> Result<Token> {
@@ -168,7 +206,7 @@ fn run() -> Result<()> {
             println!("Existing signatures: {}", info.signatures);
         }
         Cmd::Sign {
-            pdf,
+            pdfs,
             out,
             page,
             position,
@@ -181,34 +219,35 @@ fn run() -> Result<()> {
             cert,
             pin,
         } => {
+            if out.is_some() && pdfs.len() > 1 {
+                bail!("--out works with a single PDF; signed copies go next to each original");
+            }
             let image = image
                 .map(|p| StampImage::open(&p).with_context(|| format!("reading {}", p.display())))
                 .transpose()?;
-            let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
-            let info = inspect(&data)?;
-            let page_idx = match page {
-                Some(0) => bail!("pages are numbered from 1"),
-                Some(n) if n > info.pages.len() => {
-                    bail!("the PDF has only {} page(s)", info.pages.len())
+            let single = pdfs.len() == 1;
+            let mut failed = 0;
+            // A bad file is reported and skipped; a single PDF fails as before.
+            let mut report = |pdf: &PathBuf, e: anyhow::Error| -> Result<()> {
+                if single {
+                    return Err(e);
                 }
-                Some(n) => n - 1,
-                None => info.pages.len() - 1,
+                eprintln!("Failed: {}: {e:#}", pdf.display());
+                failed += 1;
+                Ok(())
             };
-            let p = &info.pages[page_idx];
-            let rect = if invisible {
-                None
-            } else {
-                Some(rect.unwrap_or_else(|| {
-                    let (w, h, m) = (170.0, 55.0, 36.0);
-                    let (x, y) = match position {
-                        Corner::BottomRight => (p.width - w - m, p.height - h - m),
-                        Corner::BottomLeft => (m, p.height - h - m),
-                        Corner::TopRight => (p.width - w - m, m),
-                        Corner::TopLeft => (m, m),
-                    };
-                    DisplayRect { x, y, w, h }
-                }))
-            };
+
+            // Read and place everything first, so problems show before the PIN prompt.
+            let mut jobs = Vec::new();
+            for pdf in &pdfs {
+                match read_and_place(pdf, page, position, rect, invisible) {
+                    Ok((data, page, rect)) => jobs.push((pdf, data, page, rect)),
+                    Err(e) => report(pdf, e)?,
+                }
+            }
+            if jobs.is_empty() {
+                bail!("none of the PDFs could be read");
+            }
 
             let token = open_token(&cli.module)?;
             let certs = token.signing_certificates()?;
@@ -224,22 +263,34 @@ fn run() -> Result<()> {
                 None => rpassword::prompt_password("Token PIN: ")?,
             };
             let mut signer = token.signer(chosen, &pin)?;
-            let req = SignRequest {
-                page: page_idx,
-                rect,
-                reason,
-                location,
-                image,
-                image_position: match image_position {
-                    ImageSide::Left => ImagePosition::Left,
-                    ImageSide::Above => ImagePosition::Above,
-                },
-                ..Default::default()
-            };
-            let signed = sign_pdf(&data, &req, &mut signer)?;
-            let out = out.unwrap_or_else(|| signed_path(&pdf));
-            std::fs::write(&out, signed).with_context(|| format!("writing {}", out.display()))?;
-            println!("Signed: {}", out.display());
+            for (pdf, data, page, rect) in jobs {
+                let req = SignRequest {
+                    page,
+                    rect,
+                    reason: reason.clone(),
+                    location: location.clone(),
+                    image: image.clone(),
+                    image_position: match image_position {
+                        ImageSide::Left => ImagePosition::Left,
+                        ImageSide::Above => ImagePosition::Above,
+                    },
+                    ..Default::default()
+                };
+                let out = out.clone().unwrap_or_else(|| signed_path(pdf));
+                let done = sign_pdf(&data, &req, &mut signer)
+                    .map_err(anyhow::Error::from)
+                    .and_then(|signed| {
+                        std::fs::write(&out, signed)
+                            .with_context(|| format!("writing {}", out.display()))
+                    });
+                match done {
+                    Ok(()) => println!("Signed: {}", out.display()),
+                    Err(e) => report(pdf, e)?,
+                }
+            }
+            if failed > 0 {
+                bail!("{failed} of {} PDFs could not be signed", pdfs.len());
+            }
         }
     }
     Ok(())

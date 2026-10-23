@@ -51,6 +51,7 @@ Other options:
 .\trackmysign.exe sign file.pdf --page 1 --position top-right
 .\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
 .\trackmysign.exe sign file.pdf --invisible
+.\trackmysign.exe sign a.pdf b.pdf c.pdf               # several PDFs, one PIN entry
 .\trackmysign.exe sign file.pdf --image signature.png  # handwritten signature in the box (PNG or JPEG)
 .\trackmysign.exe sign file.pdf --image signature.png --image-position above
 .\trackmysign.exe --module C:\Windows\System32\eps2003csp11v2.dll certs   # explicit driver

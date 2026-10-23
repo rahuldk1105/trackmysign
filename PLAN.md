@@ -13,7 +13,7 @@ without Adobe.
 | Signature appearance | Visible, text only ("Digitally signed by NAME / Date / Reason"), click to place; last position remembered |
 | Existing signatures | Must be preserved — incremental-update signing only, top test priority |
 | Timestamp / LTV | None; PC clock |
-| Batch signing | Not needed |
+| Batch signing | Several PDFs with one PIN entry and one token session (app and CLI) |
 | Output | Same folder, `<name>_signed.pdf`; original untouched |
 | Code signing | macOS: Apple Developer ID + notarization. Windows: unsigned for now (one-time SmartScreen warning) |
 | Test PDFs | Generated in-repo, incl. PDFs pre-signed with a dummy cert |

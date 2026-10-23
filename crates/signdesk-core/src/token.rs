@@ -185,6 +185,7 @@ impl Token {
     }
 
     /// Logs in with `pin` and returns a signer bound to `cert`'s private key.
+    /// The session stays logged in, so one signer can sign a whole batch.
     pub fn signer(&self, cert: &TokenCert, pin: &str) -> Result<TokenSigner, Error> {
         let status = self.pin_status(cert.slot).unwrap_or_default();
         if status.locked {

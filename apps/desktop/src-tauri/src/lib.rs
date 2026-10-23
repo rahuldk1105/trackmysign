@@ -8,7 +8,7 @@ use signdesk_core::token::Token;
 use signdesk_core::{
     DisplayRect, Error, ImagePosition, SignRequest, StampImage, inspect, sign_pdf, signed_path,
 };
-use tauri::ipc::Response;
+use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 /// PKCS#11 drivers are process-global; never let two commands use one at once.
@@ -224,6 +224,144 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
     })?
 }
 
+/// Page for every file of a batch: `"first"`, `"last"` or a page number (1 = first).
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum PageArg {
+    Named(String),
+    Number(usize),
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchArgs {
+    paths: Vec<String>,
+    page: PageArg,
+    /// Points from the top-left of the page; moved and shrunk to fit each page.
+    rect: Option<RectArg>,
+    reason: Option<String>,
+    location: Option<String>,
+    cert_index: usize,
+    pin: String,
+    #[serde(default)]
+    image: Option<ImageArg>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase", tag = "state")]
+enum BatchProgress {
+    Signing {
+        index: usize,
+    },
+    Done {
+        index: usize,
+        output: String,
+        name: String,
+    },
+    Failed {
+        index: usize,
+        message: String,
+    },
+}
+
+fn sign_one(
+    path: &Path,
+    args: &BatchArgs,
+    image: &Option<StampImage>,
+    signer: &mut dyn signdesk_core::Signer,
+) -> CmdResult<PathBuf> {
+    let data = std::fs::read(path)?;
+    let info = inspect(&data)?;
+    let pages = info.pages.len();
+    if pages == 0 {
+        return Err(CommandError {
+            kind: "pdf",
+            message: "The PDF has no pages.".into(),
+        });
+    }
+    let page = match &args.page {
+        PageArg::Number(n) => n.saturating_sub(1).min(pages - 1),
+        PageArg::Named(s) if s == "first" => 0,
+        PageArg::Named(_) => pages - 1,
+    };
+    let size = &info.pages[page];
+    let rect = args.rect.as_ref().map(|r| {
+        let w = r.w.min(size.width);
+        let h = r.h.min(size.height);
+        DisplayRect {
+            x: r.x.clamp(0.0, size.width - w),
+            y: r.y.clamp(0.0, size.height - h),
+            w,
+            h,
+        }
+    });
+    let req = SignRequest {
+        page,
+        rect,
+        reason: args.reason.clone().filter(|s| !s.trim().is_empty()),
+        location: args.location.clone().filter(|s| !s.trim().is_empty()),
+        image: image.clone(),
+        image_position: match args.image {
+            Some(ImageArg::Above) => ImagePosition::Above,
+            _ => ImagePosition::Left,
+        },
+        ..Default::default()
+    };
+    let signed = sign_pdf(&data, &req, signer)?;
+    let out = signed_path(path);
+    std::fs::write(&out, signed)?;
+    Ok(out)
+}
+
+/// Signs every file with one login. Fails as a whole only when the token or
+/// PIN does; a file that cannot be signed is reported and skipped.
+#[tauri::command]
+async fn sign_batch(
+    app: AppHandle,
+    args: BatchArgs,
+    progress: Channel<BatchProgress>,
+) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let image = match args.image {
+            Some(_) => Some(saved_image(&app)?),
+            None => None,
+        };
+        let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let token = Token::open_default()?;
+        let certs = token.signing_certificates()?;
+        let cert = certs.get(args.cert_index).ok_or_else(|| CommandError {
+            kind: "token",
+            message: "The selected certificate is no longer on the token.".into(),
+        })?;
+        let mut signer = token.signer(cert, &args.pin)?;
+        for (index, path) in args.paths.iter().enumerate() {
+            let _ = progress.send(BatchProgress::Signing { index });
+            let _ = progress.send(
+                match sign_one(Path::new(path), &args, &image, &mut signer) {
+                    Ok(out) => BatchProgress::Done {
+                        index,
+                        name: out
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default(),
+                        output: out.to_string_lossy().into_owned(),
+                    },
+                    Err(e) => BatchProgress::Failed {
+                        index,
+                        message: e.message,
+                    },
+                },
+            );
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| CommandError {
+        kind: "other",
+        message: e.to_string(),
+    })?
+}
+
 /// The handwritten signature image, copied into the app's data folder.
 fn image_path(app: &AppHandle) -> CmdResult<PathBuf> {
     let dir = app.path().app_data_dir().map_err(|e| CommandError {
@@ -384,6 +522,7 @@ pub fn run() {
             pdf_info,
             read_pdf,
             sign,
+            sign_batch,
             startup_file,
             startup_files,
             signature_image,

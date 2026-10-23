@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import * as api from "./api";
-import type { ApiError, Cert, ImageChoice, PdfInfo, Signed } from "./api";
+import type { ApiError, BatchProgress, Cert, ImageChoice, PdfInfo, Signed } from "./api";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
 import { useTheme, type ThemePref } from "./theme";
-import { activePreset, describePage, fromPresetPlacement, toPresetPlacement, type Preset } from "./presets";
+import { activePreset, describePage, fromPresetPlacement, pageChoice, toPresetPlacement, type Preset } from "./presets";
 import {
   AlertIcon,
   CheckIcon,
@@ -105,7 +105,21 @@ interface Doc {
   sizes: PageSize[];
 }
 
-type Step = { kind: "idle" } | { kind: "pin"; error?: ApiError } | { kind: "signing" } | { kind: "done"; result: Signed };
+interface BatchItem {
+  path: string;
+  name: string;
+  state: "waiting" | BatchProgress["state"];
+  output?: string;
+  signedName?: string;
+  message?: string;
+}
+
+type Step =
+  | { kind: "idle" }
+  | { kind: "pin"; error?: ApiError }
+  | { kind: "signing" }
+  | { kind: "done"; result: Signed }
+  | { kind: "batch"; files: BatchItem[]; running: boolean; error?: string };
 
 export default function App() {
   const [saved, setSaved] = useState<Saved>(loadSaved);
@@ -117,6 +131,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
+  /** Several PDFs to sign in one go; the first is shown for placing the box. */
+  const [batch, setBatch] = useState<string[] | null>(null);
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [hover, setHover] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -228,35 +244,50 @@ export default function App() {
     }
   }, []);
 
+  const openFiles = useCallback(
+    (paths: string[]) => {
+      if (!paths.length) return;
+      setBatch(paths.length > 1 ? paths : null);
+      openPath(paths[0]);
+    },
+    [openPath],
+  );
+
   const pick = useCallback(async () => {
-    const p = await api.pickPdf();
-    if (p) openPath(p);
-  }, [openPath]);
+    openFiles(await api.pickPdfs());
+  }, [openFiles]);
+
+  const removeFromBatch = (path: string) => {
+    if (!batch) return;
+    const rest = batch.filter((p) => p !== path);
+    setBatch(rest.length > 1 ? rest : null);
+    if (path === batch[0]) openPath(rest[0]);
+  };
 
   useEffect(() => {
     let offDrop: (() => void) | undefined;
     let offOpen: (() => void) | undefined;
     let cancelled = false;
-    api.onFileDrop(openPath, setHover).then((f) => (offDrop = f));
+    api.onFileDrop(openFiles, setHover).then((f) => (offDrop = f));
     // Listen first, then collect what arrived before: nothing is missed or
     // opened twice. The startup files are handed out once, so open them even
     // if this effect has been cleaned up in the meantime.
     api
-      .onOpenFiles((paths) => paths.length && openPath(paths[0]))
+      .onOpenFiles(openFiles)
       .then((f) => {
         if (cancelled) f();
         else offOpen = f;
         return api.startupFiles();
       })
       .then((paths) => {
-        if (paths.length) openPath(paths[0]);
+        openFiles(paths);
       });
     return () => {
       cancelled = true;
       offDrop?.();
       offOpen?.();
     };
-  }, [openPath]);
+  }, [openFiles]);
 
   const place = (p: Placement) => {
     setPlacement(p);
@@ -335,7 +366,51 @@ export default function App() {
     return () => window.removeEventListener("keydown", k);
   }, []);
 
+  const doBatch = async (paths: string[], pin: string) => {
+    if (!doc || !placement || !cert) return;
+    const files: BatchItem[] = paths.map((path) => ({ path, name: baseName(path), state: "waiting" }));
+    const setItem = (i: number, patch: Partial<BatchItem>) =>
+      setStep((s) => (s.kind === "batch" ? { ...s, files: s.files.map((f, j) => (j === i ? { ...f, ...patch } : f)) } : s));
+    // The PIN dialog stays up until the token has accepted the PIN.
+    let started = false;
+    setStep({ kind: "signing" });
+    try {
+      await api.signBatch(
+        {
+          paths,
+          page: pageChoice(placement.page, doc.sizes.length),
+          rect: { x: placement.x, y: placement.y, w: placement.w, h: placement.h },
+          reason: saved.reason,
+          location: saved.location,
+          certIndex: cert.index,
+          pin,
+          image: stampImage?.position ?? null,
+        },
+        (p) => {
+          if (!started) {
+            started = true;
+            setStep({ kind: "batch", files, running: true });
+          }
+          if (p.state === "signing") setItem(p.index, { state: "signing" });
+          else if (p.state === "done") setItem(p.index, { state: "done", output: p.output, signedName: p.name });
+          else setItem(p.index, { state: "failed", message: p.message });
+        },
+      );
+      update({ certName: cert.name });
+      setStep((s) => (s.kind === "batch" ? { ...s, running: false } : s));
+    } catch (e) {
+      const err = api.errorOf(e);
+      if (started) {
+        setStep((s) => (s.kind === "batch" ? { ...s, running: false, error: err.message } : s));
+        return;
+      }
+      setStep({ kind: "pin", error: err });
+      if (err.kind === "token") refreshCerts();
+    }
+  };
+
   const doSign = async (pin: string) => {
+    if (batch) return doBatch(batch, pin);
     if (!doc || !placement || !cert) return;
     setStep({ kind: "signing" });
     try {
@@ -381,6 +456,7 @@ export default function App() {
             <div className="doc-name" title={doc.info.path}>
               <FileIcon />
               <span>{doc.info.name}</span>
+              {batch && <em className="muted">+{batch.length - 1} more</em>}
             </div>
             <i className="tb-sep" />
             <div className="tb-group" role="group" aria-label="Pages">
@@ -446,7 +522,7 @@ export default function App() {
               <div className="drop-region">
                 <div className="empty-block">
                   <h1>Open a PDF to sign</h1>
-                  <p className="muted">Drop a file here or press {isMac ? "⌘O" : "Ctrl+O"}</p>
+                  <p className="muted">Drop one or more PDFs here or press {isMac ? "⌘O" : "Ctrl+O"}</p>
                   <button className="btn primary" onClick={pick} disabled={loading}>
                     <FolderIcon />
                     {loading ? "Opening…" : "Open PDF…"}
@@ -476,6 +552,24 @@ export default function App() {
         {doc && (
           <aside className="inspector">
             <div className="insp-scroll">
+              {batch && (
+                <section>
+                  <h3>Documents · {batch.length}</h3>
+                  <ul className="batch-files">
+                    {batch.map((p, i) => (
+                      <li key={p} title={p}>
+                        <FileIcon size={13} />
+                        <span className={i === 0 ? "strong" : undefined}>{baseName(p)}</span>
+                        <button className="tb-btn" onClick={() => removeFromBatch(p)} title="Leave out" aria-label={`Leave out ${baseName(p)}`}>
+                          <CloseIcon size={12} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="muted small">The first document is shown. The box goes on the same page and spot of each.</p>
+                </section>
+              )}
+
               <section>
                 <h3>Preset</h3>
                 <PresetPicker presets={saved.presets} active={active?.name} onApply={applyPreset} onSave={savePreset} />
@@ -593,6 +687,11 @@ export default function App() {
                     </div>
                   </>
                 )}
+                {batch && placement && (
+                  <p className="muted small">
+                    Every document: {describePage(pageChoice(placement.page, pages)).toLowerCase()}, same position.
+                  </p>
+                )}
                 <p className="muted small">Click a page to place the signature. Drag to move; drag the corner to resize.</p>
                 <button
                   className="link"
@@ -615,10 +714,18 @@ export default function App() {
 
             <div className="insp-foot">
               <button className="btn primary block" disabled={!canSign} onClick={() => setStep({ kind: "pin" })}>
-                Sign document
+                {batch ? `Sign ${batch.length} documents` : "Sign document"}
               </button>
               <p className="muted small">
-                Saves <span className="mono">{signedName(doc.info.name)}</span> next to the original
+                {batch ? (
+                  <>
+                    Saves <span className="mono">name_signed.pdf</span> next to each original
+                  </>
+                ) : (
+                  <>
+                    Saves <span className="mono">{signedName(doc.info.name)}</span> next to the original
+                  </>
+                )}
               </p>
             </div>
           </aside>
@@ -662,13 +769,15 @@ export default function App() {
       {(step.kind === "pin" || step.kind === "signing") && cert && doc && (
         <PinDialog
           cert={cert}
-          docName={doc.info.name}
+          docName={batch ? `${batch.length} documents` : doc.info.name}
           busy={step.kind === "signing"}
           error={step.kind === "pin" ? step.error : undefined}
           onCancel={() => setStep({ kind: "idle" })}
           onSubmit={doSign}
         />
       )}
+
+      {step.kind === "batch" && <BatchDialog files={step.files} running={step.running} error={step.error} onClose={() => setStep({ kind: "idle" })} />}
 
       {step.kind === "done" && (
         <Modal title="Document signed" icon={<CheckIcon size={16} />} tone="ok" onClose={() => setStep({ kind: "idle" })}>
@@ -965,6 +1074,59 @@ function Settings(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+function BatchDialog(props: { files: BatchItem[]; running: boolean; error?: string; onClose: () => void }) {
+  const done = props.files.filter((f) => f.state === "done");
+  const failed = props.files.filter((f) => f.state === "failed").length;
+  const title = props.running ? "Signing documents" : failed || props.error ? "Batch finished with errors" : "Documents signed";
+  return (
+    <Modal
+      title={title}
+      icon={!props.running && !failed && !props.error ? <CheckIcon size={16} /> : undefined}
+      tone="ok"
+      onClose={props.running ? undefined : props.onClose}
+    >
+      <p>
+        {done.length} of {props.files.length} signed{failed ? `, ${failed} failed` : ""}. Each signed copy is saved next to its original.
+      </p>
+      <ul className="batch-list">
+        {props.files.map((f) => (
+          <li key={f.path} className={f.state} title={f.path}>
+            <span className="batch-state">
+              {f.state === "done" ? <CheckIcon size={13} /> : f.state === "failed" ? <AlertIcon size={13} /> : <i className="sq" />}
+            </span>
+            <div>
+              <span className="mono">{f.state === "done" ? f.signedName : f.name}</span>
+              {f.state === "signing" && <span className="muted small">Signing…</span>}
+              {f.state === "failed" && <span className="small">{f.message}</span>}
+            </div>
+            {f.state === "done" && f.output && (
+              <button className="link" onClick={() => api.revealFile(f.output!)}>
+                Show
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {props.error && (
+        <p className="inline-error">
+          <AlertIcon size={14} /> {props.error}
+        </p>
+      )}
+      <div className="dialog-actions">
+        <div className="spacer" />
+        {done[0]?.output && (
+          <button className="btn" onClick={() => api.revealFile(done[0].output!)} disabled={props.running}>
+            Show in folder
+          </button>
+        )}
+        <button className="btn primary" onClick={props.onClose} disabled={props.running}>
+          {props.running ? "Signing…" : "Close"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
