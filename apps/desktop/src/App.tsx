@@ -83,6 +83,59 @@ const MOD = isMac ? "⌘" : "Ctrl+";
 
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
 
+type PagesMode = "this" | "all" | "custom";
+
+const PAGE_MODES: { value: PagesMode; label: string }[] = [
+  { value: "this", label: "This page" },
+  { value: "all", label: "All pages" },
+  { value: "custom", label: "Custom" },
+];
+
+/** `1-3, 5` (numbered from 1) → sorted zero-based pages, or an error message. */
+function parsePages(spec: string, count: number): number[] | string {
+  const out = new Set<number>();
+  const num = (s: string) => {
+    const t = s.trim();
+    if (!/^\d+$/.test(t)) throw `"${t}" is not a page number`;
+    const n = Number(t);
+    if (n < 1) throw "Pages are numbered from 1";
+    if (n > count) throw `The PDF has only ${count} page${count > 1 ? "s" : ""}`;
+    return n - 1;
+  };
+  try {
+    for (const part of spec.split(",").filter((p) => p.trim())) {
+      const [a, b, ...rest] = part.split("-");
+      if (rest.length) throw `"${part.trim()}" is not a range`;
+      if (b === undefined) out.add(num(a));
+      else {
+        const [from, to] = [num(a), num(b)];
+        if (from > to) throw `"${part.trim()}" runs backwards`;
+        for (let i = from; i <= to; i++) out.add(i);
+      }
+    }
+  } catch (e) {
+    return String(e);
+  }
+  return out.size ? [...out].sort((x, y) => x - y) : "Enter pages, e.g. 1-3, 5";
+}
+
+/** Zero-based pages → `1-3, 5`. */
+function formatPages(list: number[]): string {
+  const runs: string[] = [];
+  for (let i = 0; i < list.length; i++) {
+    let j = i;
+    while (j + 1 < list.length && list[j + 1] === list[j] + 1) j++;
+    runs.push(j > i ? `${list[i] + 1}–${list[j] + 1}` : `${list[i] + 1}`);
+    i = j;
+  }
+  return runs.join(", ");
+}
+
+function pagesLabel(list: number[], count: number): string {
+  if (list.length === count && count > 1) return `all ${count} pages`;
+  return `page${list.length > 1 ? "s" : ""} ${formatPages(list)}`;
+}
+
 function baseName(path: string) {
   return path.split(/[\\/]/).pop() ?? path;
 }
@@ -111,6 +164,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
+  const [pagesMode, setPagesMode] = useState<PagesMode>("this");
+  const [pagesSpec, setPagesSpec] = useState("");
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const [hover, setHover] = useState(false);
   const [zoom, setZoom] = useState(1);
@@ -173,6 +228,8 @@ export default function App() {
       setZoom(1);
       setPage(0);
       setPlacement(initialPlacement(sizes, loadSaved()));
+      setPagesMode("this");
+      setPagesSpec("");
     } catch (e) {
       setDoc(null);
       setDocError(api.errorOf(e).message);
@@ -219,7 +276,12 @@ export default function App() {
 
   // ---- signing
   const cert = certs?.[certIndex];
-  const canSign = !!doc && !!placement && !!cert && !cert.expired && !loading;
+  // Pages that get the box; null for just the placement's page.
+  const selection: number[] | string | null =
+    pagesMode === "all" ? Array.from({ length: pages }, (_, i) => i) : pagesMode === "custom" ? parsePages(pagesSpec, pages) : null;
+  const pagesError = typeof selection === "string" ? selection : null;
+  const targetPages = Array.isArray(selection) ? selection : null;
+  const canSign = !!doc && !!placement && !!cert && !cert.expired && !loading && !pagesError;
   const dialogOpen = step.kind !== "idle" || settingsOpen;
 
   // ---- keyboard
@@ -256,6 +318,7 @@ export default function App() {
         path: doc.info.path,
         page: placement.page,
         rect: { x: placement.x, y: placement.y, w: placement.w, h: placement.h },
+        pages: targetPages ?? [],
         reason: saved.reason,
         location: saved.location,
         certId: cert.id,
@@ -346,6 +409,7 @@ export default function App() {
                 doc={doc.pdf}
                 sizes={doc.sizes}
                 placement={placement}
+                pages={targetPages}
                 preview={preview}
                 zoom={zoom}
                 onPlace={place}
@@ -477,6 +541,45 @@ export default function App() {
                     </div>
                   </>
                 )}
+                <label id="pages-label">Pages</label>
+                <div className="segmented" role="radiogroup" aria-labelledby="pages-label">
+                  {PAGE_MODES.map((m) => (
+                    <button
+                      key={m.value}
+                      role="radio"
+                      aria-checked={pagesMode === m.value}
+                      className={pagesMode === m.value ? "on" : ""}
+                      onClick={() => {
+                        setPagesMode(m.value);
+                        if (m.value === "custom" && !pagesSpec) setPagesSpec(pages > 1 ? `1-${pages}` : "1");
+                      }}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                {pagesMode === "custom" && (
+                  <input
+                    className={`pages-spec mono ${pagesError ? "invalid" : ""}`}
+                    value={pagesSpec}
+                    onChange={(e) => setPagesSpec(e.target.value)}
+                    placeholder="e.g. 1-3, 5"
+                    aria-label="Page list"
+                    aria-invalid={!!pagesError}
+                    spellCheck={false}
+                  />
+                )}
+                {pagesError ? (
+                  <p className="inline-error">
+                    <AlertIcon size={14} /> {pagesError}
+                  </p>
+                ) : (
+                  targetPages && (
+                    <p className="muted small">
+                      One signature, shown on {pagesLabel(targetPages, pages)}. The box keeps its distance from the nearest corner of each page.
+                    </p>
+                  )
+                )}
                 <p className="muted small">Click a page to place the signature. Drag to move; drag the corner to resize.</p>
                 <button
                   className="link"
@@ -543,6 +646,7 @@ export default function App() {
         <PinDialog
           cert={cert}
           docName={doc.info.name}
+          pages={targetPages && targetPages.length > 1 ? pagesLabel(targetPages, pages) : undefined}
           busy={step.kind === "signing"}
           error={step.kind === "pin" ? step.error : undefined}
           onCancel={() => setStep({ kind: "idle" })}
@@ -606,6 +710,8 @@ function TokenStatus({ certs, error, onRetry }: { certs: Cert[] | null; error: s
 function PinDialog(props: {
   cert: Cert;
   docName: string;
+  /** Shown when the box goes on more than one page. */
+  pages?: string;
   busy: boolean;
   error?: ApiError;
   onCancel: () => void;
@@ -628,6 +734,12 @@ function PinDialog(props: {
         <dd>{props.cert.tokenLabel}</dd>
         <dt>Document</dt>
         <dd className="mono ellipsis">{props.docName}</dd>
+        {props.pages && (
+          <>
+            <dt>Pages</dt>
+            <dd>{props.pages[0].toUpperCase() + props.pages.slice(1)}</dd>
+          </>
+        )}
       </dl>
       <form
         onSubmit={(e) => {

@@ -19,6 +19,25 @@ for p in 1 2 3 4; do
   "$BIN" sign "$W/fx/rotated.pdf" --page $p --out "$W/signed/rot$p.pdf" >/dev/null
   check "$W/fx/rotated.pdf" "$W/signed/rot$p.pdf"
 done
+# One signature, a widget on each selected page: name, sig count, --pages, expected pages.
+pages() {
+  "$BIN" sign "$W/fx/$1.pdf" --pages "$3" "${@:5}" --reason Approved --out "$W/signed/$1-pages.pdf" >/dev/null
+  check "$W/fx/$1.pdf" "$W/signed/$1-pages.pdf"
+  python3 -W ignore "$ROOT/tests/check_pages.py" "$W/signed/$1-pages.pdf" "$2" $4 || fail=1
+}
+pages rotated 1 all "1 2 3 4"
+pages mixed 1 all "1 2 3 4 5"
+pages plain 1 1 "1" --position top-left
+pages indirect 1 all "1"
+pages objstm 1 all "1 2"
+pages presigned 2 all "1 2"
+pages presigned-form 2 1 "1"
+"$BIN" sign "$W/fx/mixed.pdf" --pages 1-2,4 --page 2 --rect 20,30,150,50 --out "$W/signed/mixed-some.pdf" >/dev/null
+check "$W/fx/mixed.pdf" "$W/signed/mixed-some.pdf"
+python3 -W ignore "$ROOT/tests/check_pages.py" "$W/signed/mixed-some.pdf" 1 1 2 4 || fail=1
+"$BIN" sign "$W/signed/presigned-pages.pdf" --pages 2,1 --position top-right --out "$W/signed/pages-twice.pdf" >/dev/null
+check "$W/signed/presigned-pages.pdf" "$W/signed/pages-twice.pdf"
+python3 -W ignore "$ROOT/tests/check_pages.py" "$W/signed/pages-twice.pdf" 3 1 2 || fail=1
 "$BIN" sign "$W/fx/presigned.pdf" --invisible --out "$W/signed/invisible.pdf" >/dev/null
 check "$W/fx/presigned.pdf" "$W/signed/invisible.pdf"
 "$BIN" sign "$W/signed/presigned.pdf" --position top-left --out "$W/signed/twice.pdf" >/dev/null

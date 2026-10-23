@@ -72,6 +72,8 @@ Other options:
 .\trackmysign.exe info file.pdf                       # pages, existing signatures
 .\trackmysign.exe sign file.pdf --page 1 --position top-right
 .\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
+.\trackmysign.exe sign file.pdf --pages all            # one signature, box on every page
+.\trackmysign.exe sign file.pdf --pages 1-3,5          # ... or on some pages
 .\trackmysign.exe sign file.pdf --invisible
 .\trackmysign.exe --module C:\Windows\System32\eps2003csp11v2.dll certs   # explicit driver
 ```

@@ -480,6 +480,10 @@ button.token {
   cursor: move;
   white-space: nowrap;
 }
+.sig-box.ghost {
+  border-style: dashed;
+  opacity: 0.5;
+}
 .sig-box .sig-name {
   font-weight: 700;
   font-size: 1.15em;
@@ -729,6 +733,12 @@ section > label:first-of-type {
   border: 1px solid var(--line);
   color: var(--text-2);
   user-select: text;
+}
+.pages-spec {
+  margin-top: 8px;
+}
+.pages-spec.invalid {
+  border-color: var(--bad);
 }
 
 .insp-foot {

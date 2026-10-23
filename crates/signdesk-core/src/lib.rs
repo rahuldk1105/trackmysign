@@ -50,6 +50,9 @@ pub enum Error {
 pub struct SignRequest {
     pub page: usize,
     pub rect: Option<DisplayRect>,
+    /// Pages that get the box (zero-based); empty means just `page`. `rect`
+    /// is as drawn on `page` and repeated at the same spot on the others.
+    pub pages: Vec<usize>,
     pub reason: Option<String>,
     pub location: Option<String>,
     /// Defaults to now, in local time.
@@ -73,6 +76,7 @@ pub fn sign_pdf(
     let placement = Placement {
         page: req.page,
         rect: req.rect,
+        pages: req.pages.clone(),
     };
     let prepared = pdf::sign::prepare(input, &placement, &fields, cms::estimate_size(signer))?;
     let mut h = Sha256::new();
@@ -115,6 +119,42 @@ pub fn inspect(input: &[u8]) -> Result<PdfInfo, Error> {
     Ok(PdfInfo { pages, signatures })
 }
 
+/// Parses a page selection such as `all` or `1-3,5` (numbered from 1) into
+/// sorted zero-based page indexes.
+pub fn parse_pages(spec: &str, count: usize) -> Result<Vec<usize>, String> {
+    let spec = spec.trim();
+    if spec.eq_ignore_ascii_case("all") {
+        return Ok((0..count).collect());
+    }
+    let num = |s: &str| -> Result<usize, String> {
+        match s.trim().parse::<usize>() {
+            Ok(0) => Err("pages are numbered from 1".into()),
+            Ok(n) if n > count => Err(format!("the PDF has only {count} page(s)")),
+            Ok(n) => Ok(n - 1),
+            Err(_) => Err(format!("\"{}\" is not a page number", s.trim())),
+        }
+    };
+    let mut out = Vec::new();
+    for part in spec.split(',').filter(|p| !p.trim().is_empty()) {
+        match part.split_once('-') {
+            Some((a, b)) => {
+                let (a, b) = (num(a)?, num(b)?);
+                if a > b {
+                    return Err(format!("\"{}\" runs backwards", part.trim()));
+                }
+                out.extend(a..=b);
+            }
+            None => out.push(num(part)?),
+        }
+    }
+    if out.is_empty() {
+        return Err("no pages selected".into());
+    }
+    out.sort_unstable();
+    out.dedup();
+    Ok(out)
+}
+
 /// `invoice.pdf` → `invoice_signed.pdf` (or `invoice_signed_2.pdf`, … if taken).
 pub fn signed_path(input: &Path) -> PathBuf {
     let stem = input
@@ -135,5 +175,22 @@ pub fn signed_path(input: &Path) -> PathBuf {
 impl From<der::Error> for Error {
     fn from(e: der::Error) -> Self {
         Error::Cms(e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn page_lists() {
+        assert_eq!(parse_pages("all", 3), Ok(vec![0, 1, 2]));
+        assert_eq!(parse_pages(" 1-3, 5,2 ", 6), Ok(vec![0, 1, 2, 4]));
+        assert_eq!(parse_pages("4", 4), Ok(vec![3]));
+        assert!(parse_pages("0", 4).is_err());
+        assert!(parse_pages("2-5", 4).is_err());
+        assert!(parse_pages("3-1", 4).is_err());
+        assert!(parse_pages("x", 4).is_err());
+        assert!(parse_pages("", 4).is_err());
     }
 }
