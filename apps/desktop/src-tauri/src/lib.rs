@@ -1,7 +1,9 @@
 //! Tauri backend: thin commands over `signdesk-core`.
 
 mod known;
+mod output;
 mod portal;
+mod recent;
 mod verify;
 
 use std::path::{Path, PathBuf};
@@ -12,7 +14,7 @@ use signdesk_core::certinfo::{Validity, days_until};
 use signdesk_core::token::{Token, TokenCert, Tokens, installed_drivers};
 use signdesk_core::{
     DisplayRect, DocMdp, Error, ImagePosition, PdfError, SignRequest, StampImage,
-    inspect_with_password, sign_pdf, signed_path,
+    inspect_with_password, sign_pdf,
 };
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -280,6 +282,9 @@ struct SignArgs {
     /// Certify with this DocMDP level (1-3) instead of approving.
     #[serde(default)]
     certify: Option<u8>,
+    /// Folder for the signed copy; next to the original when none.
+    #[serde(default)]
+    out_dir: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -338,8 +343,7 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             ..Default::default()
         };
         let signed = sign_pdf(&data, &req, &mut signer)?;
-        let out = signed_path(&input);
-        std::fs::write(&out, signed)?;
+        let out = output::write_signed(&input, args.out_dir.as_deref(), &signed)?;
         Ok(SignedDto {
             name: out
                 .file_name()
@@ -419,6 +423,8 @@ struct BatchArgs {
     password: Option<String>,
     #[serde(default)]
     certify: Option<u8>,
+    #[serde(default)]
+    out_dir: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -493,9 +499,7 @@ fn sign_one(
         ..Default::default()
     };
     let signed = sign_pdf(&data, &req, signer)?;
-    let out = signed_path(path);
-    std::fs::write(&out, signed)?;
-    Ok(out)
+    output::write_signed(path, args.out_dir.as_deref(), &signed)
 }
 
 /// Signs every file with one login. Fails as a whole only when the token or
@@ -735,6 +739,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_certificates,
             known::known_certificates,
+            recent::recent_files,
+            recent::recent_add,
+            recent::recent_signed,
+            recent::recent_clear,
             pdf_info,
             read_pdf,
             sign,

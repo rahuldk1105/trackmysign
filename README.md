@@ -18,7 +18,7 @@ Download from [sign.rahuldk.in](https://sign.rahuldk.in) or the [latest release]
 - Windows: `TrackMySign-Setup-windows-x64.exe` — run it (no admin needed). If SmartScreen warns, choose *More info → Run anyway*.
 - macOS: `TrackMySign-macos-universal.dmg` (Apple Silicon and Intel).
 
-Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`.
+Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`, or in a folder you pick under *Settings → Save signed copies to*; an existing file is never replaced (`name_signed_2.pdf` instead). Recently opened files are listed on the start screen and under the Open button.
 
 Forms from banks and government offices often come with empty signature fields. These are
 highlighted on the page and listed in the side panel: click one and the signature fills that field.

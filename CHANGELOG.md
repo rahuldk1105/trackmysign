@@ -6,6 +6,19 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Recent files: the last 10 PDFs you opened are listed on the start screen and
+  under the arrow next to *Open…*, with their folder and date; files signed in
+  the app are marked and their signed copy opens with one click. Files that no
+  longer exist drop out. The list is kept in the app's data folder; turn it off
+  or clear it under *Settings → Recent files*.
+- The Open dialog, and *Add files…* for a batch, start in the folder of the
+  PDF you opened last.
+- *Settings → Save signed copies to*: next to the original (as before) or a
+  folder you choose, for single and batch signing. An existing file is never
+  overwritten; the copy becomes `name_signed_2.pdf`, `name_signed_3.pdf`, ….
+
 ## [0.3.0] - 2026-10-24
 
 ### Added

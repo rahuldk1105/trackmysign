@@ -45,10 +45,18 @@ Clicking a link in the app (for example to this project's website) opens it in
 your browser; the app itself does not load web pages.
 
 **What is saved locally.** Your preferences (default reason and location, saved
-presets, the last signature-box position, theme, timestamp and LTV choices) are
+presets, the last signature-box position, theme, timestamp and LTV choices, the folder for signed copies) are
 kept in the app's own storage on your computer. If you add a handwritten
 signature image, a copy is kept in the app's data folder so it can be reused.
 None of it is sent anywhere.
+
+**Recent files.** The app keeps a list of the last 10 PDFs you opened in its
+data folder (`recent-files.json`): for each, the file's path and name, when you
+opened it, its page count and, if you signed it in the app, where the signed
+copy was saved. It never holds a PIN, a password or anything from inside a
+document, and it stays on your computer. *Settings → Recent files* clears the
+list; turning the setting off clears it and stops recording (the Open dialog
+then remembers the last folder only until you close the app).
 
 ## The website (sign.rahuldk.in)
 
