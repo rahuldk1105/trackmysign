@@ -47,6 +47,7 @@
         </a>
         <nav class="nav" aria-label="Sections">
           <a href="#how">How it works</a>
+          <a href="#features">Features</a>
           <a href="#spec">Specification</a>
           <a href="#download">Download</a>
           <a href="#faq">FAQ</a>
@@ -91,7 +92,7 @@
             </div>
             <dl class="hero-facts">
               <div><dt>Platforms</dt><dd>Windows 10/11 · macOS 11+</dd></div>
-              <div><dt>Network</dt><dd>None — works offline</dd></div>
+              <div><dt>Network</dt><dd>Not needed — works offline</dd></div>
               <div><dt>Account</dt><dd>Not needed</dd></div>
             </dl>
           </div>
@@ -325,6 +326,81 @@
         </div>
       </section>
 
+      <!-- ============================================================ FEATURES -->
+      <section id="features" class="band">
+        <div class="wrap">
+          <header class="sec-head wide">
+            <div>
+              <p class="label mono">Features · v0.2</p>
+              <h2>Everything a director signs, in one small app.</h2>
+            </div>
+            <p class="sec-lede">From a single board resolution to a stack of bank forms. Every feature writes a standard signature that Adobe Reader and other validators accept.</p>
+          </header>
+          <ul class="feats">
+            <li>
+              <p class="feat-tag mono">Tokens</p>
+              <h3>Every common Indian DSC token</h3>
+              <p>HyperPKI, ePass2003, ProxKey, mToken, Trust Key, Watchdata, SafeNet, Gemalto and Bit4id drivers are found automatically. Keys that ask for the PIN on every signature work too.</p>
+            </li>
+            <li>
+              <p class="feat-tag mono">Verify</p>
+              <h3>Check any signed PDF</h3>
+              <p>See who signed, whether each signature is valid, whether the chain reaches CCA India, and what changed after signing. No Adobe needed.</p>
+            </li>
+            <li>
+              <p class="feat-tag mono">Pages</p>
+              <h3>Every page, one PIN</h3>
+              <p>Put the box on all pages or a range such as 1-3, 5 — still one signature and one PIN entry.</p>
+            </li>
+            <li>
+              <p class="feat-tag mono">Forms</p>
+              <h3>Sign into existing boxes</h3>
+              <p>Bank and government PDFs often carry empty signature fields. Click one and the signature fills it, honouring field locks.</p>
+            </li>
+            <li>
+              <p class="feat-tag mono">Certify</p>
+              <h3>Lock the document</h3>
+              <p>Make the first signature a certification: no changes, form filling and signing only, or also comments.</p>
+            </li>
+            <li>
+              <p class="feat-tag mono">Batch</p>
+              <h3>Many files, one PIN</h3>
+              <p>Select a stack of PDFs, place the box once and sign them all in one session. A bad file never stops the rest.</p>
+            </li>
+            <li>
+              <p class="feat-tag mono">Stamp</p>
+              <h3>Handwritten signature image</h3>
+              <p>Add a scanned signature (PNG with transparency or JPEG) beside or above the text. Save reason, location and placement as presets.</p>
+            </li>
+            <li>
+              <p class="feat-tag mono">Protected</p>
+              <h3>Password-protected PDFs</h3>
+              <p>Opens RC4 and AES encrypted files. The signed copy keeps the same password and restrictions.</p>
+            </li>
+            <li>
+              <p class="feat-tag mono">Long-term</p>
+              <h3>Valid after the DSC expires</h3>
+              <p>Optional trusted timestamp and embedded revocation data (LTV). Off by default, so signing stays fully offline.</p>
+            </li>
+            <li>
+              <p class="feat-tag mono">Reminders</p>
+              <h3>DSC expiry reminder</h3>
+              <p>Days left are always shown, with a reminder before your certificate expires — even when the token isn't plugged in.</p>
+            </li>
+            <li>
+              <p class="feat-tag mono">Desktop</p>
+              <h3>Right-click to sign</h3>
+              <p>Sign with TrackMySign from Explorer, or Open With on macOS. Your default PDF viewer is left alone.</p>
+            </li>
+            <li>
+              <p class="feat-tag mono">Updates</p>
+              <h3>One-click updates</h3>
+              <p>The app tells you when a new version is out and installs it for you. Can be turned off in Settings.</p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
       <!-- ======================================================= SPECIFICATION -->
       <section id="spec" class="band">
         <div class="wrap">
@@ -337,13 +413,16 @@
           </header>
           <dl class="spec">
             <div><dt>Signature format</dt><dd>PKCS#7 / CMS detached <span class="mono">adbe.pkcs7.detached</span>, SHA-256, signingCertificateV2</dd></div>
+            <div><dt>Signature types</dt><dd>Approval, or certification with DocMDP levels 1–3; FieldMDP locks honoured</dd></div>
+            <div><dt>Long-term validity</dt><dd>Optional RFC 3161 timestamp and <span class="mono">/DSS</span> with OCSP and CRL data (PAdES LTV)</dd></div>
+            <div><dt>Encrypted PDFs</dt><dd>RC4 40/128-bit, AES-128, AES-256 (revisions 2–6)</dd></div>
             <div><dt>Write method</dt><dd>Incremental update; original bytes never rewritten</dd></div>
             <div><dt>Token access</dt><dd>PKCS#11 through the token's own driver; the private key never leaves the token</dd></div>
             <div><dt>Verified in</dt><dd>Adobe Acrobat Reader — “Signature is valid”, trust via AATL</dd></div>
-            <div><dt>Tested token</dt><dd>Hypersecu HyperPKI HYP2003 <span class="mono">eps2003csp11v2.dll</span></dd></div>
+            <div><dt>Tokens</dt><dd>Tested with Hypersecu HyperPKI HYP2003; drivers for ePass2003, ProxKey, mToken, Trust Key, Watchdata, SafeNet, Gemalto, Bit4id and OpenSC detected automatically</dd></div>
             <div><dt>Platforms</dt><dd>Windows 10/11 x64 · macOS 11+ Apple Silicon and Intel</dd></div>
-            <div><dt>Download</dt><dd><span class="mono">1.9 MB</span> Windows · <span class="mono">5.3 MB</span> macOS</dd></div>
-            <div><dt>Privacy</dt><dd>No network access, no account, no telemetry; the PIN is never stored</dd></div>
+            <div><dt>Download</dt><dd><span class="mono">3.0 MB</span> Windows · <span class="mono">7.5 MB</span> macOS</dd></div>
+            <div><dt>Privacy</dt><dd>Offline by default, no account, no telemetry; the PIN is never stored. Online only for update checks and, if enabled, timestamps and revocation data</dd></div>
             <div><dt>Licence</dt><dd>MIT</dd></div>
             <div><dt>Built with</dt><dd>Rust · Tauri 2 · React · PDF.js (legacy build)</dd></div>
           </dl>
@@ -371,7 +450,7 @@
                   <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 17h12" /></svg>
                   Download for Windows
                 </a>
-                <p class="mono dl-meta">TrackMySign-Setup-windows-x64.exe · 1.9 MB</p>
+                <p class="mono dl-meta">TrackMySign-Setup-windows-x64.exe · 3.0 MB</p>
                 <p class="mono dl-sum" data-sum="TrackMySign-Setup-windows-x64.exe"></p>
               </div>
               <ol class="dl-steps">
@@ -387,7 +466,7 @@
                   <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 17h12" /></svg>
                   Download for macOS
                 </a>
-                <p class="mono dl-meta">TrackMySign-macos-universal.dmg · 5.3 MB · Apple Silicon and Intel</p>
+                <p class="mono dl-meta">TrackMySign-macos-universal.dmg · 7.5 MB · Apple Silicon and Intel</p>
                 <p class="mono dl-sum" data-sum="TrackMySign-macos-universal.dmg"></p>
               </div>
               <ol class="dl-steps">
@@ -402,7 +481,7 @@
                   <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 17h12" /></svg>
                   CLI for Windows
                 </a>
-                <p class="mono dl-meta">trackmysign-windows-x64.exe · 1.0 MB · for scripts and batch jobs</p>
+                <p class="mono dl-meta">trackmysign-windows-x64.exe · 2.9 MB · for scripts and batch jobs</p>
               </div>
               <pre class="term mono"><code><span class="pr">&gt;</span> trackmysign certs
 1. DK RAHUL (Personal)
@@ -454,7 +533,7 @@ Token PIN: ********
             </details>
             <details>
               <summary>Which tokens work?</summary>
-              <p>Tested with Hypersecu HyperPKI HYP2003. Feitian ePass2003 uses the same driver family and is expected to work. For other PKCS#11 tokens, open an issue with the token's name and driver file and support can be added.</p>
+              <p>Tested with Hypersecu HyperPKI HYP2003. The app also looks for the drivers of Feitian ePass2003, Watchdata ProxKey, mToken CryptoID, Trust Key, SafeNet eToken, Gemalto IDPrime and Bit4id, and lists certificates from every one it finds. If yours isn't detected, open an issue with the token's name and driver file.</p>
             </details>
             <details>
               <summary>Can I use it for MCA filings?</summary>

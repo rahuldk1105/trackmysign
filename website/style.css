@@ -806,6 +806,51 @@ code {
   font-size: 15px;
 }
 
+/* feature grid */
+.feats {
+  list-style: none;
+  margin: 48px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+}
+.feats li {
+  padding: 22px 24px 24px;
+  background: var(--paper);
+}
+.feat-tag {
+  margin-bottom: 10px;
+  font: 500 11.5px/1 var(--f-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-text);
+}
+.feats h3 {
+  font: 700 18px/1.25 var(--f-display);
+  font-stretch: 108%;
+}
+.feats li > p:last-child {
+  margin-top: 8px;
+  color: var(--ink-2);
+  font-size: 15px;
+}
+@media (max-width: 1000px) {
+  .feats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 620px) {
+  .feats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .feats li {
+    padding: 18px 16px 20px;
+  }
+}
+
 /* screenshot */
 .shot {
   margin: 40px 0 0;
