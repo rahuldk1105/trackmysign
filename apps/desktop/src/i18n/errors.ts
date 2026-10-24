@@ -17,6 +17,7 @@ const SENTENCES: Record<string, MessageKey> = {
   "The portal signing certificate is missing. Turn portal signing off and on again.": "error.portalCertMissing",
   "The portal signing certificate has expired. Turn portal signing off and on again to renew it.": "error.portalCertExpired",
   "The version is a number such as 2.8.": "error.portalVersion",
+  "Turn on “Keep running in the background” first.": "error.backgroundFirst",
 };
 
 /** Sentences that end in a detail from elsewhere (a server, the OS), kept as is. */

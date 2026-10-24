@@ -18,7 +18,7 @@ Download from [sign.rahuldk.in](https://sign.rahuldk.in) or the [latest release]
 - Windows: `TrackMySign-Setup-windows-x64.exe` — run it (no admin needed). If SmartScreen warns, choose *More info → Run anyway*.
 - macOS: `TrackMySign-macos-universal.dmg` (Apple Silicon and Intel).
 
-Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`.
+Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`, or in a folder you pick under *Settings → Save signed copies to*; an existing file is never replaced (`name_signed_2.pdf` instead). Recently opened files are listed on the start screen and under the Open button.
 
 Forms from banks and government offices often come with empty signature fields. These are
 highlighted on the page and listed in the side panel: click one and the signature fills that field.
@@ -156,13 +156,25 @@ token:
    and press **Sign**, or **Cancel** (the portal then says "Signing
    Cancelled"). An expired certificate is refused.
 
-TrackMySign listens only while it is open, only on `127.0.0.1` (never on the
+TrackMySign listens only while it is running, only on `127.0.0.1` (never on the
 network), and answers only pages from `https://gst.gov.in` and its
 subdomains. If emSigner is running on port 1585, TrackMySign takes the next
 free port and Settings says so; the portal tries the ports in order, so quit
 emSigner to sign with TrackMySign. The portal checks the emSigner version it
 expects (2.8 when this was written); if it says "Please install and use correct
 version of emSigner", change the version in Settings.
+
+So the portal works without opening TrackMySign first, *Settings → Background →
+Keep running in the background* (on by default once portal signing is on)
+makes closing the window leave TrackMySign in the system tray (Windows) or the
+menu bar (macOS). Its icon shows whether portal signing is on and on which
+port, and has **Open TrackMySign** and **Quit**; a portal request brings the
+window up as usual. *Start TrackMySign when I sign in* starts it there at
+sign-in, without a window: on Windows an entry under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, which the uninstaller
+removes; on macOS `~/Library/LaunchAgents/TrackMySign.plist` (turn the option
+off before deleting the app, or delete that file). Turning background mode off
+also removes the entry.
 
 Browsers:
 

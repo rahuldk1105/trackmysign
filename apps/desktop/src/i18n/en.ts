@@ -203,8 +203,8 @@ export const en = {
   "batchDialog.running": "Signing documents",
   "batchDialog.errors": "Batch finished with errors",
   "batchDialog.done": "Documents signed",
-  "batchDialog.summary": "{done} of {total} signed. Each signed copy is saved next to its original.",
-  "batchDialog.summaryFailed": "{done} of {total} signed, {failed} failed. Each signed copy is saved next to its original.",
+  "batchDialog.summary": "{done} of {total} signed.",
+  "batchDialog.summaryFailed": "{done} of {total} signed, {failed} failed.",
 
   // ---- settings
   "settings.closeEsc": "Close (Esc)",
@@ -338,7 +338,7 @@ export const en = {
   "portal.intro":
     "Lets the GST portal (gst.gov.in) ask TrackMySign for DSC signatures, in place of emSigner. TrackMySign then listens on this computer only (127.0.0.1), answers only gst.gov.in pages, and signs each request only after you approve it with your PIN.",
   "portal.introTrust":
-    "Turning it on adds a certificate made for this computer to your user's trusted certificates, so the browser accepts the connection. {confirm} The certificate can only vouch for 127.0.0.1, and the key that made it is deleted at once. Works while TrackMySign is open.",
+    "Turning it on adds a certificate made for this computer to your user's trusted certificates, so the browser accepts the connection. {confirm} The certificate can only vouch for 127.0.0.1, and the key that made it is deleted at once. Works while TrackMySign is running, also in the background (see Background below).",
   "portal.macConfirm": "macOS asks for your password.",
   "portal.windowsConfirm": "Windows asks you to confirm.",
   "portal.certLeft": "The certificate from before is still trusted.",
@@ -356,6 +356,37 @@ export const en = {
     "The portal only talks to the version it expects ({version} at the time of writing). Change it if the portal says “Please install and use correct version of emSigner”.",
   "portal.recent": "Recent activity",
   "portal.disable": "Disable and remove",
+
+  // ---- recent files, output folder, background
+  "batch.addFiles": "Add files…",
+  "foot.savesIn": "Saves {file} in {folder}",
+  "done.bodyFolder": "The signed copy was saved in the folder chosen in Settings.",
+  "batchDialog.savedNext": "Each signed copy is saved next to its original.",
+  "batchDialog.savedFolder": "The signed copies are saved in the folder chosen in Settings.",
+  "recent.title": "Recent",
+  "recent.files": "Recent files",
+  "recent.none": "No recent files",
+  "recent.signedCopy": "Signed copy: {path}",
+  "recent.openSigned": "Open the signed copy of {name}",
+  "recent.signed": "Signed",
+  "settings.outDir": "Save signed copies to",
+  "settings.sameFolder": "Same folder as original",
+  "settings.chooseFolder": "Choose folder…",
+  "settings.change": "Change…",
+  "settings.outDirHint": "Saved as {file}, also when signing several. An existing file is never replaced: the next copy becomes {next}.",
+  "settings.recentOn": "Remember recently opened files",
+  "settings.recentHint": "The last 10 PDFs you opened, shown on the start screen and under Open. Kept on this computer only: file names, folders and dates, never their contents.",
+  "settings.recentCount": { one: "{n} file in the list.", other: "{n} files in the list." },
+  "settings.recentEmpty": "The list is empty.",
+  "settings.clearRecent": "Clear recent files",
+  "background.title": "Background",
+  "background.keep": "Keep running in the background",
+  "background.hint": "Closing the window leaves TrackMySign in the {tray}, so the GST portal can ask for signatures without opening the app first. Quit from its icon there.",
+  "background.menuBar": "menu bar",
+  "background.systemTray": "system tray",
+  "background.autostart": "Start TrackMySign when I sign in",
+  "background.autostartHint": "Starts in the {tray}, without opening a window.",
+  "error.backgroundFirst": "Turn on “Keep running in the background” first.",
 
   // ---- native dialogs
   "dialog.pdfs": "PDF documents",

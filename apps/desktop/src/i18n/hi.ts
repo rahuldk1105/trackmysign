@@ -202,8 +202,8 @@ export const hi: Catalog = {
   "batchDialog.running": "दस्तावेज़ों पर हस्ताक्षर हो रहे हैं",
   "batchDialog.errors": "बैच पूरा हुआ, कुछ त्रुटियाँ हैं",
   "batchDialog.done": "दस्तावेज़ों पर हस्ताक्षर हो गए",
-  "batchDialog.summary": "{total} में से {done} पर हस्ताक्षर हुए। हर हस्ताक्षरित कॉपी अपनी मूल फ़ाइल के पास सेव है।",
-  "batchDialog.summaryFailed": "{total} में से {done} पर हस्ताक्षर हुए, {failed} विफल। हर हस्ताक्षरित कॉपी अपनी मूल फ़ाइल के पास सेव है।",
+  "batchDialog.summary": "{total} में से {done} पर हस्ताक्षर हुए।",
+  "batchDialog.summaryFailed": "{total} में से {done} पर हस्ताक्षर हुए, {failed} विफल।",
 
   // ---- settings
   "settings.closeEsc": "बंद करें (Esc)",
@@ -337,7 +337,7 @@ export const hi: Catalog = {
   "portal.intro":
     "GST पोर्टल (gst.gov.in) emSigner की जगह TrackMySign से DSC हस्ताक्षर माँग सकेगा। TrackMySign केवल इसी कंप्यूटर (127.0.0.1) पर सुनता है, केवल gst.gov.in पेजों को उत्तर देता है, और हर अनुरोध पर आपके PIN से मंज़ूरी के बाद ही हस्ताक्षर करता है।",
   "portal.introTrust":
-    "चालू करने पर इस कंप्यूटर के लिए बना एक सर्टिफिकेट आपके यूज़र के विश्वसनीय सर्टिफिकेटों में जुड़ता है, ताकि ब्राउज़र कनेक्शन स्वीकार करे। {confirm} यह सर्टिफिकेट केवल 127.0.0.1 के लिए मान्य है, और इसे बनाने वाली key तुरंत मिटा दी जाती है। TrackMySign खुला रहने तक काम करता है।",
+    "चालू करने पर इस कंप्यूटर के लिए बना एक सर्टिफिकेट आपके यूज़र के विश्वसनीय सर्टिफिकेटों में जुड़ता है, ताकि ब्राउज़र कनेक्शन स्वीकार करे। {confirm} यह सर्टिफिकेट केवल 127.0.0.1 के लिए मान्य है, और इसे बनाने वाली key तुरंत मिटा दी जाती है। TrackMySign चलते रहने तक काम करता है, बैकग्राउंड में भी (नीचे ‘बैकग्राउंड’ देखें)।",
   "portal.macConfirm": "macOS आपका पासवर्ड माँगेगा।",
   "portal.windowsConfirm": "Windows पुष्टि माँगेगा।",
   "portal.certLeft": "पहले का सर्टिफिकेट अब भी विश्वसनीय सूची में है।",
@@ -355,6 +355,37 @@ export const hi: Catalog = {
     "पोर्टल केवल अपेक्षित वर्ज़न से बात करता है (लिखते समय {version})। अगर पोर्टल “Please install and use correct version of emSigner” कहे, तो इसे बदलें।",
   "portal.recent": "हाल की गतिविधि",
   "portal.disable": "बंद करें और हटाएँ",
+
+  // ---- recent files, output folder, background
+  "batch.addFiles": "फ़ाइलें जोड़ें…",
+  "foot.savesIn": "{folder} में {file} सेव होगी",
+  "done.bodyFolder": "हस्ताक्षरित कॉपी सेटिंग्स में चुने गए फ़ोल्डर में सेव हो गई।",
+  "batchDialog.savedNext": "हर हस्ताक्षरित कॉपी अपनी मूल फ़ाइल के पास सेव है।",
+  "batchDialog.savedFolder": "हस्ताक्षरित कॉपियाँ सेटिंग्स में चुने गए फ़ोल्डर में सेव हैं।",
+  "recent.title": "हाल की",
+  "recent.files": "हाल की फ़ाइलें",
+  "recent.none": "कोई हाल की फ़ाइल नहीं",
+  "recent.signedCopy": "हस्ताक्षरित कॉपी: {path}",
+  "recent.openSigned": "{name} की हस्ताक्षरित कॉपी खोलें",
+  "recent.signed": "हस्ताक्षरित",
+  "settings.outDir": "हस्ताक्षरित कॉपी कहाँ सेव हो",
+  "settings.sameFolder": "मूल फ़ाइल वाला फ़ोल्डर",
+  "settings.chooseFolder": "फ़ोल्डर चुनें…",
+  "settings.change": "बदलें…",
+  "settings.outDirHint": "{file} नाम से सेव होती है, कई फ़ाइलों पर हस्ताक्षर करते समय भी। मौजूदा फ़ाइल कभी नहीं बदली जाती: अगली कॉपी {next} बनती है।",
+  "settings.recentOn": "हाल में खोली गई फ़ाइलें याद रखें",
+  "settings.recentHint": "आपकी खोली गई आख़िरी 10 PDF, शुरुआती स्क्रीन पर और ‘खोलें’ के नीचे दिखती हैं। केवल इसी कंप्यूटर पर रखी जाती हैं: फ़ाइल के नाम, फ़ोल्डर और तारीख, सामग्री कभी नहीं।",
+  "settings.recentCount": { one: "सूची में {n} फ़ाइल।", other: "सूची में {n} फ़ाइलें।" },
+  "settings.recentEmpty": "सूची खाली है।",
+  "settings.clearRecent": "हाल की फ़ाइलें मिटाएँ",
+  "background.title": "बैकग्राउंड",
+  "background.keep": "बैकग्राउंड में चलता रहे",
+  "background.hint": "विंडो बंद करने पर TrackMySign {tray} में रहता है, ताकि GST पोर्टल ऐप खोले बिना हस्ताक्षर माँग सके। वहाँ उसके आइकन से बंद करें।",
+  "background.menuBar": "मेन्यू बार",
+  "background.systemTray": "सिस्टम ट्रे",
+  "background.autostart": "साइन इन करने पर TrackMySign शुरू करें",
+  "background.autostartHint": "विंडो खोले बिना {tray} में शुरू होता है।",
+  "error.backgroundFirst": "पहले “बैकग्राउंड में चलता रहे” चालू करें।",
 
   // ---- native dialogs
   "dialog.pdfs": "PDF दस्तावेज़",

@@ -1379,3 +1379,165 @@ section > label.check-row:first-of-type {
 .about .mono {
   font-size: 11.5px;
 }
+.out-dir {
+  margin-top: 8px;
+}
+.out-dir .mono {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* -------------------------------------------------------- recent files */
+
+.open-split {
+  position: relative;
+  display: flex;
+  flex: none;
+}
+.open-split .open-more {
+  width: 26px;
+  padding: 0;
+  margin-left: -1px;
+}
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  width: 320px;
+  padding: 4px 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background: var(--surface);
+  box-shadow: var(--dialog-shadow);
+}
+.menu-head {
+  padding: 4px 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+.menu button:hover:not(:disabled),
+.menu button:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+.menu .icon {
+  flex: none;
+  color: var(--muted);
+}
+.menu .icon:not(:first-child) {
+  color: var(--ok);
+}
+.menu-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-dir {
+  flex: none;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.recent {
+  margin-top: 24px;
+}
+.recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+}
+.recent-list li {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+.recent-list li:last-child {
+  border-bottom: 0;
+}
+.recent-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+.recent-open:hover:not(:disabled) {
+  background: var(--hover);
+}
+.recent-open .icon {
+  flex: none;
+  color: var(--muted);
+}
+.recent-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.recent-name,
+.recent-dir {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-name {
+  font-weight: 500;
+  color: var(--text);
+}
+.recent-dir,
+.recent-date {
+  font-size: 12px;
+  color: var(--muted);
+}
+.recent-date {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.recent-signed {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  margin: 0 8px 0 2px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: 11px;
+  font-weight: 500;
+}
+.recent-signed:hover:not(:disabled) {
+  border-color: var(--ok);
+}

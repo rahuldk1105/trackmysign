@@ -96,6 +96,8 @@ export interface SignArgs {
   password?: string | null;
   /** Certify instead of approving. */
   certify?: CertifyLevel | null;
+  /** Folder for the signed copy; next to the original when null. */
+  outDir?: string | null;
 }
 
 /** Several PDFs, one PIN entry. The box goes on the same page and spot of each. */
@@ -111,6 +113,17 @@ export type BatchProgress =
   | { state: "signing"; index: number }
   | { state: "done"; index: number; output: string; name: string }
   | { state: "failed"; index: number; message: string };
+
+/** A recently opened PDF; kept in the app's data folder, without any content. */
+export interface RecentFile {
+  path: string;
+  name: string;
+  /** Unix seconds. */
+  opened: number;
+  pages: number | null;
+  /** Where the signed copy went, when it was signed here. */
+  signed: string | null;
+}
 
 export interface Signed {
   output: string;
@@ -281,12 +294,48 @@ export async function openWebsite(): Promise<void> {
   else window.open("https://sign.rahuldk.in", "_blank");
 }
 
-/** One or more PDFs; several are signed as a batch. */
-export async function pickPdfs(): Promise<string[]> {
+/** One or more PDFs; several are signed as a batch. The dialog starts in `folder`. */
+export async function pickPdfs(folder?: string | null): Promise<string[]> {
   if (!inTauri) return ["C:\\Users\\rahul\\Downloads\\sample.pdf"];
   const { open } = await import("@tauri-apps/plugin-dialog");
-  const r = await open({ multiple: true, filters: [{ name: t("dialog.pdfs"), extensions: ["pdf"] }] });
+  const r = await open({ multiple: true, defaultPath: folder ?? undefined, filters: [{ name: t("dialog.pdfs"), extensions: ["pdf"] }] });
   return r ?? [];
+}
+
+export async function pickFolder(folder?: string | null): Promise<string | null> {
+  if (!inTauri) return "C:\\Users\\rahul\\Documents\\Signed";
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const r = await open({ directory: true, multiple: false, defaultPath: folder ?? undefined });
+  return typeof r === "string" ? r : null;
+}
+
+const mockRecent: RecentFile[] = [
+  {
+    path: "C:\\Users\\rahul\\Downloads\\sample.pdf",
+    name: "sample.pdf",
+    opened: Date.now() / 1000 - 3600,
+    pages: 2,
+    signed: "C:\\Users\\rahul\\Downloads\\sample_signed.pdf",
+  },
+  { path: "C:\\Users\\rahul\\Documents\\Invoices\\INV-2026-0142.pdf", name: "INV-2026-0142.pdf", opened: Date.now() / 1000 - 3 * 86400, pages: 1, signed: null },
+];
+
+/** Recently opened PDFs that still exist, most recent first. */
+export async function recentFiles(): Promise<RecentFile[]> {
+  return inTauri ? invoke("recent_files") : mockRecent;
+}
+
+export async function recentAdd(path: string, pages: number): Promise<RecentFile[]> {
+  return inTauri ? invoke("recent_add", { path, pages }) : mockRecent;
+}
+
+/** `path` was signed into `output`. */
+export async function recentSigned(path: string, output: string): Promise<RecentFile[]> {
+  return inTauri ? invoke("recent_signed", { path, output }) : mockRecent;
+}
+
+export async function recentClear(): Promise<void> {
+  if (inTauri) await invoke("recent_clear");
 }
 
 export async function onFileDrop(cb: (paths: string[]) => void, hover: (on: boolean) => void): Promise<() => void> {
@@ -461,4 +510,32 @@ export async function onPortalClosed(cb: (id: number) => void): Promise<() => vo
   if (!inTauri) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen<number>("portal-closed", (e) => cb(e.payload));
+}
+
+// ------------------------------------------------------- Background
+
+export interface BackgroundStatus {
+  /** Closing the window keeps the app in the tray (menu bar). */
+  enabled: boolean;
+  /** Starts at sign-in, in the tray. */
+  autostart: boolean;
+}
+
+let mockBackground: BackgroundStatus = { enabled: false, autostart: false };
+
+export async function backgroundStatus(): Promise<BackgroundStatus> {
+  return inTauri ? invoke("background_status") : mockBackground;
+}
+
+/** Turning it off also removes the start at sign-in. */
+export async function backgroundSet(enabled: boolean): Promise<BackgroundStatus> {
+  if (inTauri) return invoke("background_set", { enabled });
+  mockBackground = { enabled, autostart: enabled && mockBackground.autostart };
+  return mockBackground;
+}
+
+export async function backgroundSetAutostart(enabled: boolean): Promise<BackgroundStatus> {
+  if (inTauri) return invoke("background_set_autostart", { enabled });
+  mockBackground = { ...mockBackground, autostart: enabled };
+  return mockBackground;
 }
