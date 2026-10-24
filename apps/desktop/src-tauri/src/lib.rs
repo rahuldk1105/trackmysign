@@ -327,6 +327,7 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
                 message: "The selected certificate is no longer on the token.".into(),
             })?;
         not_expired(cert)?;
+        watch::check_pin(&app, cert, &args.pin)?;
         let mut signer = token.signer(cert, &args.pin)?;
         let req = SignRequest {
             page: args.page,
@@ -533,6 +534,7 @@ async fn sign_batch(
                 message: "The selected certificate is no longer on the token.".into(),
             })?;
         not_expired(cert)?;
+        watch::check_pin(&app, cert, &args.pin)?;
         let mut signer = token.signer(cert, &args.pin)?;
         for (index, path) in args.paths.iter().enumerate() {
             let _ = progress.send(BatchProgress::Signing { index });

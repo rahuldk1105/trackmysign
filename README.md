@@ -283,8 +283,11 @@ it. What limits the damage:
 - Nothing is signed until you press **Start watching** and enter the PIN. The
   token then stays logged in (for a key that asks for the PIN on every
   signature, the PIN is kept in memory to give it each time, and wiped when
-  watching stops); meanwhile, signing in the app goes through without the
-  token checking the PIN again. The PIN is never written anywhere.
+  watching stops). A logged-in token accepts any PIN, so while watching, a
+  PIN typed anywhere else in the app (signing, batches, the GST portal) is
+  checked against a salted hash of the session's PIN, kept in memory only,
+  and a wrong one is refused without using up the token's attempts. The PIN
+  is never written anywhere.
 - Watching stops after the time you choose (1 hour, 8 hours or until
   stopped), when the computer sleeps (unless you turn that off), when you
   quit TrackMySign, when the token is removed or the PIN is refused, and when

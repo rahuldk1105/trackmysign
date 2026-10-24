@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use trackmysign_core::portal::{self, Request, frame};
 use trackmysign_core::token::{Token, Tokens};
 
-use super::{CertDto, CmdResult, CommandError, TOKEN_LOCK, cert_dto, not_expired};
+use super::{CertDto, CmdResult, CommandError, TOKEN_LOCK, cert_dto, not_expired, watch};
 
 fn other(message: impl Into<String>) -> CommandError {
     CommandError {
@@ -442,6 +442,7 @@ pub async fn portal_sign(app: AppHandle, args: PortalSignArgs) -> CmdResult<()> 
             _ => return Err(gone()),
         }
     };
+    let handle = app.clone();
     let frame = tauri::async_runtime::spawn_blocking(move || -> CmdResult<String> {
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let token = Token::open(Path::new(&args.driver_path))?;
@@ -456,6 +457,7 @@ pub async fn portal_sign(app: AppHandle, args: PortalSignArgs) -> CmdResult<()> 
         if request.expiry_check {
             not_expired(cert)?;
         }
+        watch::check_pin(&handle, cert, &args.pin)?;
         let mut signer = token.signer(cert, &args.pin)?;
         Ok(portal::sign(&mut signer, &request, chrono::Utc::now())?)
     })

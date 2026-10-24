@@ -54,7 +54,9 @@ the PDFs put into a folder you choose, on your computer; nothing is sent
 anywhere unless you turn on timestamp or LTV there. The PIN is given to the
 token once when you start watching and is never saved; for a key that asks
 for it on every signature it is kept in memory until watching stops, then
-wiped. The settings (folders, limits and a copy of the chosen preset) are kept
+wiped. While watching, a salted hash of it is kept in memory (never on disk)
+to check PINs typed elsewhere in the app, and dropped when watching stops.
+The settings (folders, limits and a copy of the chosen preset) are kept
 in the app's data folder (`watch.json`), and so is a log of the last 200
 events (`watch-log.json`): the time, the file's path, where the signed copy
 or the file went, and the outcome or the reason it could not be signed. It

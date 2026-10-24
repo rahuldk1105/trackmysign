@@ -817,6 +817,55 @@ pub fn run(
 }
 
 /// `invoice.pdf` → `invoice_signed.pdf`, the first name a signed copy gets.
+/// A salted, stretched hash of the PIN a session logged in with. While the
+/// token stays logged in it accepts any PIN (`CKR_USER_ALREADY_LOGGED_IN`),
+/// so other PIN entries are checked against this instead, without using up
+/// the token's attempts.
+pub struct PinCheck {
+    salt: [u8; 16],
+    hash: [u8; 32],
+}
+
+const PIN_ROUNDS: u32 = 20_000;
+
+fn pin_hash(salt: &[u8; 16], pin: &str) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut h: [u8; 32] = Sha256::new()
+        .chain_update(salt)
+        .chain_update(pin.as_bytes())
+        .finalize()
+        .into();
+    for _ in 1..PIN_ROUNDS {
+        h = Sha256::new()
+            .chain_update(h)
+            .chain_update(salt)
+            .finalize()
+            .into();
+    }
+    h
+}
+
+impl PinCheck {
+    pub fn new(pin: &str) -> Result<Self, Error> {
+        let mut salt = [0u8; 16];
+        getrandom::getrandom(&mut salt)
+            .map_err(|e| Error::Token(format!("No random numbers for the PIN check: {e}")))?;
+        Ok(PinCheck {
+            hash: pin_hash(&salt, pin),
+            salt,
+        })
+    }
+
+    /// `pin` is the session's PIN; compared in constant time.
+    pub fn matches(&self, pin: &str) -> bool {
+        let h = pin_hash(&self.salt, pin);
+        h.iter()
+            .zip(self.hash)
+            .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+            == 0
+    }
+}
+
 fn signed_name(path: &Path) -> String {
     let stem = path
         .file_stem()
@@ -1020,6 +1069,20 @@ mod tests {
             .validate()
             .is_err()
         );
+    }
+
+    #[test]
+    fn pin_check() {
+        let c = PinCheck::new("12345678").unwrap();
+        assert!(c.matches("12345678"));
+        for wrong in ["", "1234567", "123456789", "12345679", " 12345678"] {
+            assert!(!c.matches(wrong), "{wrong:?}");
+        }
+        // Salted: the same PIN hashes differently each time.
+        let d = PinCheck::new("12345678").unwrap();
+        assert_ne!(c.salt, d.salt);
+        assert_ne!(c.hash, d.hash);
+        assert!(d.matches("12345678"));
     }
 
     #[test]

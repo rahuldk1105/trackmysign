@@ -15,8 +15,8 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
-use trackmysign_core::token::{Token, TokenSigner};
-use trackmysign_core::watch::{self, Control, Event, Folders, ImageChoice, Preset, Stop};
+use trackmysign_core::token::{Token, TokenCert, TokenSigner};
+use trackmysign_core::watch::{self, Control, Event, Folders, ImageChoice, PinCheck, Preset, Stop};
 use trackmysign_core::{Error, SignRequest, sign_pdf};
 use zeroize::Zeroize;
 
@@ -132,6 +132,9 @@ pub struct Ended {
 
 struct Session {
     control: Arc<Control>,
+    /// Label of the token the session is logged in to, and its PIN's hash.
+    token_label: String,
+    pin: PinCheck,
     folder: PathBuf,
     signed: usize,
     started: i64,
@@ -150,6 +153,35 @@ struct Inner {
     ended: Option<Ended>,
     /// The app is closing: the tray and window are left alone.
     quitting: bool,
+}
+
+impl Inner {
+    /// Whether `pin` may be used on a certificate of `token_label`: while a
+    /// session keeps that token logged in, only the session's PIN.
+    fn pin_allowed(&self, token_label: &str, pin: &str) -> bool {
+        match &self.session {
+            Some(s) if s.token_label == token_label => s.pin.matches(pin),
+            _ => true,
+        }
+    }
+}
+
+/// Call before logging in with a PIN typed anywhere else in the app. A token
+/// kept logged in by a session answers any PIN with "already logged in", so
+/// a wrong one is refused here, without asking the token.
+pub fn check_pin(app: &AppHandle, cert: &TokenCert, pin: &str) -> CmdResult<()> {
+    if app
+        .state::<WatchState>()
+        .lock()
+        .pin_allowed(&cert.token_label, pin)
+    {
+        return Ok(());
+    }
+    Err(Error::WrongPin {
+        final_try: false,
+        count_low: false,
+    }
+    .into())
 }
 
 impl WatchState {
@@ -449,7 +481,7 @@ pub async fn watch_start(app: AppHandle, mut args: StartArgs) -> CmdResult<Statu
 fn start(app: &AppHandle, args: &StartArgs, mut pin: String) -> CmdResult<()> {
     let result = open_session(app, args, &pin);
     pin.zeroize();
-    let (config, folders, signer) = result?;
+    let (config, folders, signer, token_label, pin) = result?;
     let image = match config.preset.image {
         ImageChoice::Off => None,
         _ if config.preset.invisible => None,
@@ -480,6 +512,8 @@ fn start(app: &AppHandle, args: &StartArgs, mut pin: String) -> CmdResult<()> {
         inner.ended = None;
         inner.session = Some(Session {
             control: control.clone(),
+            token_label,
+            pin,
             folder: folders.input.clone(),
             signed: 0,
             started: unix(now),
@@ -543,7 +577,7 @@ fn open_session(
     app: &AppHandle,
     args: &StartArgs,
     pin: &str,
-) -> CmdResult<(Config, Folders, TokenSigner)> {
+) -> CmdResult<(Config, Folders, TokenSigner, String, PinCheck)> {
     if app.state::<WatchState>().lock().session.is_some() {
         return Err(other("Already watching a folder."));
     }
@@ -566,7 +600,8 @@ fn open_session(
         })?;
     not_expired(cert)?;
     let signer = token.signer(cert, pin)?;
-    Ok((config, folders, signer))
+    let check = PinCheck::new(pin)?;
+    Ok((config, folders, signer, cert.token_label.clone(), check))
 }
 
 #[cfg(test)]
@@ -585,6 +620,31 @@ mod tests {
         // Never anything secret.
         assert!(!json.to_lowercase().contains("pin"));
         assert_eq!(serde_json::from_str::<Config>(&json).unwrap(), c);
+    }
+
+    #[test]
+    fn other_pin_entries_must_match_the_session() {
+        let mut inner = Inner::default();
+        // No session: the token checks the PIN itself.
+        assert!(inner.pin_allowed("HYP2003", "anything"));
+        inner.session = Some(Session {
+            control: Arc::new(Control::default()),
+            token_label: "HYP2003".into(),
+            pin: PinCheck::new("12345678").unwrap(),
+            folder: PathBuf::from("/w"),
+            signed: 0,
+            started: 0,
+            until: None,
+            thread: None,
+        });
+        assert!(inner.pin_allowed("HYP2003", "12345678"));
+        assert!(!inner.pin_allowed("HYP2003", "00000000"));
+        assert!(!inner.pin_allowed("HYP2003", ""));
+        // Another token is not logged in by the session.
+        assert!(inner.pin_allowed("ePass2003", "00000000"));
+        // Stopping clears the hash.
+        inner.session = None;
+        assert!(inner.pin_allowed("HYP2003", "00000000"));
     }
 
     #[test]

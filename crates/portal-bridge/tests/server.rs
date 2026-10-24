@@ -1,7 +1,7 @@
 //! The listener over real TLS and WebSocket connections on 127.0.0.1.
 
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
@@ -21,30 +21,51 @@ struct Fixture {
     running: Running,
     requests: Requests,
     ca: Vec<u8>,
+    /// The ports the listener was given.
+    ports: Vec<u16>,
 }
+
+/// Ports already handed to a test here: the OS may offer a closed one again.
+static HANDED_OUT: Mutex<Vec<u16>> = Mutex::new(Vec::new());
 
 fn free_port() -> u16 {
-    std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+    loop {
+        let port = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let mut handed = HANDED_OUT.lock().unwrap();
+        if !handed.contains(&port) {
+            handed.push(port);
+            return port;
+        }
+    }
 }
 
-async fn serve(ports: Vec<u16>, timeout: Duration) -> Fixture {
+/// Starts a listener on the ports `ports` picks. A free port can be taken
+/// by another program before the listener binds it, so a start that finds
+/// none free is tried again with fresh ones.
+async fn serve(ports: impl Fn() -> Vec<u16>, timeout: Duration) -> Fixture {
     let id = identity::generate(std::time::SystemTime::now()).unwrap();
-    let tls = identity::server_config(&id.cert, &id.key).unwrap();
-    let config = Config {
-        ports,
-        version: "2.8".into(),
-        timeout,
-    };
-    let (running, requests) = start(config, tls).await.unwrap();
-    Fixture {
-        running,
-        requests,
-        ca: id.ca,
+    for _ in 0..10 {
+        let tls = identity::server_config(&id.cert, &id.key).unwrap();
+        let ports = ports();
+        let config = Config {
+            ports: ports.clone(),
+            version: "2.8".into(),
+            timeout,
+        };
+        if let Ok((running, requests)) = start(config, tls).await {
+            return Fixture {
+                running,
+                requests,
+                ca: id.ca,
+                ports,
+            };
+        }
     }
+    panic!("no free port to listen on");
 }
 
 async fn connect(f: &Fixture, origin: &str, host: Option<&str>) -> Result<Client, WsError> {
@@ -93,8 +114,8 @@ async fn greets_signs_and_skips_a_taken_port() {
     // Something (emSigner, say) already listens on the first port.
     let busy = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
     let first = busy.local_addr().unwrap().port();
-    let second = free_port();
-    let mut f = serve(vec![first, second], Duration::from_secs(30)).await;
+    let mut f = serve(|| vec![first, free_port()], Duration::from_secs(30)).await;
+    let second = f.ports[1];
     assert_eq!(f.running.port, second);
     assert_eq!(f.running.taken, vec![first]);
 
@@ -149,7 +170,7 @@ async fn greets_signs_and_skips_a_taken_port() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn unanswered_request_is_cancelled() {
-    let mut f = serve(vec![free_port()], Duration::from_millis(300)).await;
+    let mut f = serve(|| vec![free_port()], Duration::from_millis(300)).await;
     let mut ws = connect(&f, "https://gst.gov.in", None).await.unwrap();
     text(&mut ws).await.unwrap();
     ws.send(Message::text(REQUEST)).await.unwrap();
@@ -164,7 +185,7 @@ async fn unanswered_request_is_cancelled() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn closing_the_page_withdraws_the_request() {
-    let mut f = serve(vec![free_port()], Duration::from_secs(30)).await;
+    let mut f = serve(|| vec![free_port()], Duration::from_secs(30)).await;
     let mut ws = connect(&f, "https://reg.gst.gov.in", None).await.unwrap();
     text(&mut ws).await.unwrap();
     ws.send(Message::text(REQUEST)).await.unwrap();
@@ -182,7 +203,7 @@ fn forbidden(r: Result<Client, WsError>) -> bool {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn other_sites_and_hosts_are_refused() {
-    let f = serve(vec![free_port()], Duration::from_secs(30)).await;
+    let f = serve(|| vec![free_port()], Duration::from_secs(30)).await;
     let port = f.running.port;
     for origin in [
         "https://evil.example",
@@ -213,7 +234,7 @@ async fn other_sites_and_hosts_are_refused() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn oversized_frames_close_the_connection() {
-    let f = serve(vec![free_port()], Duration::from_secs(30)).await;
+    let f = serve(|| vec![free_port()], Duration::from_secs(30)).await;
     let mut ws = connect(&f, "https://services.gst.gov.in", None)
         .await
         .unwrap();
@@ -226,7 +247,7 @@ async fn oversized_frames_close_the_connection() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn binds_loopback_only() {
-    let f = serve(vec![free_port()], Duration::from_secs(30)).await;
+    let f = serve(|| vec![free_port()], Duration::from_secs(30)).await;
     let port = f.running.port;
     // Any address of this machine other than loopback must not answer.
     let others: Vec<std::net::IpAddr> = local_addresses()
