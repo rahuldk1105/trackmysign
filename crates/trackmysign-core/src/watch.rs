@@ -585,7 +585,7 @@ fn write_reason(moved: &Path, original: &Path, reason: &str) -> io::Result<()> {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let text = format!(
-        "TrackMySign could not sign {name}.\n\nReason: {reason}\nTime: {}\n\n\
+        "TrackMy Sign could not sign {name}.\n\nReason: {reason}\nTime: {}\n\n\
          The file was not changed. Fix the problem and put it back into the \
          watched folder to try again, or sign it in the app.\n",
         Local::now().format("%d %b %Y %H:%M:%S %:z"),

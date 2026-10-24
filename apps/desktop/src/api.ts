@@ -304,7 +304,7 @@ export async function exportCertificate(certId: string, driverPath: string, form
   return `C:\\Users\\rahul\\Downloads\\DK_RAHUL_DSC.${{ der: "cer", pem: "pem", chain: "p7b" }[format]}`;
 }
 
-/** PDFs the app was started with (command line, Finder, "Sign with TrackMySign"). */
+/** PDFs the app was started with (command line, Finder, "Sign with TrackMy Sign"). */
 /** Signs every file in one token session; per-file results arrive through `progress`. */
 export async function signBatch(args: BatchArgs, progress: (p: BatchProgress) => void): Promise<void> {
   if (!inTauri) return mock.signBatch(args, progress);

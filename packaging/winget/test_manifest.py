@@ -40,6 +40,12 @@ class Manifests(unittest.TestCase):
         self.assertEqual(inst["ReleaseDate"], "2026-10-24")
         self.assertEqual(inst["Scope"], "user")
         self.assertEqual(inst["AppsAndFeaturesEntries"][0]["ProductCode"], "TrackMySign")
+        self.assertEqual(inst["AppsAndFeaturesEntries"][0]["DisplayName"], "TrackMy Sign")
+        self.assertEqual(inst["AppsAndFeaturesEntries"][0]["Publisher"], "TrackMy Tech Private Limited")
+        loc = manifest.load_yaml(os.path.join(folder, "TrackMyTech.TrackMySign.locale.en-US.yaml"))
+        self.assertEqual(loc["PackageName"], "TrackMy Sign")
+        self.assertEqual(loc["Publisher"], "TrackMy Tech Private Limited")
+        self.assertTrue(loc["Description"].startswith("TrackMy Sign signs PDF"))
         self.assertEqual(inst["InstallationMetadata"]["DefaultInstallLocation"], "%LocalAppData%\\TrackMySign")
         self.assertEqual(
             inst["Installers"][0]["InstallerUrl"],

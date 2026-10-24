@@ -351,7 +351,7 @@ function EntryDetails({ entry: e, onOpen }: { entry: HistoryEntry; onOpen: (path
   if (e.location) rows.push([t("common.location"), e.location]);
   if (e.certify) rows.push([t("history.certification"), t("history.certifyLevel", { n: e.certify })]);
   if (e.timestamp || e.ltv) rows.push([t("history.timestampLtv"), [e.timestamp, e.ltv ? t("history.ltv") : null].filter(Boolean).join(" · ")]);
-  rows.push([t("history.program"), `TrackMySign ${e.program}`]);
+  rows.push([t("history.program"), `TrackMy Sign ${e.program}`]);
   const output = e.output?.path;
   return (
     <div className="history-details">

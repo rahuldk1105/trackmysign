@@ -11,8 +11,13 @@ mod output;
 mod pages;
 mod portal;
 mod recent;
+#[cfg(all(windows, feature = "store"))]
+mod store;
 mod verify;
 mod watch;
+
+#[cfg(all(feature = "store", not(windows)))]
+compile_error!("the store feature is for the Microsoft Store (Windows) build");
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -912,6 +917,8 @@ fn open_website() -> CmdResult<()> {
 pub fn run() {
     let cwd = std::env::current_dir().unwrap_or_default();
     let hidden = background::launched_hidden(std::env::args());
+    #[cfg(all(windows, feature = "store"))]
+    let hidden = hidden || store::launched_at_sign_in();
     let startup = file_args(std::env::args().skip(1), &cwd);
     let builder = tauri::Builder::default();
     // Must be the first plugin: a second launch hands its files to this one and exits.
@@ -923,8 +930,10 @@ pub fn run() {
         }
         hand_over(app, file_args(args.into_iter().skip(1), Path::new(&cwd)));
     }));
-    // In-app updates; the front end decides when to check (settings).
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    // In-app updates; the front end decides when to check (settings). The
+    // Store build is updated by the Store, and starts at sign-in through the
+    // package's StartupTask (store.rs).
+    #[cfg(not(any(target_os = "android", target_os = "ios", feature = "store")))]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -1015,7 +1024,7 @@ pub fn run() {
             watch::watch_stop
         ])
         .build(tauri::generate_context!())
-        .expect("error while running TrackMySign")
+        .expect("error while running TrackMy Sign")
         .run(on_run_event);
 }
 

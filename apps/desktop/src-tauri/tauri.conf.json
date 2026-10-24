@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "TrackMySign",
+        "title": "TrackMy Sign",
         "width": 1180,
         "height": 820,
         "minWidth": 860,
@@ -32,14 +32,14 @@
       "app",
       "dmg"
     ],
-    "publisher": "DK Rahul",
+    "publisher": "TrackMy Tech Private Limited",
     "copyright": "Copyright (c) 2026 DK Rahul",
     "homepage": "https://sign.rahuldk.in",
     "license": "MIT",
     "licenseFile": "../../../LICENSE",
     "category": "Productivity",
     "shortDescription": "Sign PDFs with your USB DSC token",
-    "longDescription": "TrackMySign signs PDF documents with the Digital Signature Certificate (DSC) on your USB token. Open a PDF, place your signature, enter your token PIN and save a signed copy. Your PIN and private key never leave the token.",
+    "longDescription": "TrackMy Sign signs PDF documents with the Digital Signature Certificate (DSC) on your USB token. Open a PDF, place your signature, enter your token PIN and save a signed copy. Your PIN and private key never leave the token.",
     "icon": [
       "icons/128x128@2x.png",
       "icons/128x128.png",

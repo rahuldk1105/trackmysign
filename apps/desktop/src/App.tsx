@@ -333,7 +333,8 @@ export default function App() {
   const [recent, setRecent] = useState<RecentFile[]>([]);
   /** Folder of the PDF opened last; also kept while the recent list is off. */
   const [lastFolder, setLastFolder] = useState<string | null>(null);
-  const updater = useUpdater(saved.autoUpdate);
+  // The Store build is updated by the Store.
+  const updater = useUpdater(saved.autoUpdate && !__STORE__);
   const portal = usePortal();
   const refreshPortal = portal.refresh;
   const watch = useWatch();
@@ -874,7 +875,7 @@ export default function App() {
       <header className="toolbar">
         <div className="brand">
           <Logo size={20} />
-          <span>TrackMySign</span>
+          <span>TrackMy Sign</span>
         </div>
         <i className="tb-sep" />
         {doc ? (
@@ -935,7 +936,9 @@ export default function App() {
         </button>
       </header>
 
-      <UpdateBanner state={updater.state} busy={step.kind === "signing" || (step.kind === "batch" && step.running)} onInstall={updater.install} onDismiss={updater.dismiss} />
+      {!__STORE__ && (
+        <UpdateBanner state={updater.state} busy={step.kind === "signing" || (step.kind === "batch" && step.running)} onInstall={updater.install} onDismiss={updater.dismiss} />
+      )}
 
       <div className="workspace">
         <main className="viewer">
@@ -2329,20 +2332,22 @@ function Settings(props: {
 
           <BackgroundSettings portalEnabled={props.portal?.enabled} />
 
-          <section>
-            <h3>{t("settings.updates")}</h3>
-            <label className="check-row">
-              <input type="checkbox" checked={props.saved.autoUpdate} onChange={(e) => props.update({ autoUpdate: e.target.checked })} />
-              {t("settings.autoUpdate")}
-            </label>
-            <p className="muted small">{t("settings.updateHint")}</p>
-            <div className="setting-row">
-              <span className={`small ${props.updateState.kind === "error" ? "bad" : "muted"}`}>{updateStatus(props.updateState)}</span>
-              <button className="btn" onClick={props.onCheckUpdate} disabled={props.updateState.kind === "checking" || props.updateState.kind === "installing"}>
-                <RefreshIcon size={14} /> {t("settings.checkUpdates")}
-              </button>
-            </div>
-          </section>
+          {!__STORE__ && (
+            <section>
+              <h3>{t("settings.updates")}</h3>
+              <label className="check-row">
+                <input type="checkbox" checked={props.saved.autoUpdate} onChange={(e) => props.update({ autoUpdate: e.target.checked })} />
+                {t("settings.autoUpdate")}
+              </label>
+              <p className="muted small">{t("settings.updateHint")}</p>
+              <div className="setting-row">
+                <span className={`small ${props.updateState.kind === "error" ? "bad" : "muted"}`}>{updateStatus(props.updateState)}</span>
+                <button className="btn" onClick={props.onCheckUpdate} disabled={props.updateState.kind === "checking" || props.updateState.kind === "installing"}>
+                  <RefreshIcon size={14} /> {t("settings.checkUpdates")}
+                </button>
+              </div>
+            </section>
+          )}
 
           <section>
             <h3>{t("settings.about")}</h3>
@@ -2350,11 +2355,12 @@ function Settings(props: {
               <Logo size={28} />
               <div>
                 <div>
-                  <strong>TrackMySign</strong> <span className="mono muted">{__APP_VERSION__}</span>
+                  <strong>TrackMy Sign</strong> <span className="mono muted">{__APP_VERSION__}</span>
                 </div>
                 <span className="muted small">
                   {t("settings.aboutText")}{" "}
-                  {onlineNote(props.saved.timestamp || props.saved.ltv, props.saved.autoUpdate)}
+                  {__STORE__ && <>{t("settings.storeUpdates")} </>}
+                  {onlineNote(props.saved.timestamp || props.saved.ltv, props.saved.autoUpdate && !__STORE__)}
                 </span>
                 <button className="link" onClick={() => api.openWebsite()}>
                   sign.rahuldk.in

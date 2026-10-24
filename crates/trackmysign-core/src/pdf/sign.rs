@@ -674,7 +674,7 @@ fn sig_dict(fields: &SignatureFields, sub_filter: &str, field_lock: Option<Obj>)
         "Prop_Build",
         Obj::Dict(Dict::new().with(
             "App",
-            Obj::Dict(Dict::new().with("Name", Obj::name("TrackMySign"))),
+            Obj::Dict(Dict::new().with("Name", Obj::name("TrackMy Sign"))),
         )),
     );
     sig
@@ -1027,7 +1027,8 @@ mod tests {
     }
 
     /// The stamp without a style is the one every earlier version drew, to
-    /// the byte (hashes taken before styles existed).
+    /// the byte (hashes taken before styles existed; renewed only when the
+    /// application name in Prop_Build became "TrackMy Sign").
     #[test]
     fn default_stamp_unchanged() {
         use sha2::{Digest, Sha256};
@@ -1090,9 +1091,9 @@ mod tests {
         assert_eq!(
             hashes,
             [
-                "9bfdd32fa0d6a1eb41c0b0b8c55c7bf41f9d7d47e1c3c914068ef816e9a8f156",
-                "6a56ccf1e54c2a3b4a2185ec663d77646d188738a5d936b09fe7ea5cdf118473",
-                "cac8b234a4c1650cb72677c20ec17a956242fbae0639ab8ad54caf1c22419ff6",
+                "8bd08eec05bf8936a06556a7f2e908ded087959de07ffb58dcd2f282c6bc5ac7",
+                "463e415665b782521b8e9c0afa03f7ae98887325453f8f4d8ae0a58bc721ced5",
+                "f7c6af19bd8ea6e5ec2d4ea42f33454c85f4449e90e21557a83e42e1af0af93d",
             ]
         );
     }

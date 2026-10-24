@@ -13,12 +13,52 @@ use tauri::tray::TrayIconBuilder;
 #[cfg(not(target_os = "macos"))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{AppHandle, Manager, Window, WindowEvent, Wry};
-use tauri_plugin_autostart::ManagerExt;
 
 use super::{CmdResult, CommandError, portal, watch};
 
 /// Passed by the sign-in entry: start in the tray, without a window.
 pub const ARG: &str = "--background";
+
+/// The sign-in entry: tauri-plugin-autostart's Run value (Windows), LaunchAgent
+/// (macOS) or autostart .desktop file (Linux).
+#[cfg(not(all(windows, feature = "store")))]
+mod signin {
+    use tauri::AppHandle;
+    use tauri_plugin_autostart::ManagerExt;
+
+    pub fn is_enabled(app: &AppHandle) -> bool {
+        app.autolaunch().is_enabled().unwrap_or(false)
+    }
+
+    pub fn enable(app: &AppHandle) -> Result<(), String> {
+        app.autolaunch().enable().map_err(|e| e.to_string())
+    }
+
+    pub fn disable(app: &AppHandle) -> Result<(), String> {
+        app.autolaunch().disable().map_err(|e| e.to_string())
+    }
+}
+
+/// Store build: the package's StartupTask, which starts the app without
+/// [`ARG`] (see `store::launched_at_sign_in`).
+#[cfg(all(windows, feature = "store"))]
+mod signin {
+    use tauri::AppHandle;
+
+    use crate::store;
+
+    pub fn is_enabled(_: &AppHandle) -> bool {
+        store::is_enabled()
+    }
+
+    pub fn enable(_: &AppHandle) -> Result<(), String> {
+        store::enable()
+    }
+
+    pub fn disable(_: &AppHandle) -> Result<(), String> {
+        store::disable()
+    }
+}
 
 const TRAY: &str = "main";
 
@@ -113,7 +153,7 @@ fn apply(app: &AppHandle) {
     let state = app.state::<BackgroundState>();
     state.active.store(on, Ordering::SeqCst);
     if !on {
-        let _ = app.autolaunch().disable();
+        let _ = signin::disable(app);
         set_dock(app, true);
     }
     let watching = watch::tray_line(app);
@@ -123,8 +163,8 @@ fn apply(app: &AppHandle) {
     }
     let (enabled, port) = portal::summary(app);
     let tooltip = match &watching {
-        Some(line) => format!("TrackMySign — {line}"),
-        None => "TrackMySign".into(),
+        Some(line) => format!("TrackMy Sign — {line}"),
+        None => "TrackMy Sign".into(),
     };
     let Ok(menu) = tray_menu(app, &portal_label(enabled, port), watching.as_deref()) else {
         return;
@@ -144,7 +184,7 @@ fn tray_menu(app: &AppHandle, portal: &str, watching: Option<&str>) -> tauri::Re
     let menu = Menu::with_items(
         app,
         &[
-            &MenuItem::with_id(app, "open", "Open TrackMySign", true, None::<&str>)?,
+            &MenuItem::with_id(app, "open", "Open TrackMy Sign", true, None::<&str>)?,
             &MenuItem::with_id(app, "portal", portal, false, None::<&str>)?,
         ],
     )?;
@@ -266,7 +306,7 @@ pub struct StatusDto {
 fn status(app: &AppHandle) -> StatusDto {
     StatusDto {
         enabled: keeps_running(app),
-        autostart: app.autolaunch().is_enabled().unwrap_or(false),
+        autostart: signin::is_enabled(app),
     }
 }
 
@@ -289,15 +329,14 @@ pub async fn background_set(app: AppHandle, enabled: bool) -> CmdResult<StatusDt
     Ok(status(&app))
 }
 
-/// Adds or removes the sign-in entry (Windows: the Run key; macOS: a
-/// LaunchAgent), which starts the app with [`ARG`].
+/// Adds or removes the sign-in entry ([`signin`]), which starts the app in
+/// the tray.
 #[tauri::command]
 pub async fn background_set_autostart(app: AppHandle, enabled: bool) -> CmdResult<StatusDto> {
-    let autolaunch = app.autolaunch();
     if !enabled {
-        autolaunch.disable().map_err(|e| other(e.to_string()))?;
+        signin::disable(&app).map_err(other)?;
     } else if keeps_running(&app) {
-        autolaunch.enable().map_err(|e| other(e.to_string()))?;
+        signin::enable(&app).map_err(other)?;
     } else {
         return Err(other("Turn on “Keep running in the background” first."));
     }

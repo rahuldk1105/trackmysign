@@ -1,4 +1,4 @@
-# Contributing to TrackMySign
+# Contributing to TrackMy Sign
 
 Thanks for helping. Bug reports, token reports ("my token isn't detected") and
 pull requests are all welcome. For anything larger than a small fix, open an

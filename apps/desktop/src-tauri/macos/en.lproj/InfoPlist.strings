@@ -1,0 +1,5 @@
+/* The name Finder, the Dock and Spotlight show (LSHasLocalizedDisplayName in
+   ../../Info.plist). The bundle itself stays TrackMySign.app: productName,
+   which the updater replaces in place. */
+CFBundleDisplayName = "TrackMy Sign";
+CFBundleName = "TrackMy Sign";

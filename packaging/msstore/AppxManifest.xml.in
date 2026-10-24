@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Template for the Microsoft Store package; manifest.py fill writes the
+     AppxManifest.xml. Identity and PublisherDisplayName are the ones Partner
+     Center gives the product (Product identity page). -->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap desktop rescap">
+
+  <Identity
+    Name="@IDENTITY_NAME@"
+    Publisher="@IDENTITY_PUBLISHER@"
+    Version="@VERSION@"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>@DISPLAY_NAME@</DisplayName>
+    <PublisherDisplayName>@PUBLISHER_DISPLAY_NAME@</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-US" />
+    <Resource Language="hi-IN" />
+    <Resource Language="ta-IN" />
+  </Resources>
+
+  <Applications>
+    <Application Id="TrackMySign" Executable="TrackMySign.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="@DISPLAY_NAME@"
+        Description="Sign PDFs with the Digital Signature Certificate (DSC) on your USB token."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- "Open with" for PDFs; the default PDF app stays as it is. -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="pdf">
+            <uap:DisplayName>PDF document</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType ContentType="application/pdf">.pdf</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <!-- Settings, Background: "Start TrackMy Sign when I sign in" (store.rs). -->
+        <desktop:Extension Category="windows.startupTask" Executable="TrackMySign.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="TrackMySignStartup" Enabled="false" DisplayName="@DISPLAY_NAME@" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- A desktop app: loads the USB token's PKCS#11 driver. -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

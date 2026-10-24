@@ -37,6 +37,8 @@ jobs:
         run: npm ci && npm run build && npm test
       - name: winget manifests
         run: python3 -m unittest discover -s packaging/winget
+      - name: Microsoft Store manifest
+        run: python3 -m unittest discover -s packaging/msstore
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
@@ -309,6 +311,22 @@ jobs:
           # Finder automation occasionally times out on hosted runners.
           echo "::warning::dmg layout step failed; retrying without the custom Finder layout"
           TAURI_BUNDLER_DMG_IGNORE_CI=false npx tauri build ${{ matrix.build-args }} "${args[@]}"
+
+      # ---- Microsoft Store package (packaging/msstore): the app built again with
+      # the store feature, packed as an MSIX. Unsigned: the Store signs it. A
+      # failure here only shows as a warning, the installer is still published.
+      - name: Build Microsoft Store package
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        working-directory: apps/desktop
+        shell: pwsh
+        env:
+          TRACKMYSIGN_STORE: "1"
+        run: |
+          npx tauri build --no-bundle --features store
+          if ($LASTEXITCODE) { throw "tauri build failed" }
+          ../../packaging/msstore/pack.ps1 -Exe ../../target/release/TrackMySign.exe `
+            -Out ../../target/release/TrackMySign-windows-x64.msix
       # Tags (v1.2.3) publish a normal release, which /releases/latest points at;
       # other pushes refresh the "test-build" pre-release.
       - name: Publish release assets
@@ -338,6 +356,13 @@ jobs:
             cp ${pair%%=*} "$asset"
             gh release upload "$REL" "$asset" --clobber
           done
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            if [ -e target/release/TrackMySign-windows-x64.msix ]; then
+              gh release upload "$REL" target/release/TrackMySign-windows-x64.msix --clobber
+            else
+              echo "::warning::No Microsoft Store package was built"
+            fi
+          fi
           if [ "$UPDATER_SIGNED" = "1" ]; then
             for pair in ${{ matrix.updater }}; do
               file="${pair%%=*}"
@@ -448,11 +473,10 @@ jobs:
             echo "::error::GitHub answered $code for winget-pkgs (WINGET_TOKEN expired?)"
             exit 1
           fi
+          # The manifests generated above, not `komac update`: that would copy the
+          # previous version's Apps & Features entry (publisher, display name).
           ver="${WINGET_REL#v}"
-          "$komac" update "$id" --version "$ver" \
-            --urls "https://github.com/$GITHUB_REPOSITORY/releases/download/$WINGET_REL/TrackMySign-Setup-windows-x64.exe" \
-            --release-notes-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$WINGET_REL" \
-            --submit
+          "$komac" submit "$RUNNER_TEMP/winget/manifests/t/TrackMyTech/TrackMySign/$ver" --yes
       - name: Skip winget submission
         if: env.WINGET_TOKEN == ''
         run: echo "WINGET_TOKEN not set; manifests generated and validated, nothing submitted"

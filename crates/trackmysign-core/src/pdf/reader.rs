@@ -13,7 +13,7 @@ use super::object::{Dict, Lexer, Obj, Parser, Tok, is_ws};
 pub enum PdfError {
     #[error("not a PDF file")]
     NotPdf,
-    #[error("this PDF is encrypted in a way TrackMySign cannot open: {0}")]
+    #[error("this PDF is encrypted in a way TrackMy Sign cannot open: {0}")]
     Encrypted(String),
     #[error("this PDF is password-protected; enter its password to open it")]
     PasswordRequired,

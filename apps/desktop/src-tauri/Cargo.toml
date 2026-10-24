@@ -1,13 +1,17 @@
 [package]
 name = "trackmysign-desktop"
 version = "0.5.0"
-description = "TrackMySign — sign PDFs with your DSC token"
-authors = ["DK Rahul"]
+description = "TrackMy Sign — sign PDFs with your DSC token"
 edition = "2024"
 
 [lib]
 name = "trackmysign_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# Microsoft Store (MSIX) build, see packaging/msstore: no in-app updater, and
+# the start at sign-in is the package's StartupTask.
+store = ["dep:windows"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -28,3 +32,6 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-process = "2"
 tauri-plugin-autostart = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", optional = true, features = ["ApplicationModel", "ApplicationModel_Activation", "Win32_System_Com"] }

@@ -254,7 +254,7 @@ pub fn assemble(docs: &[Document], items: &[Item]) -> Result<Assembled> {
         info,
         Obj::Dict(
             Dict::new()
-                .with("Producer", Obj::str("TrackMySign"))
+                .with("Producer", Obj::str("TrackMy Sign"))
                 .with("CreationDate", Obj::str(&now))
                 .with("ModDate", Obj::str(&now)),
         ),

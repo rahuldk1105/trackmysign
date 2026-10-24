@@ -19,10 +19,15 @@ The installer is Tauri's NSIS installer, per user (`installMode: currentUser`):
 no admin rights, installs to `%LocalAppData%\TrackMySign`, `/S` silent, `/P`
 progress only. It writes the uninstall entry
 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\TrackMySign` with
-DisplayName `TrackMySign` and Publisher `DK Rahul` (`bundle.publisher` in
-`tauri.conf.json`), which winget uses to find the installed version
-(`ProductCode: TrackMySign`, `AppsAndFeaturesEntries`). The installer is not
-code-signed; winget-pkgs accepts that, but it is scanned during validation.
+Publisher `TrackMy Tech Private Limited` (`bundle.publisher` in
+`tauri.conf.json`) and DisplayName `TrackMy Sign` (set by
+`apps/desktop/src-tauri/windows/hooks.nsh`), which winget uses to find the
+installed version (`ProductCode: TrackMySign`, `AppsAndFeaturesEntries`). The
+key name stays `TrackMySign` (productName). Up to v0.5.0 the installer wrote
+DisplayName `TrackMySign` and Publisher `DK Rahul`; `EARLIER` in
+`manifest.py` keeps the v0.5.0 manifests describing that installer. The
+installer is not code-signed; winget-pkgs accepts that, but it is scanned
+during validation.
 
 ## First submission (once)
 
@@ -72,12 +77,13 @@ For each real release (a `v*` tag, or `release_tag` in a manual run; never
 `test-build`) the `winget` job in `.github/workflows/ci.yml` generates and
 validates the manifests for that version and keeps them as the
 `winget-manifests` workflow artifact. If `WINGET_TOKEN` is set and the package
-is already in winget-pkgs, it runs
+is already in winget-pkgs, it submits them with
 
 ```
-komac update TrackMyTech.TrackMySign --version <version> --urls <installer URL> --release-notes-url <release URL> --submit
+komac submit <manifests>/t/TrackMyTech/TrackMySign/<version> --yes
 ```
 
-which takes the current manifests from winget-pkgs, replaces the installer
-and opens the update pull request. Without the secret, or before the first
-version is merged, nothing is submitted.
+which opens the update pull request. (Not `komac update`: it copies the
+previous version's manifests, including the Apps & Features publisher and
+name of v0.5.0.) Without the secret, or before the first version is merged,
+nothing is submitted.

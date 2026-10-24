@@ -1,8 +1,8 @@
 //! Files handed over by the system: on the command line ("Open with",
-//! "Sign with TrackMySign", drag onto the icon), by Finder, or by a second
+//! "Sign with TrackMy Sign", drag onto the icon), by Finder, or by a second
 //! launch while the app is running.
 //!
-//! Selecting several PDFs and choosing "Sign with TrackMySign" should give one
+//! Selecting several PDFs and choosing "Sign with TrackMy Sign" should give one
 //! batch, but Explorer starts one process per file (each hands its file over
 //! through the single-instance plugin) and Finder may split a selection over
 //! several events. So files are collected until none has arrived for

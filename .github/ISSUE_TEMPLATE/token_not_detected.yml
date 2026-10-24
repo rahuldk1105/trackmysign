@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        TrackMySign finds tokens through the PKCS#11 driver their vendor installs. If yours isn't found, the driver's file path is usually all that's needed to add it.
+        TrackMy Sign finds tokens through the PKCS#11 driver their vendor installs. If yours isn't found, the driver's file path is usually all that's needed to add it.
         **Never paste your PIN or certificate file.** Blank out your name in screenshots.
   - type: input
     id: token
@@ -31,7 +31,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: TrackMySign version
+      label: TrackMy Sign version
       placeholder: v0.1.4
     validations:
       required: true
@@ -59,7 +59,7 @@ body:
   - type: textarea
     id: drivers
     attributes:
-      label: What TrackMySign shows
+      label: What TrackMy Sign shows
       description: Settings → DSC token → Detected drivers, or the output of `trackmysign certs` (blank out your name).
       render: text
   - type: textarea

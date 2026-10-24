@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest something TrackMySign should do.
+description: Suggest something TrackMy Sign should do.
 labels: [enhancement]
 body:
   - type: textarea

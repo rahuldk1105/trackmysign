@@ -2,7 +2,7 @@
 name = "trackmysign"
 version = "0.5.0"
 edition = "2024"
-description = "TrackMySign command-line PDF signer"
+description = "TrackMy Sign command-line PDF signer"
 
 [build-dependencies]
 tauri-winres = "0.3"

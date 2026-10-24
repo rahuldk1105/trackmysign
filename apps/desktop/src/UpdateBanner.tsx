@@ -38,7 +38,7 @@ export function UpdateBanner(props: {
           ) : s.kind === "installing" ? (
             t("update.bannerDownloading", { version: update.version })
           ) : (
-            tx("update.bannerAvailable", { name: <strong>TrackMySign {update.version}</strong> })
+            tx("update.bannerAvailable", { name: <strong>TrackMy Sign {update.version}</strong> })
           )}
         </span>
         {notes && s.kind !== "installing" && (

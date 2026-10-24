@@ -9,6 +9,12 @@
         "role": "Viewer",
         "rank": "Alternate"
       }
-    ]
+    ],
+    "macOS": {
+      "bundleName": "TrackMy Sign",
+      "files": {
+        "Resources/en.lproj/InfoPlist.strings": "macos/en.lproj/InfoPlist.strings"
+      }
+    }
   }
 }

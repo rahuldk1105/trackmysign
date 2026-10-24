@@ -17,8 +17,9 @@ files agree with each other and with their path. Needs PyYAML and jsonschema.
 The uninstall entry is the one Tauri's NSIS installer writes for a per-user
 install (tauri-bundler, nsis/installer.nsi): the key
 HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\<productName>, with
-DisplayName = productName and Publisher = bundle.publisher. Its key name is
-what winget calls the ProductCode.
+Publisher = bundle.publisher and DisplayName = productName, which
+apps/desktop/src-tauri/windows/hooks.nsh then replaces with DISPLAY_NAME. Its
+key name is what winget calls the ProductCode.
 """
 import argparse
 import hashlib
@@ -36,9 +37,18 @@ IDENTIFIER = "TrackMyTech.TrackMySign"
 LOCALE = "en-US"
 REPO = "https://github.com/rahuldk1105/trackmysign"
 INSTALLER_ASSET = "TrackMySign-Setup-windows-x64.exe"
+# The name users see; productName (the install folder, the uninstall key, the
+# ProductCode) stays TrackMySign.
+DISPLAY_NAME = "TrackMy Sign"
+
+# Versions released before the publisher and the display name changed, as
+# their installers wrote them to Apps & Features (and as they were listed).
+EARLIER = {
+    "0.5.0": {"name": "TrackMySign", "publisher": "DK Rahul"},
+}
 
 DESCRIPTION = """\
-TrackMySign signs PDF documents with the Digital Signature Certificate (DSC) on a USB token, through the token's PKCS#11 driver. Open a PDF, place the signature, enter the token PIN and save a signed copy; the PIN and the private key never leave the token.
+{name} signs PDF documents with the Digital Signature Certificate (DSC) on a USB token, through the token's PKCS#11 driver. Open a PDF, place the signature, enter the token PIN and save a signed copy; the PIN and the private key never leave the token.
 Signatures are added as an incremental update, so the original bytes and any signatures already on the document stay valid. It also verifies signatures, signs batches and watched folders, adds timestamps and long-term validation data, and can sign returns on the GST portal.
 Free and open source (MIT)."""
 
@@ -73,6 +83,8 @@ def manifests(version, url, sha256, release_date=None):
     """The three manifests as (file name, schema type, ordered fields)."""
     conf = tauri_conf()
     product = conf["productName"]
+    earlier = EARLIER.get(version, {})
+    name = earlier.get("name", DISPLAY_NAME)
     common = [("PackageIdentifier", IDENTIFIER), ("PackageVersion", version)]
     tail = [("ManifestVersion", MANIFEST_VERSION)]
 
@@ -93,8 +105,8 @@ def manifests(version, url, sha256, release_date=None):
         installer.append(("ReleaseDate", release_date))
     installer += [
         ("AppsAndFeaturesEntries", [[
-            ("DisplayName", product),
-            ("Publisher", conf["bundle"]["publisher"]),
+            ("DisplayName", name),
+            ("Publisher", earlier.get("publisher", conf["bundle"]["publisher"])),
             ("ProductCode", product),
         ]]),
         ("InstallationMetadata", [("DefaultInstallLocation", "%LocalAppData%\\" + product)]),
@@ -108,18 +120,18 @@ def manifests(version, url, sha256, release_date=None):
 
     locale = common + [
         ("PackageLocale", LOCALE),
-        ("Publisher", "TrackMy Tech Private Limited"),
+        ("Publisher", conf["bundle"]["publisher"]),
         ("PublisherUrl", conf["bundle"]["homepage"]),
         ("PublisherSupportUrl", f"{REPO}/issues"),
         ("PrivacyUrl", f"{REPO}/blob/main/PRIVACY.md"),
         ("Author", "DK Rahul"),
-        ("PackageName", product),
+        ("PackageName", name),
         ("PackageUrl", REPO),
         ("License", conf["bundle"]["license"]),
         ("LicenseUrl", f"{REPO}/blob/main/LICENSE"),
         ("Copyright", conf["bundle"]["copyright"]),
         ("ShortDescription", "Sign PDFs with the Digital Signature Certificate (DSC) on your USB token."),
-        ("Description", DESCRIPTION),
+        ("Description", DESCRIPTION.format(name=name)),
         ("Moniker", product.lower()),
         ("Tags", TAGS),
         ("ReleaseNotesUrl", f"{REPO}/releases/tag/v{version}"),

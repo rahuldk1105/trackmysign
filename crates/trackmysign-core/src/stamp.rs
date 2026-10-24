@@ -230,7 +230,7 @@ impl StampStyle {
     pub fn validate(&self) -> Result<(), String> {
         if self.version > STYLE_VERSION {
             return Err(format!(
-                "The signature style is version {}; this version of TrackMySign reads up to {STYLE_VERSION}. Update TrackMySign.",
+                "The signature style is version {}; this version of TrackMy Sign reads up to {STYLE_VERSION}. Update TrackMy Sign.",
                 self.version
             ));
         }

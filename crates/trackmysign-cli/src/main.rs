@@ -268,7 +268,7 @@ enum Cmd {
     },
     /// Show the signing history kept on this computer, the same one the
     /// desktop app shows, oldest first. Exits with status 2 if the history
-    /// was changed outside TrackMySign.
+    /// was changed outside TrackMy Sign.
     History {
         /// Only entries from this day on (YYYY-MM-DD, this computer's time zone).
         #[arg(long, value_name = "DATE", value_parser = parse_day)]

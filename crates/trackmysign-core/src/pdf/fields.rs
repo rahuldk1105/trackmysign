@@ -286,7 +286,7 @@ pub fn check_seed_values(
         && f != b"Adobe.PPKLite"
     {
         return refuse(format!(
-            "requires the signature handler {}, which TrackMySign does not use.",
+            "requires the signature handler {}, which TrackMy Sign does not use.",
             String::from_utf8_lossy(f)
         ));
     }
@@ -296,7 +296,7 @@ pub fn check_seed_values(
             format.sub_filter = "ETSI.CAdES.detached";
         } else {
             return refuse(format!(
-                "requires the signature format {}; TrackMySign makes adbe.pkcs7.detached or ETSI.CAdES.detached signatures.",
+                "requires the signature format {}; TrackMy Sign makes adbe.pkcs7.detached or ETSI.CAdES.detached signatures.",
                 subs.join(" or ")
             ));
         }
@@ -309,7 +309,7 @@ pub fn check_seed_values(
             .any(|d| d.eq_ignore_ascii_case("SHA256") || d.eq_ignore_ascii_case("SHA-256"))
     {
         return refuse(format!(
-            "requires the digest {}; TrackMySign signs with SHA-256.",
+            "requires the digest {}; TrackMy Sign signs with SHA-256.",
             digests.join(" or ")
         ));
     }
@@ -339,7 +339,7 @@ pub fn check_seed_values(
     }
     if required(32) && sv.get("AddRevInfo").is_some_and(|v| *v == Obj::Bool(true)) {
         return refuse(
-            "requires revocation info inside the signature (adbe.pkcs7 AddRevInfo), which TrackMySign does not add.".into(),
+            "requires revocation info inside the signature (adbe.pkcs7 AddRevInfo), which TrackMy Sign does not add.".into(),
         );
     }
     if required(128)
@@ -348,7 +348,7 @@ pub fn check_seed_values(
             .is_some_and(|v| *v == Obj::Bool(true) || v.is_name("true"))
     {
         return refuse(
-            "requires the signature to lock the whole document, which TrackMySign does not do."
+            "requires the signature to lock the whole document, which TrackMy Sign does not do."
                 .into(),
         );
     }

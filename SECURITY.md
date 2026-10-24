@@ -1,6 +1,6 @@
 # Security policy
 
-TrackMySign handles digital signatures, so security reports are taken seriously
+TrackMy Sign handles digital signatures, so security reports are taken seriously
 and answered first.
 
 ## Supported versions
@@ -40,7 +40,7 @@ is published with credit to you, unless you prefer to stay anonymous.
 
 Examples of what to report privately:
 
-- a signature that TrackMySign or Adobe Reader shows as valid although the
+- a signature that TrackMy Sign or Adobe Reader shows as valid although the
   document was changed after signing, or `trackmysign verify` accepting a forged
   or altered signature;
 - signing that changes or invalidates the bytes of the original document or of

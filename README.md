@@ -1,4 +1,4 @@
-# TrackMySign
+# TrackMy Sign
 
 Sign PDFs with your USB DSC token (tested design: Hypersecu HyperPKI HYP2003) — no Adobe.
 
@@ -35,6 +35,13 @@ repository; until then, use the installer above. New releases are submitted
 there too, so `winget upgrade` picks them up after review. See
 [packaging/winget](packaging/winget/README.md).
 
+### Microsoft Store
+
+A Microsoft Store edition is being prepared: the same app as an MSIX package,
+updated by the Store instead of by the app. It has no right-click "Sign with
+TrackMy Sign" entry (use *Open with*), and its settings and history stay
+inside the package. See [packaging/msstore](packaging/msstore/README.md).
+
 Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`, or in a folder you pick under *Settings → Save signed copies to*; an existing file is never replaced (`name_signed_2.pdf` instead). Recently opened files are listed on the start screen and under the Open button.
 
 Forms from banks and government offices often come with empty signature fields. These are
@@ -42,7 +49,7 @@ highlighted on the page and listed in the side panel: click one and the signatur
 
 *Certificate details* (next to the certificate, and in *Settings → DSC token*) shows the class, fingerprints and chain of your DSC, and saves the public certificate as `.cer`, `.pem` or `.p7b` for a portal or bank that asks for it.
 
-You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows, macOS and Linux). Your default PDF viewer stays as it is. Select several PDFs first and they open together as one batch, signed with one PIN entry; files that are not PDFs are left out. If a batch is already loaded, the app asks whether to add them to it or replace it.
+You can also right-click a PDF and choose **Sign with TrackMy Sign** (Windows), or use **Open With → TrackMy Sign** (Windows, macOS and Linux). Your default PDF viewer stays as it is. Select several PDFs first and they open together as one batch, signed with one PIN entry; files that are not PDFs are left out. If a batch is already loaded, the app asks whether to add them to it or replace it.
 
 The app speaks English, Hindi (हिन्दी) and Tamil (தமிழ்); it follows your system language, or choose one under *Settings → Appearance → Language*. The text printed in the signature box stays in English.
 
@@ -62,7 +69,7 @@ Releases: CI signs the update files when the `TAURI_SIGNING_PRIVATE_KEY` and
 
 ## Supported tokens
 
-Install the driver software that came with your token, then plug it in. TrackMySign
+Install the driver software that came with your token, then plug it in. TrackMy Sign
 looks for these PKCS#11 drivers, loads every one that is installed and lists the
 certificates from all of them (the settings panel shows which drivers were found):
 
@@ -257,7 +264,7 @@ The *Signatures* panel of the app has **Export report…**, which saves a PDF
 report of the signature check (by default `name_verification.pdf` next to the
 document); `trackmysign verify file.pdf --report report.pdf` does the same.
 The report is A4 and plain text: the file name, its SHA-256, page count, the
-time of the check in IST and UTC and the TrackMySign version, a one-line
+time of the check in IST and UTC and the TrackMy Sign version, a one-line
 summary ("3 signatures — all valid, document unchanged since the last
 signature", or what is wrong), and for each signature its status, signer,
 organisation, issuer, certificate serial and validity, signing time,
@@ -281,7 +288,7 @@ changes meaning; new fields may be added):
 |---|---|
 | `schema` | `"trackmysign.verification-report"` |
 | `schema_version` | `1` |
-| `generator` | e.g. `"TrackMySign 0.3.0"` |
+| `generator` | e.g. `"TrackMy Sign 0.3.0"` |
 | `checked_at` | time of the check, RFC 3339 UTC |
 | `file` | `name`, `size` (bytes), `sha256` (lower-case hex), `pages` (`null` if the page tree is unreadable), `encrypted` |
 | `summary` | `text` (the summary line), `signatures`, `valid`, `invalid`, `unknown` (counts), `content_changed`, `all_valid` (every signature valid, no content changed, no certification broken) |
@@ -383,7 +390,7 @@ Both are DER, SHA-256 (RSA PKCS#1 v1.5 or ECDSA, as the key is), with the
 signed attributes contentType, signingTime, messageDigest and ESS
 signingCertificateV2 and the certificate chain included, which is CAdES-BES;
 with a trusted timestamp (RFC 3161, the server from Settings or `--timestamp`)
-it is CAdES-T. This is the same signature TrackMySign puts into a PDF, built
+it is CAdES-T. This is the same signature TrackMy Sign puts into a PDF, built
 by the same code.
 
 Where these are accepted: there is no single published format for "signed
@@ -407,7 +414,7 @@ as with a PDF batch (also for keys that ask for the PIN on every signature).
 An existing `.p7s` / `.p7m` is replaced, after the panel has said so. A `.p7s`
 or `.p7m` opened or dropped is checked (a `.p7s` against the file of the same
 name next to it); for a `.p7m`, **Save original…** writes the file inside.
-"Sign with TrackMySign" in Explorer's right-click menu stays for PDFs only:
+"Sign with TrackMy Sign" in Explorer's right-click menu stays for PDFs only:
 registering it for every file type would add the entry to every file on the
 PC; use *Open with* or drag the files onto the window instead.
 
@@ -456,7 +463,7 @@ it. What limits the damage:
   is never written anywhere.
 - Watching stops after the time you choose (1 hour, 8 hours or until
   stopped), when the computer sleeps (unless you turn that off), when you
-  quit TrackMySign, when the token is removed or the PIN is refused, and when
+  quit TrackMy Sign, when the token is removed or the PIN is refused, and when
   the daily limit (200 signed files by default) is reached. The status bar
   and the tray icon show *Watching <folder> — N signed* while it runs, with
   **Stop**; when it stops on its own, the window comes up and says why.
@@ -500,7 +507,7 @@ the app.
 
 ## Signing history
 
-TrackMySign keeps a private log of every signature it makes on your computer:
+TrackMy Sign keeps a private log of every signature it makes on your computer:
 single documents, batches, every-page and empty-field signatures,
 certifications, files signed as `.p7s` or `.p7m`, the watch folder and GST
 portal requests, from the app and the command line. **History** (toolbar or
@@ -516,7 +523,7 @@ the entries shown; the PDF is an A4 "Signing history" for auditors and
 includes the integrity check.
 
 Each entry also holds the SHA-256 of the line before it, so an entry changed
-or deleted outside TrackMySign breaks the chain: *Check log integrity* follows
+or deleted outside TrackMy Sign breaks the chain: *Check log integrity* follows
 it through every file and names the line where it breaks. This shows edits
 made without recomputing every hash after them; it is not a signature, and
 anyone who can write to the folder can delete or rebuild the whole log.
@@ -563,10 +570,10 @@ value are left out.
 The GST portal (gst.gov.in) signs DSC registrations and returns through a
 program on your own computer, normally eMudhra's emSigner: the portal page
 connects to `wss://127.0.0.1` on port 1585 (or 2095, 2568, 2868, 4587) and asks
-it to sign. TrackMySign can answer those requests instead, with the DSC on your
+it to sign. TrackMy Sign can answer those requests instead, with the DSC on your
 token:
 
-1. *Settings → GST portal signing → Enable portal signing.* TrackMySign makes a
+1. *Settings → GST portal signing → Enable portal signing.* TrackMy Sign makes a
    certificate authority for this computer only, uses it once to issue a
    certificate for `127.0.0.1`, and deletes its private key, so it can never
    vouch for anything else (it is also limited to `127.0.0.1` and `localhost`
@@ -577,7 +584,7 @@ token:
    Firefox profile's, which needs `certutil` (Debian/Ubuntu: `sudo apt install
    libnss3-tools`, Fedora: `nss-tools`, Arch: `nss`); restart Firefox
    afterwards. The status bar then shows *Portal signing: on (port 1585)*.
-2. On the portal, choose to sign with DSC as usual. TrackMySign comes to the
+2. On the portal, choose to sign with DSC as usual. TrackMy Sign comes to the
    front and shows which site asks, the PAN and exactly what will be signed
    (your PAN at DSC registration, a hash of the return when filing). It picks
    the certificate for that PAN when the certificate shows it (CCA rules put a
@@ -585,21 +592,21 @@ token:
    and press **Sign**, or **Cancel** (the portal then says "Signing
    Cancelled"). An expired certificate is refused.
 
-TrackMySign listens only while it is running, only on `127.0.0.1` (never on the
+TrackMy Sign listens only while it is running, only on `127.0.0.1` (never on the
 network), and answers only pages from `https://gst.gov.in` and its
-subdomains. If emSigner is running on port 1585, TrackMySign takes the next
+subdomains. If emSigner is running on port 1585, TrackMy Sign takes the next
 free port and Settings says so; the portal tries the ports in order, so quit
-emSigner to sign with TrackMySign. The portal checks the emSigner version it
+emSigner to sign with TrackMy Sign. The portal checks the emSigner version it
 expects (2.8 when this was written); if it says "Please install and use correct
 version of emSigner", change the version in Settings.
 
-So the portal works without opening TrackMySign first, *Settings → Background →
+So the portal works without opening TrackMy Sign first, *Settings → Background →
 Keep running in the background* (on by default once portal signing is on)
-makes closing the window leave TrackMySign in the system tray (Windows, Linux;
+makes closing the window leave TrackMy Sign in the system tray (Windows, Linux;
 GNOME needs the AppIndicator extension, which Ubuntu has) or the menu bar
 (macOS). Its icon shows whether portal signing is on and on which
-port, and has **Open TrackMySign** and **Quit**; a portal request brings the
-window up as usual. *Start TrackMySign when I sign in* starts it there at
+port, and has **Open TrackMy Sign** and **Quit**; a portal request brings the
+window up as usual. *Start TrackMy Sign when I sign in* starts it there at
 sign-in, without a window: on Windows an entry under
 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, which the uninstaller
 removes; on macOS `~/Library/LaunchAgents/TrackMySign.plist` (turn the option
@@ -611,7 +618,7 @@ Browsers:
 
 - **Chrome / Edge** may ask whether gst.gov.in may access apps and services on
   this device (the local network access prompt). Allow it, or the portal cannot
-  reach TrackMySign.
+  reach TrackMy Sign.
 - **Firefox** uses its own certificate list. Recent versions also trust
   certificates you added to Windows or macOS; if Firefox still refuses the
   connection, set `security.enterprise_roots.enabled` to `true` in
@@ -630,7 +637,7 @@ WebSocket protocol like the GST portal's, but the old TRACES site now redirects 
 the new one, which signs through emBridge, and MCA V2 no longer accepts
 filings, so there is nothing left to connect to. Portal
 signing is an independent, interoperable implementation of the local protocol
-the GST portal's own JavaScript uses; TrackMySign is not affiliated with or
+the GST portal's own JavaScript uses; TrackMy Sign is not affiliated with or
 endorsed by GSTN, the GST Council or eMudhra.
 
 ## Development
@@ -655,7 +662,7 @@ Layout:
 
 ## Trademarks
 
-TrackMySign is an independent open-source project, not affiliated with, endorsed or certified by GSTN, MCA, the CCA or any vendor named here. emSigner, emBridge and eMudhra are trademarks of eMudhra Ltd; ePass2003 (Feitian), ProxKey (Watchdata), SafeNet and Gemalto (Thales), HyperPKI (Hypersecu) and Adobe Acrobat Reader (Adobe) are trademarks of their respective owners and are named only to describe compatibility.
+TrackMy Sign is an independent open-source project, not affiliated with, endorsed or certified by GSTN, MCA, the CCA or any vendor named here. emSigner, emBridge and eMudhra are trademarks of eMudhra Ltd; ePass2003 (Feitian), ProxKey (Watchdata), SafeNet and Gemalto (Thales), HyperPKI (Hypersecu) and Adobe Acrobat Reader (Adobe) are trademarks of their respective owners and are named only to describe compatibility.
 
 "SignDesk" appears in old commit history as an early working name of this project. It is unrelated to Desk Nine Private Limited (SignDesk, now Melento). See [TRADEMARKS.md](TRADEMARKS.md).
 
