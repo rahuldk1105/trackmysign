@@ -20,7 +20,10 @@ import { FolderDialog, type FolderRun } from "./FolderVerify";
 import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, reminderLabel, remindAbout, today, type ReminderDays } from "./expiry";
 import { currentLang, isLangPref, LANGUAGE_NAMES, t, tx, useLanguage, type LangPref, type MessageKey } from "./i18n";
 import { errorText, translateMessage } from "./i18n/errors";
-import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
+import { loadPdf, PdfView, type PageSize, type Placement } from "./PdfView";
+import { StampDesigner, type PictureInfo } from "./StampDesigner";
+import { StampView, type StampUrls } from "./StampView";
+import { useStampDrawing, type StampContent, type StampStyle } from "./stamp";
 import { BackgroundSettings } from "./Background";
 import { PortalDialog, PortalSettings, PortalStatusItem, usePortal } from "./PortalSigning";
 import { SignaturesPanel } from "./SignaturesPanel";
@@ -61,6 +64,8 @@ interface Saved {
   presets: Preset[];
   /** Show the signature image (kept in the app's data folder) in the box. */
   image: ImageChoice;
+  /** How the box looks; null for the standard box. */
+  style: StampStyle | null;
   /** Remind this many days before the DSC expires; 0 for never. */
   expiryReminder: ReminderDays;
   /** Day the reminder for certificates not plugged in was dismissed. */
@@ -94,6 +99,7 @@ const defaults: Saved = {
   ltv: false,
   presets: [],
   image: "off",
+  style: null,
   expiryReminder: 30,
   reminderDismissed: "",
   autoUpdate: true,
@@ -311,8 +317,11 @@ export default function App() {
   const [folderRun, setFolderRun] = useState<FolderRun | null>(null);
   const [folderOpen, setFolderOpen] = useState<{ folder: string | null } | null>(null);
   const [theme, setTheme] = useTheme();
-  const [sigImage, setSigImage] = useState<{ url: string; aspect: number } | null>(null);
+  const [sigImage, setSigImage] = useState<PictureInfo | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [sealImage, setSealImage] = useState<PictureInfo | null>(null);
+  const [sealError, setSealError] = useState<string | null>(null);
+  const [designOpen, setDesignOpen] = useState(false);
   const [recent, setRecent] = useState<RecentFile[]>([]);
   /** Folder of the PDF opened last; also kept while the recent list is off. */
   const [lastFolder, setLastFolder] = useState<string | null>(null);
@@ -368,23 +377,42 @@ export default function App() {
     refreshCerts();
   }, [refreshCerts]);
 
-  // ---- signature image
-  const loadImage = useCallback(async () => {
-    const url = await api.signatureImage().catch(() => null);
-    if (!url) return setSigImage(null);
-    const img = new Image();
-    img.onload = () => setSigImage({ url, aspect: img.naturalWidth / img.naturalHeight });
-    img.onerror = () => setSigImage(null);
-    img.src = url;
-  }, []);
+  // ---- signature image and company seal
+  const loadImage = useCallback(async () => setSigImage(await loadPicture("signature")), []);
+  const loadSeal = useCallback(async () => setSealImage(await loadPicture("seal")), []);
 
   useEffect(() => {
     loadImage();
-  }, [loadImage]);
+    loadSeal();
+  }, [loadImage, loadSeal]);
 
   useEffect(() => {
     if (sigImage) return () => URL.revokeObjectURL(sigImage.url);
   }, [sigImage]);
+
+  useEffect(() => {
+    if (sealImage) return () => URL.revokeObjectURL(sealImage.url);
+  }, [sealImage]);
+
+  const chooseSeal = async (): Promise<boolean> => {
+    const path = await api.pickImage();
+    if (!path) return false;
+    try {
+      await api.setPicture("seal", path);
+      setSealError(null);
+      await loadSeal();
+      return true;
+    } catch (e) {
+      setSealError(errorText(api.errorOf(e)));
+      return false;
+    }
+  };
+
+  const removeSeal = async () => {
+    await api.clearPicture("seal").catch(() => {});
+    setSealImage(null);
+    if (saved.style?.seal) update({ style: { ...saved.style, seal: null } });
+  };
 
   const chooseImage = async () => {
     const path = await api.pickImage();
@@ -405,7 +433,7 @@ export default function App() {
     update({ image: "off" });
   };
 
-  const stampImage: StampImage | null = sigImage && saved.image !== "off" ? { ...sigImage, position: saved.image } : null;
+  const imageShown = sigImage && saved.image !== "off" ? saved.image : null;
 
   // Keep looking for the token while it is missing.
   const busy = step.kind === "signing";
@@ -610,12 +638,13 @@ export default function App() {
     reason: saved.reason,
     location: saved.location,
     image: saved.image,
+    style: saved.style,
     placement: doc && placement ? toPresetPlacement(placement, doc.sizes.length) : null,
   };
   const active = activePreset(saved.presets, current);
 
   const applyPreset = (p: Preset) => {
-    update({ reason: p.reason, location: p.location, ...(p.image && { image: p.image }) });
+    update({ reason: p.reason, location: p.location, ...(p.image && { image: p.image }), ...(p.style !== undefined && { style: p.style }) });
     if (doc && p.placement) {
       const pl = fromPresetPlacement(p.placement, doc.sizes);
       place(pl);
@@ -655,7 +684,7 @@ export default function App() {
       ? (certs.length ? certs : known).filter((k) => remindAbout(k.daysLeft, saved.expiryReminder))
       : [];
   const dismissReminders = () => update({ reminderDismissed: today() });
-  const dialogOpen = step.kind !== "idle" || settingsOpen || detailsOpen || !!folderOpen || !!unlock || !!portal.request;
+  const dialogOpen = step.kind !== "idle" || settingsOpen || detailsOpen || designOpen || !!folderOpen || !!unlock || !!portal.request;
 
   /** Opens the folder check; a finished check of another folder makes way for `folder`. */
   const verifyFolder = (folder?: string) => {
@@ -714,7 +743,8 @@ export default function App() {
           pin,
           timestamp: useTs ? saved.tsaUrl.trim() : null,
           ltv: saved.ltv && skip !== "ltv",
-          image: stampImage?.position ?? null,
+          image: imageShown,
+          style: saved.style,
           password: doc.password ?? null,
           certify,
           outDir: saved.outDir || null,
@@ -766,7 +796,8 @@ export default function App() {
         pin,
         timestamp: useTs ? saved.tsaUrl.trim() : null,
         ltv: saved.ltv && skip !== "ltv",
-        image: stampImage?.position ?? null,
+        image: imageShown,
+        style: saved.style,
         field: field?.name ?? null,
         password: doc.password ?? null,
         certify,
@@ -782,8 +813,21 @@ export default function App() {
     }
   };
 
-  // What the PDF stamp will say. It stays English in every UI language: the
-  // stamp is drawn with Helvetica, which has no Devanagari or Tamil glyphs.
+  // What the box shows; the core lays it out for every preview. It stays
+  // English in every UI language: the standard PDF fonts have no Devanagari
+  // or Tamil glyphs.
+  const stampContent: StampContent = {
+    style: saved.style,
+    name: cert?.name ?? "YOUR NAME",
+    organisation: cert?.organization ?? null,
+    reason: saved.reason,
+    location: saved.location,
+    image: sigImage && imageShown ? [sigImage.aspect, imageShown] : null,
+    seal: saved.style?.seal && sealImage ? sealImage.aspect : null,
+  };
+  const stampUrls: StampUrls = { signature: sigImage?.url, seal: sealImage?.url };
+  const stampBox = placement ? { w: placement.w, h: placement.h } : { w: 170, h: 55 };
+  // Only outside the app, where nothing lays the box out.
   const preview = [
     "Digitally signed by",
     cert?.name ?? "YOUR NAME",
@@ -862,8 +906,9 @@ export default function App() {
                 sizes={doc.sizes}
                 placement={field && !field.rect ? null : placement}
                 pages={targetPages}
+                stamp={stampContent}
+                urls={stampUrls}
                 preview={preview}
-                image={stampImage}
                 zoom={zoom}
                 onPlace={place}
                 onScale={onScale}
@@ -1057,7 +1102,9 @@ export default function App() {
                         role="radio"
                         aria-checked={saved.image === c.value}
                         className={saved.image === c.value ? "on" : ""}
-                        onClick={() => update({ image: c.value })}
+                        onClick={() =>
+                          update({ image: c.value, ...(saved.style?.layout === "image_only" && { style: { ...saved.style, layout: "auto" } }) })
+                        }
                       >
                         {t(c.label)}
                       </button>
@@ -1073,15 +1120,12 @@ export default function App() {
                     <AlertIcon size={14} /> {imageError}
                   </p>
                 )}
-                <div className={`stamp-preview ${stampImage ? `img-${stampImage.position}` : ""}`} aria-label={t("appearance.preview")}>
-                  {stampImage && <img src={stampImage.url} alt="" />}
-                  <div>
-                    {preview.map((l, i) => (
-                      <div key={i} className={i === 1 ? "sig-name" : undefined}>
-                        {l}
-                      </div>
-                    ))}
-                  </div>
+                <StampPreview content={stampContent} urls={stampUrls} box={stampBox} preview={preview} />
+                <div className="appearance-design">
+                  <span className="muted small">{saved.style ? t("appearance.customDesign") : t("appearance.standardDesign")}</span>
+                  <button className="btn" onClick={() => setDesignOpen(true)}>
+                    {t("appearance.design")}
+                  </button>
                 </div>
               </section>
 
@@ -1348,6 +1392,25 @@ export default function App() {
           </>
         )}
       </footer>
+
+      {designOpen && (
+        <StampDesigner
+          style={saved.style}
+          image={saved.image}
+          signature={sigImage}
+          seal={sealImage}
+          box={stampBox}
+          content={stampContent}
+          onChooseSeal={chooseSeal}
+          onRemoveSeal={removeSeal}
+          sealError={sealError}
+          onSave={(style, image) => {
+            update({ style, image });
+            setDesignOpen(false);
+          }}
+          onClose={() => setDesignOpen(false)}
+        />
+      )}
 
       {settingsOpen && (
         <Settings
@@ -2374,6 +2437,40 @@ function PresetRow(props: { preset: Preset; taken: (name: string) => boolean; on
         {t("common.delete")}
       </button>
     </li>
+  );
+}
+
+/** A saved picture with its proportions, or null when there is none. */
+async function loadPicture(which: api.Picture): Promise<PictureInfo | null> {
+  const url = await api.picture(which).catch(() => null);
+  if (!url) return null;
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ url, aspect: img.naturalWidth / img.naturalHeight });
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+/** The box in the side panel, at the proportions of the placed box. */
+function StampPreview(props: { content: StampContent; urls: StampUrls; box: { w: number; h: number }; preview: string[] }) {
+  const { w, h } = props.box;
+  const drawing = useStampDrawing(props.content, w, h);
+  if (!drawing) {
+    return (
+      <div className="stamp-preview" aria-label={t("appearance.preview")}>
+        {props.preview.map((l, i) => (
+          <div key={i} className={i === 1 ? "sig-name" : undefined}>
+            {l}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="stamp-preview drawn" aria-label={t("appearance.preview")} style={{ aspectRatio: `${w} / ${h}`, width: `min(100%, ${(150 * w) / h}px)` }}>
+      <StampView drawing={drawing} urls={props.urls} />
+    </div>
   );
 }
 

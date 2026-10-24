@@ -1,0 +1,166 @@
+/* Signature box designer (StampDesigner.tsx) and boxes drawn from the
+   core's layout (StampView.tsx). */
+
+.stamp-svg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+.sig-box.drawn {
+  border: 0;
+  padding: 0;
+  background: none;
+}
+.sig-box.drawn:hover,
+.sig-box.drawn.ghost {
+  outline: 1px dashed #1b3a8c;
+}
+.stamp-preview.drawn {
+  position: relative;
+  padding: 0;
+  border: 0;
+  background: #fff;
+}
+
+.dialog.designer {
+  width: 900px;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+.designer .dialog-title {
+  padding-right: 12px;
+}
+.designer .dialog-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.designer-cols {
+  display: flex;
+  gap: 20px;
+  min-height: 0;
+  overflow: auto;
+}
+.designer-controls {
+  flex: 1;
+  min-width: 0;
+}
+.designer-controls section {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.designer-controls section:first-child {
+  padding-top: 0;
+}
+.designer-controls section:last-child {
+  border-bottom: 0;
+}
+.designer h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.designer-controls p.small {
+  margin: 6px 0 0;
+}
+.designer-preview {
+  flex: none;
+  width: 380px;
+}
+.designer-sticky {
+  position: sticky;
+  top: 0;
+}
+.designer-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  outline: 1px solid var(--line);
+}
+.design-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.design-lines li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 3px 0;
+}
+.design-lines li .check-row {
+  flex: 1;
+  margin: 0;
+}
+.design-lines li.off .check-row {
+  color: var(--muted);
+}
+.design-lines li > input,
+.design-lines li > select,
+.design-lines li > p {
+  flex-basis: 100%;
+  margin-left: 22px;
+}
+.design-lines li > input,
+.design-lines li > select {
+  width: calc(100% - 22px);
+}
+.design-move {
+  display: flex;
+}
+.design-move .tb-btn {
+  width: 24px;
+  height: 22px;
+}
+.design-printed {
+  margin: 0 !important;
+}
+.design-pair {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.design-pair .segmented {
+  flex: 1;
+}
+.design-pair > input[type="number"] {
+  width: 76px;
+}
+.design-color {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.design-color input[type="color"] {
+  width: 30px;
+  height: 30px;
+  padding: 2px;
+}
+.design-color input.mono {
+  width: 86px;
+}
+.design-color input.invalid {
+  border-color: var(--bad);
+}
+.designer input[type="range"] {
+  height: auto;
+  padding: 0;
+  border: 0;
+  accent-color: var(--accent);
+}
+.appearance-design {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}

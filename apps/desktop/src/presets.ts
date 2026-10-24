@@ -1,8 +1,10 @@
-// Saved presets: reason, location and where the box goes, applied in one pick.
+// Saved presets: reason, location, where the box goes and how it looks,
+// applied in one pick.
 
 import type { ImageChoice, WatchPreset } from "./api";
 import { t } from "./i18n";
 import type { PageSize, Placement } from "./PdfView";
+import { sameStyle, type StampStyle } from "./stamp";
 
 /** Which page the box goes on: first, last, or a page number (1 = first). */
 export type PageChoice = "first" | "last" | number;
@@ -23,6 +25,8 @@ export interface Preset {
   placement: PresetPlacement | null;
   /** Missing in presets saved before images were supported: leave as is. */
   image?: ImageChoice;
+  /** Null for the standard box; missing in presets saved before designs: leave as is. */
+  style?: StampStyle | null;
 }
 
 const PT_PER_MM = 72 / 25.4;
@@ -83,7 +87,7 @@ function samePlacement(a: PresetPlacement | null, b: PresetPlacement | null): bo
  */
 export function toWatchPreset(
   preset: Preset | null,
-  defaults: { reason: string; location: string; image: ImageChoice },
+  defaults: { reason: string; location: string; image: ImageChoice; style: StampStyle | null },
   own: Pick<WatchPreset, "pages" | "timestamp" | "ltv">,
 ): WatchPreset {
   return {
@@ -92,6 +96,7 @@ export function toWatchPreset(
     location: preset?.location ?? defaults.location,
     placement: preset?.placement ?? null,
     image: preset?.image ?? defaults.image,
+    style: preset?.style !== undefined ? preset.style : defaults.style,
     invisible: false,
     ...own,
   };
@@ -104,6 +109,7 @@ export function activePreset(presets: Preset[], current: Omit<Preset, "name">): 
       p.reason === current.reason &&
       p.location === current.location &&
       (p.image === undefined || p.image === current.image) &&
+      (p.style === undefined || sameStyle(p.style, current.style)) &&
       (!p.placement || samePlacement(p.placement, current.placement)),
   );
 }

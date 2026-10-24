@@ -4,6 +4,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n";
 import type { PresetPlacement } from "./presets";
+import type { Drawing, StampContent, StampStyle } from "./stamp";
 
 export interface Cert {
   /** SHA-256 fingerprint of the certificate. */
@@ -91,6 +92,8 @@ export interface SignArgs {
   timestamp: string | null;
   ltv: boolean;
   image?: Exclude<ImageChoice, "off"> | null;
+  /** How the box looks; null for the standard box. Shows the saved seal when it has `seal`. */
+  style?: StampStyle | null;
   /** Sign into this empty signature field; `page`, `rect` and `pages` are then unused. */
   field?: string | null;
   /** Password the PDF was opened with; kept in memory only. */
@@ -342,6 +345,35 @@ export async function setSignatureImage(path: string): Promise<void> {
 
 export async function clearSignatureImage(): Promise<void> {
   if (inTauri) await invoke("clear_signature_image");
+}
+
+/** A picture kept in the app's data folder. */
+export type Picture = "signature" | "seal";
+
+/** Object URL of a saved picture, or null when there is none. */
+export async function picture(which: Picture): Promise<string | null> {
+  if (!inTauri) return null;
+  const bytes: ArrayBuffer = await invoke("picture", { which });
+  return bytes.byteLength ? URL.createObjectURL(new Blob([bytes])) : null;
+}
+
+/** Copies a PNG or JPEG into the app's data folder (after checking it). */
+export async function setPicture(which: Picture, path: string): Promise<void> {
+  if (inTauri) await invoke("set_picture", { which, path });
+}
+
+export async function clearPicture(which: Picture): Promise<void> {
+  if (inTauri) await invoke("clear_picture", { which });
+}
+
+/** The box laid out by the signing engine; null outside the app. */
+export async function stampPreview(args: StampContent & { w: number; h: number }): Promise<Drawing | null> {
+  return inTauri ? invoke("stamp_preview", { args }) : null;
+}
+
+/** Typed text as the box prints it (Indian scripts transliterated). */
+export async function stampText(text: string): Promise<string> {
+  return inTauri ? invoke("stamp_text", { text }) : text;
 }
 
 export async function pickImage(): Promise<string | null> {
@@ -724,6 +756,8 @@ export interface WatchPreset {
   pages: string;
   image: ImageChoice;
   invisible: boolean;
+  /** Null for the standard box. */
+  style: StampStyle | null;
   /** RFC 3161 server, or null for none. */
   timestamp: string | null;
   ltv: boolean;
@@ -771,7 +805,7 @@ let mockWatch: WatchStatus = {
     dailyLimit: 200,
     minutes: 60,
     stopOnSleep: true,
-    preset: { name: "", reason: "Approved", location: "", placement: null, pages: "", image: "off", invisible: false, timestamp: null, ltv: false },
+    preset: { name: "", reason: "Approved", location: "", placement: null, pages: "", image: "off", invisible: false, style: null, timestamp: null, ltv: false },
   },
   active: null,
   ended: null,

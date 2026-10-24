@@ -9,6 +9,7 @@ import { Modal } from "./App";
 import { currentLang, t, type MessageKey } from "./i18n";
 import { errorText, translateMessage } from "./i18n/errors";
 import { describePage, toWatchPreset, type Preset } from "./presets";
+import { sameStyle, type StampStyle } from "./stamp";
 import { AlertIcon, FolderIcon } from "./icons";
 import "./watch.css";
 
@@ -95,6 +96,7 @@ function samePreset(a: api.WatchPreset, p: Preset): boolean {
     a.reason === p.reason &&
     a.location === p.location &&
     (p.image === undefined || a.image === p.image) &&
+    (p.style === undefined || sameStyle(a.style, p.style)) &&
     JSON.stringify(a.placement) === JSON.stringify(p.placement)
   );
 }
@@ -103,7 +105,7 @@ export function WatchSettings(props: {
   status: WatchStatus | null;
   onStatus: (s: WatchStatus) => void;
   presets: Preset[];
-  defaults: { reason: string; location: string; image: ImageChoice; tsaUrl: string };
+  defaults: { reason: string; location: string; image: ImageChoice; style: StampStyle | null; tsaUrl: string };
   /** The certificate a session would sign with. */
   cert?: Cert;
 }) {

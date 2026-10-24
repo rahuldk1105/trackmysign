@@ -3,8 +3,10 @@ import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 // Legacy build: polyfills newer JS so it also runs in older system web views.
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
-import type { EmptyField, ImageChoice, Rect } from "./api";
+import type { EmptyField, Rect } from "./api";
 import { t } from "./i18n";
+import { useStampDrawing, type StampContent } from "./stamp";
+import { StampView, type StampUrls } from "./StampView";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -26,34 +28,6 @@ export async function loadPdf(bytes: ArrayBuffer, password?: string): Promise<{ 
     sizes.push({ width: vp.width, height: vp.height });
   }
   return { doc, sizes };
-}
-
-/** The signature image as shown in the box. */
-export interface StampImage {
-  url: string;
-  /** Width / height. */
-  aspect: number;
-  position: Exclude<ImageChoice, "off">;
-}
-
-/** `[x, y, w, h]`, points from the top-left of the box. */
-type Area = [number, number, number, number];
-
-const boxPad = (w: number, h: number) => Math.min(Math.max(Math.min(w, h) * 0.08, 1.5), 6);
-
-/** Image and text areas of a `w`×`h` box — mirrors `appearance::layout` in the core. */
-export function stampLayout(w: number, h: number, img: StampImage): { image: Area; text: Area } {
-  const pad = boxPad(w, h);
-  if (img.position === "left") {
-    let ih = h - 2 * pad;
-    const iw = Math.min(ih * img.aspect, (w - 2 * pad) * 0.45);
-    ih = Math.min(ih, iw / img.aspect);
-    return { image: [pad, (h - ih) / 2, iw, ih], text: [pad + iw, 0, w - pad - iw, h] };
-  }
-  let iw = w - 2 * pad;
-  const ih = Math.min(iw / img.aspect, (h - 2 * pad) * 0.5);
-  iw = Math.min(iw, ih * img.aspect);
-  return { image: [(w - iw) / 2, pad, iw, ih], text: [0, pad + ih, w, h - pad - ih] };
 }
 
 /**
@@ -81,8 +55,10 @@ interface Props {
   placement: Placement | null;
   /** Pages that get the box; null for just the placement's page. */
   pages?: number[] | null;
+  /** What the box shows, laid out by the core; `preview` lines outside the app. */
+  stamp: StampContent;
+  urls: StampUrls;
   preview: string[];
-  image?: StampImage | null;
   /** Multiplier on fit-to-width (1 = fit). */
   zoom: number;
   onPlace: (p: Placement) => void;
@@ -101,21 +77,6 @@ interface Props {
 
 const MIN_W = 90;
 
-let measureCtx: CanvasRenderingContext2D | null = null;
-
-/** Body font size (pt) so the lines fit the box — mirrors the PDF appearance. */
-function fitFont(lines: string[], w: number, h: number, pad = boxPad(w, h)): number {
-  measureCtx ??= document.createElement("canvas").getContext("2d");
-  const scales = lines.map((_, i) => (i === 1 ? 1.15 : 1));
-  let size = Math.min((h - 2 * pad) / scales.reduce((a, b) => a + b * 1.2, 0), 11);
-  lines.forEach((l, i) => {
-    if (!measureCtx) return;
-    measureCtx.font = `${i === 1 ? "bold " : ""}100px Helvetica, Arial, sans-serif`;
-    const per = (measureCtx.measureText(l).width / 100) * scales[i];
-    if (per > 0) size = Math.min(size, (w - 2 * pad) / per);
-  });
-  return Math.max(size, 2);
-}
 const MIN_H = 30;
 
 export function PdfView({
@@ -123,8 +84,9 @@ export function PdfView({
   sizes,
   placement,
   pages,
+  stamp,
+  urls,
   preview,
-  image,
   zoom,
   onPlace,
   onScale,
@@ -220,8 +182,9 @@ export function PdfView({
             scale={scale}
             placement={box}
             ghost={!!box && !!pages && !pages.includes(i)}
+            stamp={stamp}
+            urls={urls}
             preview={preview}
-            image={image ?? null}
             onPlace={onPlace}
             fields={fields?.filter((f) => f.page === i && f.rect) ?? []}
             onPickField={onPickField}
@@ -241,15 +204,16 @@ interface PageProps {
   placement: Placement | null;
   /** The box is drawn here but this page is not in the selection. */
   ghost: boolean;
+  stamp: StampContent;
+  urls: StampUrls;
   preview: string[];
-  image: StampImage | null;
   onPlace: (p: Placement) => void;
   fields: EmptyField[];
   onPickField?: (f: EmptyField) => void;
   field: string | null;
 }
 
-function Page({ doc, index, size, scale, placement, ghost, preview, image, onPlace, fields, onPickField, field }: PageProps) {
+function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview, onPlace, fields, onPickField, field }: PageProps) {
   const holder = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
@@ -356,38 +320,18 @@ function Page({ doc, index, size, scale, placement, ghost, preview, image, onPla
               </div>
             ),
         )}
-        {placement && image && (
-          <ImageBox
+        {placement && (
+          <StampBox
             placement={placement}
             ghost={ghost}
             field={field}
+            stamp={stamp}
+            urls={urls}
             preview={preview}
-            image={image}
             scale={scale}
             onMove={drag("move")}
             onResize={drag("resize")}
           />
-        )}
-        {placement && !image && (
-          <div
-            className={`sig-box ${ghost ? "ghost" : ""} ${field ? "in-field" : ""}`}
-            style={{
-              left: placement.x * scale,
-              top: placement.y * scale,
-              width: placement.w * scale,
-              height: placement.h * scale,
-              fontSize: fitFont(preview, placement.w, placement.h) * scale,
-            }}
-            onPointerDown={drag("move")}
-            title={boxTitle(ghost, field)}
-          >
-            {preview.map((l, i) => (
-              <div key={i} className={i === 1 ? "sig-name" : undefined}>
-                {l}
-              </div>
-            ))}
-            {!field && <div className="sig-resize" onPointerDown={drag("resize")} title={t("view.dragResize")} />}
-          </div>
         )}
       </div>
       <div className="page-num">{index + 1}</div>
@@ -400,35 +344,35 @@ function boxTitle(ghost: boolean, field: string | null) {
   return ghost ? t("view.ghost") : t("view.dragMove");
 }
 
-function ImageBox(props: {
+function StampBox(props: {
   placement: Placement;
   ghost: boolean;
   field: string | null;
+  stamp: StampContent;
+  urls: StampUrls;
   preview: string[];
-  image: StampImage;
   scale: number;
   onMove: (e: React.PointerEvent) => void;
   onResize: (e: React.PointerEvent) => void;
 }) {
-  const { placement: p, scale, image } = props;
-  const { image: im, text } = stampLayout(p.w, p.h, image);
-  const pad = boxPad(p.w, p.h);
-  const at = ([x, y, w, h]: Area) => ({ left: x * scale, top: y * scale, width: w * scale, height: h * scale });
+  const { placement: p, scale } = props;
+  const drawing = useStampDrawing(props.stamp, p.w, p.h);
   return (
     <div
-      className={`sig-box with-image ${props.ghost ? "ghost" : ""} ${props.field ? "in-field" : ""}`}
-      style={{ left: p.x * scale, top: p.y * scale, width: p.w * scale, height: p.h * scale }}
+      className={`sig-box ${drawing ? "drawn" : ""} ${props.ghost ? "ghost" : ""} ${props.field ? "in-field" : ""}`}
+      style={{ left: p.x * scale, top: p.y * scale, width: p.w * scale, height: p.h * scale, fontSize: 8 * scale }}
       onPointerDown={props.onMove}
       title={boxTitle(props.ghost, props.field)}
     >
-      <img className="sig-img" src={image.url} alt="" draggable={false} style={at(im)} />
-      <div className="sig-text" style={{ ...at(text), padding: pad * scale, fontSize: fitFont(props.preview, text[2], text[3], pad) * scale }}>
-        {props.preview.map((l, i) => (
+      {drawing ? (
+        <StampView drawing={drawing} urls={props.urls} />
+      ) : (
+        props.preview.map((l, i) => (
           <div key={i} className={i === 1 ? "sig-name" : undefined}>
             {l}
           </div>
-        ))}
-      </div>
+        ))
+      )}
       {!props.field && <div className="sig-resize" onPointerDown={props.onResize} title={t("view.dragResize")} />}
     </div>
   );
