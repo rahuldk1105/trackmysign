@@ -773,6 +773,7 @@ pub fn run() {
             reveal_file,
             open_website,
             verify::verify_pdf,
+            verify::export_report,
             portal::portal_status,
             portal::portal_enable,
             portal::portal_disable,

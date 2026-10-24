@@ -481,6 +481,23 @@ export async function verifyPdf(path: string, password?: string): Promise<Signat
 
 // ------------------------------------------------------- GST portal signing
 
+/** `invoice.pdf` → `invoice_verification.pdf`, next to it. */
+export function reportPath(path: string): string {
+  return path.replace(/\.pdf$/i, "") + "_verification.pdf";
+}
+
+/** Asks where to save the verification report; null when cancelled. */
+export async function pickReportPath(path: string): Promise<string | null> {
+  if (!inTauri) return reportPath(path);
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return save({ defaultPath: reportPath(path), filters: [{ name: "PDF documents", extensions: ["pdf"] }] });
+}
+
+/** Checks the signatures again and writes the report (PDF) to `output`. */
+export async function exportReport(path: string, output: string, password?: string): Promise<void> {
+  if (inTauri) await invoke("export_report", { path, password: password ?? null, output });
+}
+
 export interface PortalStatus {
   /** Turned on in Settings (the listener runs while the app is open). */
   enabled: boolean;

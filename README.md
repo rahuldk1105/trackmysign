@@ -95,6 +95,8 @@ Other options:
 .\trackmysign.exe info file.pdf                       # pages, existing signatures, empty signature fields
 .\trackmysign.exe sign file.pdf --field Director      # sign into an empty signature field
 .\trackmysign.exe verify file.pdf                     # check existing signatures
+.\trackmysign.exe verify file.pdf --report report.pdf # ... and save a PDF report for auditors
+.\trackmysign.exe verify file.pdf --json              # ... as JSON, for scripts
 .\trackmysign.exe sign file.pdf --page 1 --position top-right
 .\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
 .\trackmysign.exe sign file.pdf --pages all            # one signature, box on every page
@@ -133,6 +135,64 @@ signature that says what may change afterwards: nothing, form filling and
 signing, or also comments. Only an unsigned document can be certified, and a
 document certified with `none` cannot be signed again. In the desktop app this
 is *Signature type → Certify* in the side panel.
+
+## Verification reports
+
+The *Signatures* panel of the app has **Export report…**, which saves a PDF
+report of the signature check (by default `name_verification.pdf` next to the
+document); `trackmysign verify file.pdf --report report.pdf` does the same.
+The report is A4 and plain text: the file name, its SHA-256, page count, the
+time of the check in IST and UTC and the TrackMySign version, a one-line
+summary ("3 signatures — all valid, document unchanged since the last
+signature", or what is wrong), and for each signature its status, signer,
+organisation, issuer, certificate serial and validity, signing time,
+timestamp, reason and location, certification level, what changed after it,
+whether it chains to CCA India, and notes.
+
+What is checked: that the signed bytes are intact, that each signature matches
+the signer's certificate, whether the certificates in the signature chain to
+the CCA India 2022 root, and what later revisions changed. **Not checked:**
+certificate revocation (CRL/OCSP) and timestamp tokens, even when the PDF
+contains them (LTV). The footer of every page says so. Names in Indian
+scripts are transliterated in the PDF and marked "(transliterated)"; the JSON
+keeps the original text.
+
+`trackmysign verify file.pdf --json` prints the same result as JSON. The exit
+status is 2 when a signature is invalid or the content changed after signing.
+Schema version 1 (`schema_version` is raised only when a field is removed or
+changes meaning; new fields may be added):
+
+| Field | Meaning |
+|---|---|
+| `schema` | `"trackmysign.verification-report"` |
+| `schema_version` | `1` |
+| `generator` | e.g. `"TrackMySign 0.3.0"` |
+| `checked_at` | time of the check, RFC 3339 UTC |
+| `file` | `name`, `size` (bytes), `sha256` (lower-case hex), `pages` (`null` if the page tree is unreadable), `encrypted` |
+| `summary` | `text` (the summary line), `signatures`, `valid`, `invalid`, `unknown` (counts), `content_changed`, `all_valid` (every signature valid, no content changed, no certification broken) |
+| `checked` | `["integrity", "signature", "certificate_chain", "changes_after_signing"]` |
+| `not_checked` | `["revocation", "timestamp_token"]` |
+| `signatures[]` | in signing order, see below |
+
+Each signature:
+
+| Field | Meaning |
+|---|---|
+| `index` | 1 = signed first |
+| `field` | signature field name |
+| `status` | `valid`, `invalid` or `unknown` (could not be checked) |
+| `signer` | certificate: `subject`, `organization`, `issuer`, `serial` (hex), `not_before`, `not_after`; `null` if not in the signature |
+| `name` | the PDF's `/Name` entry, if any |
+| `signing_time` | RFC 3339 with the signer's offset (signer's clock), or `null` |
+| `signing_time_in_validity` | the signing time is inside the certificate's validity |
+| `timestamp` | `present`; `verified` is always `false` |
+| `reason`, `location` | as written by the signer, or `null` |
+| `sub_filter`, `digest_algorithm` | e.g. `adbe.pkcs7.detached`, `SHA-256` |
+| `certification` | `null`, or `level` (1-3) and `allows`: `no_changes`, `form_filling`, `form_filling_and_annotations` |
+| `coverage` | `whole_document`, `signed_bytes`, `file_bytes`, `later_revisions`, `changes`: `none`, `signatures`, `form_or_annotations`, `content`, `unknown` |
+| `trust` | `cca_india_2022` or `not_checked` |
+| `chain` | certificates, signer first, same fields as `signer` |
+| `notes` | why the status is not valid first, then other warnings |
 
 ## Portal signing (GST)
 
