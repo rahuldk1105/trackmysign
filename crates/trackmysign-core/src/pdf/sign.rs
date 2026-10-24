@@ -973,4 +973,110 @@ mod tests {
     fn id_runs() {
         assert_eq!(runs(&[1, 2, 3, 7, 9, 10]), vec![(1, 3), (7, 1), (9, 2)]);
     }
+
+    /// Two pages, the second turned a quarter.
+    fn two_page_pdf() -> Vec<u8> {
+        let objs: [&[u8]; 5] = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 5 0 R >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Rotate 90 /Contents 5 0 R >>",
+            b"<< /Length 23 >>\nstream\nBT 72 760 Td (Hi) Tj ET\nendstream",
+        ];
+        let mut out = b"%PDF-1.4\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, o) in objs.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
+            out.extend_from_slice(o);
+            out.extend_from_slice(b"\nendobj\n");
+        }
+        let xref = out.len();
+        out.extend_from_slice(b"xref\n0 6\n0000000000 65535 f\r\n");
+        for o in offsets {
+            out.extend_from_slice(format!("{o:010} 00000 n\r\n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!("trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+        );
+        out
+    }
+
+    fn png(w: u32, h: u32) -> StampImage {
+        let mut out = Vec::new();
+        let mut e = png::Encoder::new(&mut out, w, h);
+        e.set_color(png::ColorType::Rgba);
+        e.set_depth(png::BitDepth::Eight);
+        let data: Vec<u8> = (0..w * h * 4).map(|i| (i * 7 % 256) as u8).collect();
+        e.write_header().unwrap().write_image_data(&data).unwrap();
+        StampImage::from_bytes(&out).unwrap()
+    }
+
+    /// The stamp without a style is the one every earlier version drew, to
+    /// the byte (hashes taken before styles existed).
+    #[test]
+    fn default_stamp_unchanged() {
+        use sha2::{Digest, Sha256};
+        let pdf = two_page_pdf();
+        let base = SignatureFields {
+            signer_name: "RAMESH KUMAR".into(),
+            reason: Some("Approved".into()),
+            location: Some("Chennai".into()),
+            time: DateTime::parse_from_rfc3339("2026-10-20T14:32:10+05:30").unwrap(),
+            image: None,
+            image_position: ImagePosition::Left,
+            timestamp: false,
+            certify: None,
+        };
+        let rect = DisplayRect {
+            x: 380.0,
+            y: 740.0,
+            w: 170.0,
+            h: 55.0,
+        };
+        let cases = [
+            (base.clone(), vec![]),
+            (
+                SignatureFields {
+                    image: Some(png(60, 20)),
+                    reason: None,
+                    ..base.clone()
+                },
+                vec![0, 1],
+            ),
+            (
+                SignatureFields {
+                    image: Some(png(30, 40)),
+                    image_position: ImagePosition::Above,
+                    signer_name: "A VERY LONG DIRECTOR NAME INDEED (HR)".into(),
+                    ..base.clone()
+                },
+                vec![1],
+            ),
+        ];
+        let hashes: Vec<String> = cases
+            .into_iter()
+            .map(|(fields, pages)| {
+                let placement = Placement {
+                    page: 0,
+                    rect: Some(rect),
+                    pages,
+                    field: None,
+                };
+                let p = prepare(&pdf, &placement, &fields, 4000).unwrap();
+                Sha256::digest(&p.data)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect()
+            })
+            .collect();
+        assert_eq!(
+            hashes,
+            [
+                "9bfdd32fa0d6a1eb41c0b0b8c55c7bf41f9d7d47e1c3c914068ef816e9a8f156",
+                "6a56ccf1e54c2a3b4a2185ec663d77646d188738a5d936b09fe7ea5cdf118473",
+                "cac8b234a4c1650cb72677c20ec17a956242fbae0639ab8ad54caf1c22419ff6",
+            ]
+        );
+    }
 }
