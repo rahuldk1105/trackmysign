@@ -23,10 +23,17 @@ pub enum PdfError {
         "this PDF's security settings do not allow signing; enter its owner (permissions) password to sign it"
     )]
     SigningNotAllowed,
+    #[error(
+        "this PDF's security settings do not allow changing its pages; enter its owner (permissions) password"
+    )]
+    AssemblyNotAllowed,
     #[error("could not read PDF structure: {0}")]
     Malformed(String),
     #[error("page {0} does not exist")]
     NoSuchPage(usize),
+    /// Pages that cannot be put together as asked.
+    #[error("{0}")]
+    Pages(String),
     /// An existing signature field that cannot be signed as asked.
     #[error("{0}")]
     Field(String),

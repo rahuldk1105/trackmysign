@@ -3,7 +3,9 @@
 pub mod certdetails;
 pub mod certinfo;
 pub mod cms;
+pub mod filesig;
 pub mod folder;
+pub mod history;
 mod http;
 pub mod image;
 pub mod ltv;

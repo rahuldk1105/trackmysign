@@ -72,6 +72,24 @@ kept in the app's own storage on your computer. If you add a handwritten
 signature image, a copy is kept in the app's data folder so it can be reused.
 None of it is sent anywhere.
 
+**Signing history (on by default).** Every signature the app or the
+command-line tool makes on your computer is added to a log in the app's data
+folder (`history`, one `.jsonl` file per month), so you can see later what was
+signed, when and with which certificate. For each signature it keeps: the
+time; what kind of signature it was and how it was started (single, batch,
+watch folder, GST portal, and the portal page's address); the original's and
+the signed copy's paths and SHA-256 hashes; the certificate's name,
+organisation, issuer, serial number and fingerprint; the pages, field, reason,
+location, certification level and timestamp server used; and whether it worked
+or why not. For a GST portal request: the PAN the portal asked for and the PAN
+or hash signed (for text, only its SHA-256). It never holds a PIN, a password
+or anything from inside a document, and it is never sent anywhere.
+*Settings → Signing history* turns it off (the log then notes that it was
+turned off and records nothing more), deletes entries after 1 year or 90 days,
+and clears it; clearing deletes every entry and keeps one saying when it was
+cleared and how many entries were deleted. Deleting the `history` folder
+removes it entirely.
+
 **Recent files.** The app keeps a list of the last 10 PDFs you opened in its
 data folder (`recent-files.json`): for each, the file's path and name, when you
 opened it, its page count and, if you signed it in the app, where the signed

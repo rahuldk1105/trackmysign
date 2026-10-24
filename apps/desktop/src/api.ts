@@ -313,14 +313,14 @@ export async function signBatch(args: BatchArgs, progress: (p: BatchProgress) =>
   await invoke("sign_batch", { args, progress: channel });
 }
 
-/** Files handed over by the system together; `ignored` names the ones that are not PDFs. */
+/** Files handed over by the system together: PDFs, and others to sign as `.p7s` / `.p7m`. */
 export interface Handed {
   files: string[];
-  ignored: string[];
+  others: string[];
 }
 
 export async function startupFiles(): Promise<Handed> {
-  return inTauri ? invoke("startup_files") : { files: [], ignored: [] };
+  return inTauri ? invoke("startup_files") : { files: [], others: [] };
 }
 
 /** Files handed over while the app is running (Finder, a second launch); a
@@ -458,8 +458,7 @@ export async function onFileDrop(cb: (paths: string[]) => void, hover: (on: bool
     else if (p.type === "leave") hover(false);
     else if (p.type === "drop") {
       hover(false);
-      const pdfs = p.paths.filter((x) => x.toLowerCase().endsWith(".pdf"));
-      if (pdfs.length) cb(pdfs);
+      if (p.paths.length) cb(p.paths);
     }
   });
 }
@@ -520,6 +519,96 @@ export async function verifyPdf(path: string, password?: string): Promise<Signat
   ];
 }
 
+// ------------------------------------------------------- other files
+
+/** A signature over a file that is not a PDF (`.p7s` / `.p7m`), checked. */
+export interface FileSignatureCheck extends SignatureCheck {
+  /** The file is inside the signature (`.p7m`). */
+  attached: boolean;
+}
+
+export interface FileInfo {
+  path: string;
+  name: string;
+  size: number;
+  /** "file": to sign; "signature": a `.p7s` / `.p7m` to check. */
+  kind: "file" | "signature";
+  /** Of the file; for a signature, of the content it signs, when known. */
+  sha256: string | null;
+  /** The signature that was checked: next to the file, or the file itself. */
+  signaturePath: string | null;
+  check: FileSignatureCheck | null;
+  /** Why the signature could not be read. */
+  error: string | null;
+  /** For a signature: the signed file found next to it. */
+  signedPath: string | null;
+  hasP7s: boolean;
+  hasP7m: boolean;
+}
+
+export interface FileSignArgs {
+  paths: string[];
+  attached: boolean;
+  certId: string;
+  driverPath: string;
+  pin: string;
+  timestamp: string | null;
+}
+
+export function isSignatureFile(path: string): boolean {
+  return /\.p7[sm]$/i.test(path);
+}
+
+export async function fileInfo(path: string): Promise<FileInfo> {
+  if (inTauri) return invoke("file_info", { path });
+  const name = path.split(/[\\/]/).pop() ?? path;
+  return {
+    path,
+    name,
+    size: 48213,
+    kind: isSignatureFile(path) ? "signature" : "file",
+    sha256: "4C317A2D079D518858F1B3B72EE16EB88A7D82898B7CC3DE7F144098BA0A4EF4",
+    signaturePath: null,
+    check: null,
+    error: null,
+    signedPath: null,
+    hasP7s: false,
+    hasP7m: false,
+  };
+}
+
+/** Signs every file in one token session, writing `<file>.p7s` (or `.p7m`) next to it. */
+export async function signFiles(args: FileSignArgs, progress: (p: BatchProgress) => void): Promise<void> {
+  if (!inTauri) {
+    args.paths.forEach((path, index) => progress({ state: "done", index, output: `${path}.${args.attached ? "p7m" : "p7s"}`, name: "" }));
+    return;
+  }
+  const channel = new Channel<BatchProgress>();
+  channel.onmessage = progress;
+  await invoke("sign_files", { args, progress: channel });
+}
+
+/** Any files, for signing or checking. */
+export async function pickAnyFiles(folder?: string | null): Promise<string[]> {
+  if (!inTauri) return ["C:\\Users\\rahul\\Downloads\\tender-bid.docx"];
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const r = await open({ multiple: true, defaultPath: folder ?? undefined });
+  return r ?? [];
+}
+
+/** Asks where to save the file inside a `.p7m`; null when cancelled. */
+export async function pickOriginalPath(p7m: string): Promise<string | null> {
+  const suggested = inTauri ? await invoke<string>("original_path", { path: p7m }) : p7m.replace(/\.p7m$/i, "");
+  if (!inTauri) return suggested;
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return save({ defaultPath: suggested });
+}
+
+/** Writes the file inside the `.p7m` at `path` to `output`. */
+export async function extractSigned(path: string, output: string): Promise<void> {
+  if (inTauri) await invoke("extract_signed", { path, output });
+}
+
 // ------------------------------------------------------- GST portal signing
 
 /** `invoice.pdf` → `invoice_verification.pdf`, next to it. */
@@ -537,6 +626,46 @@ export async function pickReportPath(path: string): Promise<string | null> {
 /** Checks the signatures again and writes the report (PDF) to `output`. */
 export async function exportReport(path: string, output: string, password?: string): Promise<void> {
   if (inTauri) await invoke("export_report", { path, password: password ?? null, output });
+}
+
+// ------------------------------------------------------------ page tools
+
+/** What a source PDF loses in a new file made from its pages. */
+export type PageNotice =
+  | { kind: "signaturesRemoved"; source: number; count: number }
+  | { kind: "passwordRemoved"; source: number }
+  | { kind: "bookmarksDropped"; source: number }
+  | { kind: "fieldRenamed"; from: string; to: string };
+
+/** One page of the new file: a page of a source, turned clockwise by `rotate`, or an empty one. */
+export type PageItem = { kind: "page"; source: number; page: number; rotate: number } | { kind: "blank"; width: number; height: number };
+
+/** Checks that a PDF can give its pages (password, permissions) and what it would lose. */
+export async function pagesSource(path: string, password?: string): Promise<PageNotice[]> {
+  if (inTauri) return invoke("pages_source", { path, password: password ?? null });
+  return [{ kind: "signaturesRemoved", source: 0, count: 1 }];
+}
+
+/** `contract.pdf` → `contract_prepared.pdf`, next to it. */
+export function preparedPath(path: string): string {
+  return path.replace(/\.pdf$/i, "") + "_prepared.pdf";
+}
+
+/** Asks where to save the new PDF; null when cancelled. */
+export async function pickPreparedPath(path: string): Promise<string | null> {
+  if (!inTauri) return preparedPath(path);
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return save({ defaultPath: preparedPath(path), filters: [{ name: t("dialog.pdfs"), extensions: ["pdf"] }] });
+}
+
+/** Writes a new PDF made of `items` to `output`; the sources are only read. */
+export async function assemblePages(sources: { path: string; password: string | null }[], items: PageItem[], output: string): Promise<PageNotice[]> {
+  if (!inTauri) {
+    await new Promise((r) => setTimeout(r, 400));
+    return [];
+  }
+  const r: { output: string; notices: PageNotice[] } = await invoke("assemble_pages", { args: { sources, items, output } });
+  return r.notices;
 }
 
 // ---------------------------------------------------------- folder check
@@ -850,4 +979,150 @@ export async function onWatchChanged(cb: () => void): Promise<() => void> {
   if (!inTauri) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen("watch-changed", () => cb());
+}
+
+// ------------------------------------------------------- Signing history
+
+export type HistoryAction = "sign" | "sign_pages" | "sign_field" | "certify" | "portal_sign" | "sign_file" | "cleared" | "pruned" | "paused" | "resumed";
+export type HistorySource = "manual" | "batch" | "watch" | "portal";
+export type HistoryOutcome = "signed" | "failed";
+
+export interface HistoryFile {
+  path: string;
+  /** Lower-case hex; missing when the file could not be read. */
+  sha256?: string;
+}
+
+/** One line of the log, as stored (`trackmysign_core::history::Entry`). */
+export interface HistoryEntry {
+  seq: number;
+  /** RFC 3339, UTC. */
+  time: string;
+  action: HistoryAction;
+  source?: HistorySource;
+  /** "desktop 0.6.0" or "cli 0.6.0". */
+  program: string;
+  /** The page that asked (GST portal). */
+  origin?: string;
+  input?: HistoryFile;
+  output?: HistoryFile;
+  portal?: { pan: string; kind: string; data?: string; sha256: string };
+  cert?: { subject: string; organization?: string; issuer: string; serial: string; fingerprint: string };
+  /** Numbered from 1. */
+  pages?: number[];
+  field?: string;
+  reason?: string;
+  location?: string;
+  certify?: CertifyLevel;
+  timestamp?: string;
+  ltv?: boolean;
+  outcome?: HistoryOutcome;
+  error?: string;
+  /** Entries deleted (cleared, pruned). */
+  removed?: number;
+}
+
+export type Retention = "forever" | "year" | "days90";
+
+export interface HistorySettings {
+  enabled: boolean;
+  retention: Retention;
+  /** Where the log is kept. */
+  folder: string;
+}
+
+export interface HistoryIntegrity {
+  entries: number;
+  files: number;
+  problems: { file: string; line: number; seq: number | null; message: string }[];
+}
+
+let mockHistorySettings: HistorySettings = { enabled: true, retention: "forever", folder: "C:\\Users\\you\\AppData\\Roaming\\in.trackmytech.trackmysign\\history" };
+const mockCert = { subject: "DK RAHUL", organization: "Personal", issuer: "Verasys Sub CA 2022", serial: "4f2a91c03b", fingerprint: "9c1e5b7d" };
+let mockHistory: HistoryEntry[] = [
+  {
+    seq: 1,
+    time: "2026-10-20T05:12:40Z",
+    action: "sign",
+    source: "manual",
+    program: "desktop 0.5.0",
+    input: { path: "C:\\Users\\you\\Documents\\invoice-1042.pdf", sha256: "3b7d1f0e5a3c9d8e2f6b1a4c7e9d0f2a3b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e" },
+    output: { path: "C:\\Users\\you\\Documents\\invoice-1042_signed.pdf", sha256: "a1c4e6f8b0d2e4f6a8c0e2f4b6d8f0a2c4e6f8b0d2e4f6a8c0e2f4b6d8f0a2c4" },
+    cert: mockCert,
+    pages: [2],
+    reason: "Approved",
+    location: "Chennai",
+    outcome: "signed",
+  },
+  {
+    seq: 2,
+    time: "2026-10-22T09:40:02Z",
+    action: "sign",
+    source: "watch",
+    program: "desktop 0.5.0",
+    input: { path: "D:\\Inbox\\scan.pdf" },
+    outcome: "failed",
+    error: "Not a valid PDF (it does not end like one; it may be incomplete).",
+  },
+  {
+    seq: 3,
+    time: "2026-10-23T11:02:15Z",
+    action: "portal_sign",
+    source: "portal",
+    program: "desktop 0.5.0",
+    origin: "https://services.gst.gov.in",
+    portal: { pan: "ABCDE1234F", kind: "registration", data: "ABCDE1234F", sha256: "77ac0d1e" },
+    cert: mockCert,
+    outcome: "signed",
+  },
+];
+
+/** Every entry, oldest first. */
+export async function historyEntries(): Promise<HistoryEntry[]> {
+  return inTauri ? invoke("history_entries") : mockHistory;
+}
+
+export async function historySettings(): Promise<HistorySettings> {
+  return inTauri ? invoke("history_settings") : mockHistorySettings;
+}
+
+export async function historySetSettings(enabled: boolean, retention: Retention): Promise<HistorySettings> {
+  if (inTauri) return invoke("history_set_settings", { settings: { enabled, retention } });
+  mockHistorySettings = { ...mockHistorySettings, enabled, retention };
+  return mockHistorySettings;
+}
+
+/** Follows the log's hash chain. */
+export async function historyCheck(): Promise<HistoryIntegrity> {
+  if (inTauri) return invoke("history_check");
+  await new Promise((r) => setTimeout(r, 400));
+  return { entries: mockHistory.length, files: 1, problems: [] };
+}
+
+/** Deletes every entry; one saying so is left. */
+export async function historyClear(): Promise<void> {
+  if (inTauri) return invoke("history_clear");
+  const seq = (mockHistory[mockHistory.length - 1]?.seq ?? 0) + 1;
+  mockHistory = [{ seq, time: new Date().toISOString(), action: "cleared", program: "desktop 0.5.0", removed: mockHistory.length }];
+}
+
+/** Asks where to save the history; null when cancelled. */
+export async function pickHistoryExport(ext: "pdf" | "csv"): Promise<string | null> {
+  const name = `signing-history-${new Date().toISOString().slice(0, 10)}.${ext}`;
+  if (!inTauri) return name;
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const filter = ext === "pdf" ? { name: t("dialog.pdfs"), extensions: ["pdf"] } : { name: t("dialog.csv"), extensions: ["csv"] };
+  return save({ defaultPath: name, filters: [filter] });
+}
+
+/** Writes the entries numbered `seqs` to `output`. */
+export async function historyExport(output: string, ext: "pdf" | "csv", seqs: number[]): Promise<void> {
+  if (inTauri) await invoke("history_export", { output, format: ext, seqs });
+}
+
+/** A signature was recorded, or the history was cleared or its settings changed. */
+export async function onHistoryChanged(cb: () => void): Promise<() => void> {
+  if (!inTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen("history-changed", () => cb());
 }

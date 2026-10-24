@@ -74,6 +74,15 @@ export const FileIcon = (p: P) => (
   </Svg>
 );
 
+/** A file with a signature line: signing files other than PDFs. */
+export const FileSignIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z" />
+    <path d="M14 3v5h5" />
+    <path d="M8 16c1.2-1.8 2-2.5 2.6-2.5.8 0-.4 2.2.4 2.2s1.2-1.4 1.8-1.4.2 1 .8 1 1-.5 1.6-.9" />
+  </Svg>
+);
+
 export const PenIcon = (p: P) => (
   <Svg {...p}>
     <path d="M12 20h9" />
@@ -120,9 +129,48 @@ export const RefreshIcon = (p: P) => (
   </Svg>
 );
 
+export const HistoryIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 12a9 9 0 1 0 2.6-6.4L3 8" />
+    <path d="M3 3v5h5" />
+    <path d="M12 7v5l3 2" />
+  </Svg>
+);
+
 export const ExternalIcon = (p: P) => (
   <Svg {...p}>
     <path d="M14 4h6v6M20 4l-9 9" />
     <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+  </Svg>
+);
+
+/** Page tools: two pages side by side. */
+export const PagesIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="8" height="16" rx="1" />
+    <rect x="13" y="4" width="8" height="16" rx="1" />
+  </Svg>
+);
+
+export const RotateLeftIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 12a9 9 0 1 0 2.6-6.4L3 8" />
+    <path d="M3 3v5h5" />
+  </Svg>
+);
+
+export const RotateRightIcon = RefreshIcon;
+
+export const TrashIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 7h16M10 11v6M14 11v6" />
+    <path d="M6 7l1 13h10l1-13M9 7V4h6v3" />
+  </Svg>
+);
+
+export const UndoIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h11a5 5 0 0 1 0 10h-3" />
   </Svg>
 );

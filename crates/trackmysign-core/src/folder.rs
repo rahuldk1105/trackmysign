@@ -784,7 +784,7 @@ fn trust_key(t: Trust) -> &'static str {
     }
 }
 
-fn push_csv_row(out: &mut String, cells: impl Iterator<Item = String>) {
+pub(crate) fn push_csv_row(out: &mut String, cells: impl Iterator<Item = String>) {
     let cells: Vec<String> = cells.map(|c| csv_cell(&c)).collect();
     out.push_str(&cells.join(","));
     out.push_str("\r\n");

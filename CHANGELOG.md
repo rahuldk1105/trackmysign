@@ -8,11 +8,56 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ### Added
 
+- Signing history: every signature made on this computer, in the app or on
+  the command line (single, batch, every page, empty field, certification,
+  `.p7s` / `.p7m` file signatures, watch folder, GST portal), is recorded with
+  the time, the original's and the signed copy's paths and SHA-256 hashes,
+  the certificate (name, issuer,
+  serial number, fingerprint), the options used and the outcome; never a PIN,
+  a password or document content. **History** (toolbar or start screen) lists
+  it with search and filters (dates, source, outcome), opens a signed copy,
+  exports the entries shown as a PDF or CSV and checks the log's hash chain
+  (*Check log integrity*). *Settings → Signing history* turns it off, keeps
+  entries forever, 1 year or 90 days, and clears it. Kept as one JSON Lines
+  file per month in the app's data folder. Command line:
+  `trackmysign history [--since DATE] [--until DATE] [--source …] [--outcome …]
+  [--search TEXT] [--json | --csv] [--report out.pdf]`, exit status 2 when the
+  log was changed.
+
+- Sign any file with the DSC: **Sign other files…** (toolbar, start screen) or
+  dropping / opening a file that is not a PDF shows a file panel with each
+  file's size, SHA-256 and the `.p7s` already next to it, checked. Signs as a
+  standard CMS / PKCS#7 signature, SHA-256, CAdES-BES (contentType,
+  signingTime, messageDigest, ESS signingCertificateV2, certificate chain):
+  a detached `<file>.p7s` next to the file, or an attached `<file>.p7m` with
+  the file inside; optional RFC 3161 timestamp; one PIN for several files. A
+  `.p7s` / `.p7m` opened is checked like a PDF signature (chain to CCA India),
+  and **Save original…** writes the file inside a `.p7m`. Command line:
+  `sign-file FILE... [--attached] [--out PATH] [--timestamp [URL]] [--force]`
+  and `verify-file FILE [--sig FILE.p7s] [--extract [--out PATH]]` (reads DER,
+  PEM, Base64 and BER signatures, as other tools write them).
+
+- Page tools to prepare a document before signing: **Pages** in the toolbar
+  shows the pages as thumbnails to drag into order, turn, delete, insert blank
+  pages and append other PDFs (**Add PDF…**), with undo; **Save as…** writes a
+  new PDF (`name_prepared.pdf` by default) and opens it for signing. Command
+  line: `trackmysign pages merge|select|rotate|delete|insert-blank … -o
+  out.pdf`. The originals are never changed. Page contents, resources,
+  inherited sizes and rotation, links, comments and form fields are copied
+  (same-named fields renamed); bookmarks are not. Password-protected sources
+  are opened with their password and the new file has none. Signatures in a
+  source cannot carry over: the app and the command line warn and ask first.
+
 - winget manifests (`TrackMyTech.TrackMySign`) in `packaging/winget`, with a
   generator, validation against the official schemas (run in CI) and a CI job
   that opens the winget-pkgs pull request for each release when the
   `WINGET_TOKEN` secret is set. `winget install --id TrackMyTech.TrackMySign`
   works once the package is approved.
+
+### Changed
+
+- Files that are not PDFs, handed over by the system or dropped on the window,
+  go to the file panel instead of being left out with a note.
 
 ## [0.5.0] - 2026-10-24
 
