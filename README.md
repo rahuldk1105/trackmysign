@@ -518,8 +518,12 @@ Browsers:
 trusted certificates (Windows and macOS ask again; on Linux from the same
 Chrome and Firefox lists) and deletes its files.
 
-MCA21 V3 and the Income Tax portal are **not** supported: they use eMudhra's
-emBridge, whose requests are encrypted with keys licensed to eMudhra. Portal
+MCA21 V3, the Income Tax portal and TRACES (tdscpc.gov.in) are **not**
+supported: they use eMudhra's emBridge, whose requests are encrypted with keys
+licensed to eMudhra. TRACES and the old MCA V2 forms portal used a
+WebSocket protocol like the GST portal's, but the old TRACES site now redirects to
+the new one, which signs through emBridge, and MCA V2 no longer accepts
+filings, so there is nothing left to connect to. Portal
 signing is an independent, interoperable implementation of the local protocol
 the GST portal's own JavaScript uses; TrackMySign is not affiliated with or
 endorsed by GSTN, the GST Council or eMudhra.
