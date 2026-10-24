@@ -293,11 +293,17 @@ The timestamp and LTV tests run a local TSA, OCSP responder and CRL server (`tes
 
 Layout:
 
-- `crates/signdesk-core` — PDF reader/incremental writer, CMS, PKCS#11 token access
-- `crates/signdesk-cli` — `trackmysign` command
+- `crates/trackmysign-core` — PDF reader/incremental writer, CMS, PKCS#11 token access
+- `crates/trackmysign-cli` — `trackmysign` command
 - `crates/portal-bridge` — local signer for the GST portal (TLS identity, trust store, WebSocket listener)
 - `apps/desktop` — Tauri desktop app (React + PDF.js front end)
 - `PLAN.md` — decisions and roadmap
+
+## Trademarks
+
+TrackMySign is an independent open-source project, not affiliated with, endorsed or certified by GSTN, MCA, the CCA or any vendor named here. emSigner, emBridge and eMudhra are trademarks of eMudhra Ltd; ePass2003 (Feitian), ProxKey (Watchdata), SafeNet and Gemalto (Thales), HyperPKI (Hypersecu) and Adobe Acrobat Reader (Adobe) are trademarks of their respective owners and are named only to describe compatibility.
+
+"SignDesk" appears in old commit history as an early working name of this project. It is unrelated to Desk Nine Private Limited (SignDesk, now Melento). See [TRADEMARKS.md](TRADEMARKS.md).
 
 ## Project
 

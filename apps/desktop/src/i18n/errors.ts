@@ -42,7 +42,7 @@ export function errorText(e: ApiError): string {
   if (currentLang() === "en") return e.message;
   switch (e.kind) {
     case "wrongPin": {
-      // signdesk_core::Error::WrongPin appends what the token reports.
+      // trackmysign_core::Error::WrongPin appends what the token reports.
       const more = e.message.includes("One attempt left") ? t("pin.finalTry") : e.message.includes("few attempts") ? t("pin.countLow") : "";
       return more ? `${t("error.wrongPin")} ${more}` : t("error.wrongPin");
     }

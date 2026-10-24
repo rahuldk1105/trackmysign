@@ -4,9 +4,9 @@
 use std::path::Path;
 
 use serde::Serialize;
-use signdesk_core::report::Report;
-use signdesk_core::verify::{Changes, SignatureReport, Status, Trust};
 use tauri::AppHandle;
+use trackmysign_core::report::Report;
+use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
 
 use super::CmdResult;
 
@@ -97,7 +97,7 @@ impl From<&SignatureReport> for SignatureDto {
 pub async fn verify_pdf(path: String, password: Option<String>) -> CmdResult<Vec<SignatureDto>> {
     tauri::async_runtime::spawn_blocking(move || {
         let data = std::fs::read(&path)?;
-        let reports = signdesk_core::verify_with_password(&data, password.as_deref())?;
+        let reports = trackmysign_core::verify_with_password(&data, password.as_deref())?;
         Ok(reports.iter().map(SignatureDto::from).collect())
     })
     .await

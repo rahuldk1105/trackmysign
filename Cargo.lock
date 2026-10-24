@@ -3362,7 +3362,7 @@ dependencies = [
 
 [[package]]
 name = "portal-bridge"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "der",
@@ -3370,11 +3370,11 @@ dependencies = [
  "rcgen",
  "rustls",
  "sha1 0.10.7",
- "signdesk-core",
  "time",
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite",
+ "trackmysign-core",
  "x509-cert",
 ]
 
@@ -4219,37 +4219,6 @@ checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
  "digest 0.10.7",
  "rand_core 0.6.4",
-]
-
-[[package]]
-name = "signdesk-core"
-version = "0.3.0"
-dependencies = [
- "aes",
- "base64 0.22.1",
- "cbc",
- "chrono",
- "cms",
- "const-oid 0.9.6",
- "cryptoki",
- "cryptoki-sys",
- "der",
- "flate2",
- "getrandom 0.2.17",
- "md-5",
- "num-bigint",
- "p256",
- "p384",
- "png 0.18.1",
- "rc4",
- "serde",
- "serde_json",
- "sha1 0.10.7",
- "sha2",
- "thiserror 2.0.21",
- "ureq",
- "x509-cert",
- "x509-ocsp",
 ]
 
 [[package]]
@@ -5329,24 +5298,54 @@ dependencies = [
 
 [[package]]
 name = "trackmysign"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
  "rpassword",
- "signdesk-core",
  "tauri-winres",
+ "trackmysign-core",
+]
+
+[[package]]
+name = "trackmysign-core"
+version = "0.4.0"
+dependencies = [
+ "aes",
+ "base64 0.22.1",
+ "cbc",
+ "chrono",
+ "cms",
+ "const-oid 0.9.6",
+ "cryptoki",
+ "cryptoki-sys",
+ "der",
+ "flate2",
+ "getrandom 0.2.17",
+ "md-5",
+ "num-bigint",
+ "p256",
+ "p384",
+ "png 0.18.1",
+ "rc4",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2",
+ "thiserror 2.0.21",
+ "ureq",
+ "x509-cert",
+ "x509-ocsp",
 ]
 
 [[package]]
 name = "trackmysign-desktop"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "portal-bridge",
  "serde",
  "serde_json",
- "signdesk-core",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
@@ -5355,6 +5354,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "trackmysign-core",
 ]
 
 [[package]]

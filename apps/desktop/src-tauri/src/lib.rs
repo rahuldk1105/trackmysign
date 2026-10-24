@@ -1,4 +1,4 @@
-//! Tauri backend: thin commands over `signdesk-core`.
+//! Tauri backend: thin commands over `trackmysign-core`.
 
 mod background;
 mod certs;
@@ -12,14 +12,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use signdesk_core::certinfo::{Validity, days_until};
-use signdesk_core::token::{Token, TokenCert, Tokens, installed_drivers};
-use signdesk_core::{
+use tauri::ipc::{Channel, Response};
+use tauri::{AppHandle, Emitter, Manager, State};
+use trackmysign_core::certinfo::{Validity, days_until};
+use trackmysign_core::token::{Token, TokenCert, Tokens, installed_drivers};
+use trackmysign_core::{
     DisplayRect, DocMdp, Error, ImagePosition, PdfError, SignRequest, StampImage,
     inspect_with_password, sign_pdf,
 };
-use tauri::ipc::{Channel, Response};
-use tauri::{AppHandle, Emitter, Manager, State};
 
 /// PKCS#11 drivers are process-global; never let two commands use one at once.
 static TOKEN_LOCK: Mutex<()> = Mutex::new(());
@@ -450,7 +450,7 @@ fn sign_one(
     path: &Path,
     args: &BatchArgs,
     image: &Option<StampImage>,
-    signer: &mut dyn signdesk_core::Signer,
+    signer: &mut dyn trackmysign_core::Signer,
 ) -> CmdResult<PathBuf> {
     let data = std::fs::read(path)?;
     // Files that open without a password are not held up by the batch's one.

@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["crates/signdesk-core", "crates/signdesk-cli", "crates/portal-bridge", "apps/desktop/src-tauri"]
+members = ["crates/trackmysign-core", "crates/trackmysign-cli", "crates/portal-bridge", "apps/desktop/src-tauri"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 

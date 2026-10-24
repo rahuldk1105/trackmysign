@@ -6,6 +6,8 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-24
+
 ### Added
 
 - Signature verification report for auditors: **Export report…** in the
@@ -54,6 +56,13 @@ All notable changes to TrackMySign are listed here. The format follows
 - The desktop app in Hindi and Tamil. It follows the system language; choose
   System, English, हिन्दी or தமிழ் under *Settings → Appearance → Language*.
   The signature box in the PDF stays in English.
+
+### Changed
+
+- Internal crates renamed to `trackmysign-core` and `trackmysign-cli`; README,
+  website footer and TRADEMARKS.md now carry a trademark and non-affiliation
+  notice. ("SignDesk" in old history was an early working name, unrelated to
+  Desk Nine Private Limited / Melento.)
 
 ## [0.3.0] - 2026-10-24
 
@@ -190,7 +199,8 @@ First release.
 - Website at [sign.rahuldk.in](https://sign.rahuldk.in).
 - End-to-end tests with a SoftHSM virtual token, validated with pyHanko and qpdf.
 
-[Unreleased]: https://github.com/rahuldk1105/trackmysign/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/rahuldk1105/trackmysign/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/rahuldk1105/trackmysign/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/rahuldk1105/trackmysign/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/rahuldk1105/trackmysign/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/rahuldk1105/trackmysign/compare/v0.1.3...v0.1.4

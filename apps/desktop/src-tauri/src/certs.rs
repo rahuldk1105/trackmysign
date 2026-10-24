@@ -4,13 +4,13 @@
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use signdesk_core::certdetails::{
-    CertificateDetails, complete_chain, export_file_name, to_p7b, to_pem,
-};
-use signdesk_core::certinfo::{CertSummary, days_until};
-use signdesk_core::token::{Token, TokenCert};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
+use trackmysign_core::certdetails::{
+    CertificateDetails, complete_chain, export_file_name, to_p7b, to_pem,
+};
+use trackmysign_core::certinfo::{CertSummary, days_until};
+use trackmysign_core::token::{Token, TokenCert};
 
 use super::{CmdResult, CommandError, TOKEN_LOCK};
 

@@ -5,14 +5,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
-use signdesk_core::certdetails::{
+use trackmysign_core::certdetails::{
     CertificateDetails, complete_chain, export_file_name, to_p7b, to_pem,
 };
-use signdesk_core::certinfo::{CertSummary, Validity};
-use signdesk_core::report::Report;
-use signdesk_core::token::{Driver, TokenCert, Tokens, driver_name};
-use signdesk_core::verify::{Changes, SignatureReport, Status, Trust};
-use signdesk_core::{
+use trackmysign_core::certinfo::{CertSummary, Validity};
+use trackmysign_core::report::Report;
+use trackmysign_core::token::{Driver, TokenCert, Tokens, driver_name};
+use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
+use trackmysign_core::{
     DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, ImagePosition, PdfError, PdfInfo, SignRequest,
     StampImage, check_permitted_with_password, inspect_with_password, parse_pages, sign_pdf,
     signed_path,

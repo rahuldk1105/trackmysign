@@ -11,7 +11,7 @@ import { errorText } from "./i18n/errors";
 import { AlertIcon, CheckIcon } from "./icons";
 import "./certdetails.css";
 
-/** Display names from signdesk_core::certdetails, which are English. Class 1/2/3 stay as they are. */
+/** Display names from trackmysign_core::certdetails, which are English. Class 1/2/3 stay as they are. */
 const NAMES: Record<string, MessageKey> = {
   "Digital signature": "usage.digitalSignature",
   "Non-repudiation": "usage.nonRepudiation",

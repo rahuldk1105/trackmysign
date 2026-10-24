@@ -5,9 +5,9 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use signdesk_core::certinfo::days_until;
-use signdesk_core::token::TokenCert;
 use tauri::{AppHandle, Manager};
+use trackmysign_core::certinfo::days_until;
+use trackmysign_core::token::TokenCert;
 
 use super::{CmdResult, CommandError};
 

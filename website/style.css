@@ -1086,6 +1086,12 @@ details p {
 .foot-row a:hover {
   color: var(--accent-text);
 }
+.foot-note {
+  margin: 14px 0 0;
+  max-width: 80ch;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
 .foot-links {
   margin-left: auto;
   display: flex;

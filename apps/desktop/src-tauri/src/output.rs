@@ -4,7 +4,7 @@
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
-use signdesk_core::signed_path_in;
+use trackmysign_core::signed_path_in;
 
 use super::{CmdResult, CommandError};
 

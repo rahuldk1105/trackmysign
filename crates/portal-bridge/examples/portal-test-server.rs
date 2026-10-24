@@ -9,8 +9,8 @@
 use std::time::Duration;
 
 use portal_bridge::{Config, identity, start};
-use signdesk_core::portal::{self, frame};
-use signdesk_core::token::Tokens;
+use trackmysign_core::portal::{self, frame};
+use trackmysign_core::token::Tokens;
 
 fn answer(request: &portal::Request) -> String {
     let result = (|| {

@@ -7,9 +7,9 @@ use std::sync::Mutex;
 use portal_bridge::identity::{self, Store};
 use portal_bridge::{Config, Reply, Requests, Running, trust};
 use serde::{Deserialize, Serialize};
-use signdesk_core::portal::{self, Request, frame};
-use signdesk_core::token::{Token, Tokens};
 use tauri::{AppHandle, Emitter, Manager, State};
+use trackmysign_core::portal::{self, Request, frame};
+use trackmysign_core::token::{Token, Tokens};
 
 use super::{CertDto, CmdResult, CommandError, TOKEN_LOCK, cert_dto, not_expired};
 

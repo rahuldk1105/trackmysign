@@ -2,7 +2,7 @@
 //! `wss://127.0.0.1:<port>` (the protocol of eMudhra's emSigner) and asks
 //! for a signature, which TrackMySign makes with the user's DSC after the
 //! user approves it. The frames and the signature itself are in
-//! `signdesk_core::portal`; this crate has the TLS identity, the trust-store
+//! `trackmysign_core::portal`; this crate has the TLS identity, the trust-store
 //! step and the listener.
 
 pub mod identity;

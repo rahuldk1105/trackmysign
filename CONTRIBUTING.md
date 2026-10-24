@@ -6,10 +6,10 @@ issue first so we can agree on the approach before you spend time on it.
 
 ## Repository layout
 
-- `crates/signdesk-core`: the signing engine. Its own PDF reader and incremental
+- `crates/trackmysign-core`: the signing engine. Its own PDF reader and incremental
   writer (`pdf/`), CMS signatures (`cms.rs`), PKCS#11 token access (`token.rs`),
   signature verification (`verify.rs`), timestamps and LTV (`tsa.rs`, `ltv.rs`, `http.rs`).
-- `crates/signdesk-cli`: the `trackmysign` command (`certs`, `info`, `sign`, `verify`).
+- `crates/trackmysign-cli`: the `trackmysign` command (`certs`, `info`, `sign`, `verify`).
 - `apps/desktop`: the Tauri desktop app. React + TypeScript + PDF.js in `src/`,
   Tauri commands in `src-tauri/src/lib.rs`.
 - `website/`: the static site at [sign.rahuldk.in](https://sign.rahuldk.in) (no build step).
@@ -102,7 +102,7 @@ usually a one-line change:
    `.so`, usually in `/usr/lib`. Check that
    it works first:
    `trackmysign --module <path to driver> certs` (or set `TRACKMYSIGN_PKCS11_MODULE`).
-2. Add it to `known_locations()` in `crates/signdesk-core/src/token.rs` as
+2. Add it to `known_locations()` in `crates/trackmysign-core/src/token.rs` as
    `(product name, folder, file name)`, in the `#[cfg(windows)]`,
    `#[cfg(target_os = "macos")]` or Linux block. A `*` in the file name matches a version
    number that changes between driver releases (`TRUSTKEYP11*.dll`). Vendor drivers
