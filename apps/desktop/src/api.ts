@@ -358,3 +358,106 @@ export async function verifyPdf(path: string, password?: string): Promise<Signat
     },
   ];
 }
+
+// ------------------------------------------------------- GST portal signing
+
+export interface PortalStatus {
+  /** Turned on in Settings (the listener runs while the app is open). */
+  enabled: boolean;
+  /** Port the listener answers on, when running. */
+  port: number | null;
+  /** Ports before `port` that another program (emSigner) uses. */
+  taken: number[];
+  /** emSigner version reported to the portal. */
+  version: string;
+  defaultVersion: string;
+  /** Why it is not running although turned on. */
+  error: string | null;
+  /** Turned off, but the certificate is still in the trust store. */
+  certificateLeft: boolean;
+  validUntil: string | null;
+  /** Recent activity, oldest first. */
+  log: string[];
+}
+
+/** A signature the GST portal asked for, waiting for the user. */
+export interface PortalRequest {
+  id: number;
+  /** Site that asked, e.g. `https://services.gst.gov.in`. */
+  origin: string;
+  pan: string;
+  /** Exactly what will be signed. */
+  toBeSigned: string;
+  /** "registration": the PAN itself; "digest": a hash of a return or form. */
+  kind: "registration" | "digest" | "text";
+  expiryCheck: boolean;
+}
+
+export interface PortalCert extends Cert {
+  /** The certificate names the requested PAN. */
+  matchesPan: boolean;
+}
+
+const portalOff: PortalStatus = {
+  enabled: false,
+  port: null,
+  taken: [],
+  version: "2.8",
+  defaultVersion: "2.8",
+  error: null,
+  certificateLeft: false,
+  validUntil: null,
+  log: [],
+};
+
+export async function portalStatus(): Promise<PortalStatus> {
+  return inTauri ? invoke("portal_status") : portalOff;
+}
+
+/** Makes the certificate and adds it to the trust store; the system asks the user. */
+export async function portalEnable(): Promise<PortalStatus> {
+  if (inTauri) return invoke("portal_enable");
+  return { ...portalOff, enabled: true, port: 1585, validUntil: "22 Jan 2029", log: ["10:00:00 listening on 127.0.0.1:1585"] };
+}
+
+/** Stops listening and removes the certificate from the trust store. */
+export async function portalDisable(): Promise<PortalStatus> {
+  return inTauri ? invoke("portal_disable") : portalOff;
+}
+
+export async function portalSetVersion(version: string): Promise<PortalStatus> {
+  return inTauri ? invoke("portal_set_version", { version }) : { ...portalOff, enabled: true, port: 1585, version };
+}
+
+export async function portalPending(): Promise<PortalRequest | null> {
+  return inTauri ? invoke("portal_pending") : null;
+}
+
+export async function portalCertificates(pan: string): Promise<PortalCert[]> {
+  if (inTauri) return invoke("portal_certificates", { pan });
+  return (await mock.listCertificates()).map((c) => ({ ...c, matchesPan: true }));
+}
+
+export async function portalSign(id: number, certId: string, driverPath: string, pin: string): Promise<void> {
+  if (inTauri) return invoke("portal_sign", { args: { id, certId, driverPath, pin } });
+  await new Promise((r) => setTimeout(r, 700));
+  if (pin !== mock.pin) throw { kind: "wrongPin", message: "Wrong PIN. Careful: few attempts left before the token locks." };
+}
+
+export async function portalCancel(id: number): Promise<void> {
+  if (inTauri) await invoke("portal_cancel", { id });
+}
+
+/** A new request from the portal page. */
+export async function onPortalRequest(cb: (r: PortalRequest) => void): Promise<() => void> {
+  if (!inTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<PortalRequest>("portal-request", (e) => cb(e.payload));
+}
+
+/** The request was answered, or the page stopped waiting (closed, timed out). */
+export async function onPortalClosed(cb: (id: number) => void): Promise<() => void> {
+  if (!inTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<number>("portal-closed", (e) => cb(e.payload));
+}

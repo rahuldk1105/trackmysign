@@ -6,6 +6,16 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- GST portal signing: the GST portal (gst.gov.in) can sign DSC registrations
+  and returns with your DSC through TrackMySign instead of emSigner. Turn it on
+  under *Settings → GST portal signing*; it adds a certificate for `127.0.0.1`
+  to your trusted certificates (Windows or macOS asks you first), listens on
+  this computer only, answers only gst.gov.in pages, and shows every request
+  for approval with your PIN. *Disable and remove* takes the certificate out
+  again. MCA21 V3 and Income Tax are not supported.
+
 ## [0.2.0] - 2026-10-24
 
 ### Added

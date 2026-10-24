@@ -1,6 +1,7 @@
 //! Tauri backend: thin commands over `signdesk-core`.
 
 mod known;
+mod portal;
 mod verify;
 
 use std::path::{Path, PathBuf};
@@ -78,6 +79,27 @@ struct CertDto {
     driver_path: String,
 }
 
+fn cert_dto(c: &TokenCert) -> CertDto {
+    CertDto {
+        id: c.fingerprint(),
+        name: c.summary.subject_cn.clone(),
+        organization: c.summary.organization.clone(),
+        issuer: c.summary.issuer_cn.clone(),
+        valid_from: c.summary.not_before.format("%d %b %Y").to_string(),
+        valid_until: c.summary.not_after.format("%d %b %Y").to_string(),
+        expired: c.summary.expired,
+        days_left: days_until(chrono::Utc::now(), c.summary.not_after),
+        starts_in: match c.summary.validity() {
+            Validity::NotYetValid { days } => Some(days),
+            _ => None,
+        },
+        can_sign: c.summary.can_sign,
+        token_label: c.token_label.clone(),
+        driver: c.driver.name.clone(),
+        driver_path: c.driver.path.to_string_lossy().into_owned(),
+    }
+}
+
 #[tauri::command]
 async fn list_certificates(app: AppHandle) -> CmdResult<Vec<CertDto>> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -85,28 +107,7 @@ async fn list_certificates(app: AppHandle) -> CmdResult<Vec<CertDto>> {
         let tokens = Tokens::open_installed()?;
         let certs = tokens.signing_certificates()?;
         known::remember(&app, &certs);
-        let now = chrono::Utc::now();
-        Ok(certs
-            .iter()
-            .map(|c| CertDto {
-                id: c.fingerprint(),
-                name: c.summary.subject_cn.clone(),
-                organization: c.summary.organization.clone(),
-                issuer: c.summary.issuer_cn.clone(),
-                valid_from: c.summary.not_before.format("%d %b %Y").to_string(),
-                valid_until: c.summary.not_after.format("%d %b %Y").to_string(),
-                expired: c.summary.expired,
-                days_left: days_until(now, c.summary.not_after),
-                starts_in: match c.summary.validity() {
-                    Validity::NotYetValid { days } => Some(days),
-                    _ => None,
-                },
-                can_sign: c.summary.can_sign,
-                token_label: c.token_label.clone(),
-                driver: c.driver.name.clone(),
-                driver_path: c.driver.path.to_string_lossy().into_owned(),
-            })
-            .collect())
+        Ok(certs.iter().map(cert_dto).collect())
     })
     .await
     .map_err(|e| CommandError {
@@ -726,6 +727,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(opened))
+        .manage(portal::PortalState::default())
+        .setup(|app| {
+            portal::start_if_enabled(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_certificates,
             known::known_certificates,
@@ -743,7 +749,15 @@ pub fn run() {
             open_file,
             reveal_file,
             open_website,
-            verify::verify_pdf
+            verify::verify_pdf,
+            portal::portal_status,
+            portal::portal_enable,
+            portal::portal_disable,
+            portal::portal_set_version,
+            portal::portal_pending,
+            portal::portal_certificates,
+            portal::portal_sign,
+            portal::portal_cancel
         ])
         .build(tauri::generate_context!())
         .expect("error while running TrackMySign")

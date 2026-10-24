@@ -16,6 +16,7 @@ import type {
 } from "./api";
 import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, remindAbout, today, type ReminderDays } from "./expiry";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
+import { PortalDialog, PortalSettings, PortalStatusItem, usePortal } from "./PortalSigning";
 import { SignaturesPanel } from "./SignaturesPanel";
 import { UpdateBanner } from "./UpdateBanner";
 import { useUpdater, type UpdateState } from "./updater";
@@ -270,6 +271,11 @@ export default function App() {
   const [sigImage, setSigImage] = useState<{ url: string; aspect: number } | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const updater = useUpdater(saved.autoUpdate);
+  const portal = usePortal();
+  const refreshPortal = portal.refresh;
+  useEffect(() => {
+    if (settingsOpen) refreshPortal();
+  }, [settingsOpen, refreshPortal]);
 
   const update = (patch: Partial<Saved>) =>
     setSaved((s) => {
@@ -532,7 +538,7 @@ export default function App() {
       ? (certs.length ? certs : known).filter((k) => remindAbout(k.daysLeft, saved.expiryReminder))
       : [];
   const dismissReminders = () => update({ reminderDismissed: today() });
-  const dialogOpen = step.kind !== "idle" || settingsOpen || !!unlock;
+  const dialogOpen = step.kind !== "idle" || settingsOpen || !!unlock || !!portal.request;
 
   // ---- keyboard
   const keys = useRef({ pick, zoomBy, dialogOpen, hasDoc: !!doc });
@@ -1169,6 +1175,12 @@ export default function App() {
           )
         )}
         <div className="spacer" />
+        {portal.status?.enabled && (
+          <>
+            <PortalStatusItem status={portal.status} onClick={() => setSettingsOpen(true)} />
+            <i className="sb-sep" />
+          </>
+        )}
         <span className="mono sb-item" title={driverPath}>
           {drivers === undefined ? "" : driverPath ? baseName(driverPath) : "No PKCS#11 driver found"}
         </span>
@@ -1198,6 +1210,8 @@ export default function App() {
           onRefresh={refreshCerts}
           updateState={updater.state}
           onCheckUpdate={updater.check}
+          portal={portal.status}
+          onPortal={portal.setStatus}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -1254,6 +1268,9 @@ export default function App() {
           </div>
         </Modal>
       )}
+
+      {/* Last, so it shows above any other dialog. */}
+      {portal.request && <PortalDialog key={portal.request.id} request={portal.request} onDone={portal.done} />}
     </div>
   );
 }
@@ -1514,6 +1531,8 @@ function Settings(props: {
   onRefresh: () => void;
   updateState: UpdateState;
   onCheckUpdate: () => void;
+  portal: api.PortalStatus | null;
+  onPortal: (s: api.PortalStatus) => void;
   onClose: () => void;
 }) {
   const { onClose } = props;
@@ -1737,6 +1756,8 @@ function Settings(props: {
             </button>
           </section>
 
+          <PortalSettings status={props.portal} onStatus={props.onPortal} />
+
           <section>
             <h3>Updates</h3>
             <label className="check-row">
@@ -1929,7 +1950,7 @@ function PresetRow(props: { preset: Preset; taken: (name: string) => boolean; on
   );
 }
 
-function Modal(props: { title: string; icon?: React.ReactNode; tone?: "ok"; children: React.ReactNode; onClose?: () => void }) {
+export function Modal(props: { title: string; icon?: React.ReactNode; tone?: "ok"; children: React.ReactNode; onClose?: () => void }) {
   const { onClose } = props;
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose?.();

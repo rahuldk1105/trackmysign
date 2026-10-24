@@ -1,0 +1,40 @@
+/* GST portal signing (PortalSigning.tsx). */
+
+button.portal-sb {
+  border: 0;
+  background: none;
+  padding: 0 4px;
+  height: 22px;
+  font-size: 12px;
+  color: var(--muted);
+}
+button.portal-sb:hover {
+  background: var(--hover);
+}
+.portal-sb.ok {
+  color: var(--ok);
+}
+.portal-sb.bad {
+  color: var(--bad);
+}
+.kv dd.portal-data {
+  max-height: 64px;
+  overflow-y: auto;
+  color: var(--text);
+}
+input.portal-version {
+  width: 90px;
+  flex: none;
+}
+.portal-log {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--muted);
+  user-select: text;
+}
+.portal-log li {
+  overflow-wrap: anywhere;
+}

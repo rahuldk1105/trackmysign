@@ -130,6 +130,57 @@ signing, or also comments. Only an unsigned document can be certified, and a
 document certified with `none` cannot be signed again. In the desktop app this
 is *Signature type → Certify* in the side panel.
 
+## Portal signing (GST)
+
+The GST portal (gst.gov.in) signs DSC registrations and returns through a
+program on your own computer, normally eMudhra's emSigner: the portal page
+connects to `wss://127.0.0.1` on port 1585 (or 2095, 2568, 2868, 4587) and asks
+it to sign. TrackMySign can answer those requests instead, with the DSC on your
+token:
+
+1. *Settings → GST portal signing → Enable portal signing.* TrackMySign makes a
+   certificate authority for this computer only, uses it once to issue a
+   certificate for `127.0.0.1`, and deletes its private key, so it can never
+   vouch for anything else (it is also limited to `127.0.0.1` and `localhost`
+   by name constraints). Its certificate is added to your user's trusted
+   certificates so the browser accepts the connection: Windows shows a security
+   warning to confirm, macOS asks for your password. The status bar then shows
+   *Portal signing: on (port 1585)*.
+2. On the portal, choose to sign with DSC as usual. TrackMySign comes to the
+   front and shows which site asks, the PAN and exactly what will be signed
+   (your PAN at DSC registration, a hash of the return when filing). It picks
+   the certificate for that PAN when the certificate shows it (CCA rules put a
+   hash of the PAN in the certificate), you can choose another, enter the PIN
+   and press **Sign**, or **Cancel** (the portal then says "Signing
+   Cancelled"). An expired certificate is refused.
+
+TrackMySign listens only while it is open, only on `127.0.0.1` (never on the
+network), and answers only pages from `https://gst.gov.in` and its
+subdomains. If emSigner is running on port 1585, TrackMySign takes the next
+free port and Settings says so; the portal tries the ports in order, so quit
+emSigner to sign with TrackMySign. The portal checks the emSigner version it
+expects (2.8 when this was written); if it says "Please install and use correct
+version of emSigner", change the version in Settings.
+
+Browsers:
+
+- **Chrome / Edge** may ask whether gst.gov.in may access apps and services on
+  this device (the local network access prompt). Allow it, or the portal cannot
+  reach TrackMySign.
+- **Firefox** uses its own certificate list. Recent versions also trust
+  certificates you added to Windows or macOS; if Firefox still refuses the
+  connection, set `security.enterprise_roots.enabled` to `true` in
+  `about:config`.
+
+*Disable and remove* stops the listener, removes the certificate from your
+trusted certificates (Windows and macOS ask again) and deletes its files.
+
+MCA21 V3 and the Income Tax portal are **not** supported: they use eMudhra's
+emBridge, whose requests are encrypted with keys licensed to eMudhra. Portal
+signing is an independent, interoperable implementation of the local protocol
+the GST portal's own JavaScript uses; TrackMySign is not affiliated with or
+endorsed by GSTN, the GST Council or eMudhra.
+
 ## Development
 
 ```
@@ -146,6 +197,7 @@ Layout:
 
 - `crates/signdesk-core` — PDF reader/incremental writer, CMS, PKCS#11 token access
 - `crates/signdesk-cli` — `trackmysign` command
+- `crates/portal-bridge` — local signer for the GST portal (TLS identity, trust store, WebSocket listener)
 - `apps/desktop` — Tauri desktop app (React + PDF.js front end)
 - `PLAN.md` — decisions and roadmap
 

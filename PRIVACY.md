@@ -28,6 +28,19 @@ does not report errors anywhere and has no tracking code.
 If a timestamp or LTV server cannot be reached, nothing is saved and you can
 sign again without it.
 
+**GST portal signing (off by default).** When you turn it on in *Settings*,
+the app listens for the GST portal page on `127.0.0.1` only, so nothing on your
+network or the internet can connect to it, and it accepts connections only from
+pages at `https://gst.gov.in` and its subdomains. Each request is shown to you
+and signed only when you enter your PIN; the signature goes back to that
+browser page and nowhere else (the portal page then sends it to the GST
+portal, as it would with emSigner). The app itself makes no network request
+for this. Turning it on keeps a certificate for `127.0.0.1` and its key in the
+app's data folder and adds a matching certificate authority, whose private key
+was deleted right after use, to your user's trusted certificates; *Disable and
+remove* deletes both. A short log of recent portal connections (time, site,
+outcome) is kept in memory while the app runs, never on disk.
+
 Clicking a link in the app (for example to this project's website) opens it in
 your browser; the app itself does not load web pages.
 
