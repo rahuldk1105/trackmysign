@@ -17,8 +17,8 @@ use trackmysign_core::token::{Driver, TokenCert, TokenSigner, Tokens, driver_nam
 use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
 use trackmysign_core::{
     DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, ImagePosition, PdfError, PdfInfo, SignRequest,
-    StampImage, StampStyle, check_permitted_with_password, inspect_with_password, parse_pages, sign_pdf,
-    signed_path, watch,
+    StampImage, StampStyle, check_permitted_with_password, inspect_with_password, parse_pages,
+    sign_pdf, signed_path, watch,
 };
 use zeroize::Zeroizing;
 
@@ -846,7 +846,11 @@ fn run() -> Result<()> {
             let image = image
                 .map(|p| StampImage::open(&p).with_context(|| format!("reading {}", p.display())))
                 .transpose()?;
-            let mut style = style.as_deref().map(read_style).transpose()?.unwrap_or_default();
+            let mut style = style
+                .as_deref()
+                .map(read_style)
+                .transpose()?
+                .unwrap_or_default();
             let seal = seal
                 .map(|p| StampImage::open(&p).with_context(|| format!("reading {}", p.display())))
                 .transpose()?;

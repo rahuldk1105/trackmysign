@@ -23,8 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::pdf::reader::PdfError;
 use crate::{
     DisplayRect, Error, ImagePosition, PdfInfo, SignRequest, StampImage, StampStyle,
-    check_permitted, inspect,
-    parse_pages, write_signed_in,
+    check_permitted, inspect, parse_pages, write_signed_in,
 };
 
 /// Default folder names inside the watched folder.

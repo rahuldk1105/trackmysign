@@ -269,8 +269,7 @@ fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp 
 /// Appearance stream for a `w`×`h` box (upright as the reader sees it),
 /// turned `rotate` degrees counterclockwise onto the page.
 fn appearance_obj(stamp: &Stamp, w: f64, h: f64, rotate: i32) -> Obj {
-    let content =
-        appearance::draw(&stamp.style, &stamp.lines, stamp.images, w, h).content_stream();
+    let content = appearance::draw(&stamp.style, &stamp.lines, stamp.images, w, h).content_stream();
     let m = appearance::rotation_matrix(rotate, w, h);
     let ap = Dict::new()
         .with("Type", Obj::name("XObject"))

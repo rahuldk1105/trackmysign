@@ -305,7 +305,8 @@ pub struct StampLine {
 /// The lines `style` shows for `values`, in order, untransliterated.
 pub fn stamp_lines(style: &StampStyle, values: &StampValues) -> Vec<StampLine> {
     let given = |s: Option<&str>| s.map(str::trim).filter(|s| !s.is_empty()).map(String::from);
-    let organisation = given(Some(&style.organisation)).or_else(|| given(values.organisation.as_deref()));
+    let organisation =
+        given(Some(&style.organisation)).or_else(|| given(values.organisation.as_deref()));
     let mut out = Vec::new();
     for field in style.line_fields() {
         let (text, name) = match field {
@@ -318,7 +319,10 @@ pub fn stamp_lines(style: &StampStyle, values: &StampValues) -> Vec<StampLine> {
                 Some(format!("Date: {}", style.date_format.format(&values.time))),
                 false,
             ),
-            LineField::Reason => (given(values.reason.as_deref()).map(|r| format!("Reason: {r}")), false),
+            LineField::Reason => (
+                given(values.reason.as_deref()).map(|r| format!("Reason: {r}")),
+                false,
+            ),
             LineField::Location => (
                 given(values.location.as_deref()).map(|l| format!("Location: {l}")),
                 false,
@@ -423,7 +427,10 @@ mod tests {
     #[test]
     fn date_formats() {
         let t = DateTime::parse_from_rfc3339("2026-03-04T17:08:09+01:00").unwrap();
-        assert_eq!(DateFormat::DdMmYyyyHhMmSs.format(&t), "04-03-2026 17:08:09 +01:00");
+        assert_eq!(
+            DateFormat::DdMmYyyyHhMmSs.format(&t),
+            "04-03-2026 17:08:09 +01:00"
+        );
         assert_eq!(DateFormat::DdMmmYyyy.format(&t), "04 Mar 2026");
     }
 

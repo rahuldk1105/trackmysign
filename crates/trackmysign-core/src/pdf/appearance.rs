@@ -310,7 +310,9 @@ pub fn draw(style: &StampStyle, lines: &[StampLine], images: Images, w: f64, h: 
     let behind = images
         .seal
         .filter(|(_, s)| s.position == SealPosition::Behind);
-    let right = images.seal.filter(|(_, s)| s.position == SealPosition::Right);
+    let right = images
+        .seal
+        .filter(|(_, s)| s.position == SealPosition::Right);
 
     let mut text = [0.0, 0.0, w, h];
     match mode {
@@ -319,18 +321,26 @@ pub fn draw(style: &StampStyle, lines: &[StampLine], images: Images, w: f64, h: 
             match (sig, images.seal) {
                 (Some(s), Some((aspect, seal))) => {
                     if seal.position == SealPosition::Behind {
-                        d.images
-                            .push(placed(ImageKind::Seal, fit(inner(area), aspect), seal.opacity));
+                        d.images.push(placed(
+                            ImageKind::Seal,
+                            fit(inner(area), aspect),
+                            seal.opacity,
+                        ));
                     } else {
                         let r = take_right(&mut area, aspect, pad, (w - 2.0 * pad) * 0.5);
                         d.images.push(placed(ImageKind::Seal, r, seal.opacity));
                     }
-                    d.images
-                        .push(placed(ImageKind::Signature, fit(inner(area), s.aspect), 1.0));
+                    d.images.push(placed(
+                        ImageKind::Signature,
+                        fit(inner(area), s.aspect),
+                        1.0,
+                    ));
                 }
-                (Some(s), None) => d
-                    .images
-                    .push(placed(ImageKind::Signature, fit(inner(area), s.aspect), 1.0)),
+                (Some(s), None) => d.images.push(placed(
+                    ImageKind::Signature,
+                    fit(inner(area), s.aspect),
+                    1.0,
+                )),
                 (None, Some((aspect, seal))) => d.images.push(placed(
                     ImageKind::Seal,
                     fit(inner(area), aspect),
@@ -346,8 +356,11 @@ pub fn draw(style: &StampStyle, lines: &[StampLine], images: Images, w: f64, h: 
         }
         Mode::Image(slot) => {
             if let Some((aspect, seal)) = behind {
-                d.images
-                    .push(placed(ImageKind::Seal, fit(inner(text), aspect), seal.opacity));
+                d.images.push(placed(
+                    ImageKind::Seal,
+                    fit(inner(text), aspect),
+                    seal.opacity,
+                ));
             }
             let (i, t) = layout_padded(w, h, slot, pad);
             d.images.push(placed(ImageKind::Signature, i, 1.0));
@@ -355,8 +368,11 @@ pub fn draw(style: &StampStyle, lines: &[StampLine], images: Images, w: f64, h: 
         }
         Mode::Text => {
             if let Some((aspect, seal)) = behind {
-                d.images
-                    .push(placed(ImageKind::Seal, fit(inner(text), aspect), seal.opacity));
+                d.images.push(placed(
+                    ImageKind::Seal,
+                    fit(inner(text), aspect),
+                    seal.opacity,
+                ));
             }
         }
     }
@@ -592,10 +608,7 @@ impl Drawing {
 
     /// The opacity `/GS1` sets, when an image needs one.
     pub fn opacity(&self) -> Option<f64> {
-        self.images
-            .iter()
-            .map(|i| i.opacity)
-            .find(|&o| o < 1.0)
+        self.images.iter().map(|i| i.opacity).find(|&o| o < 1.0)
     }
 
     pub fn uses(&self, kind: ImageKind) -> bool {
@@ -647,7 +660,13 @@ mod tests {
 
     #[test]
     fn auto_fit() {
-        let d = draw(&StampStyle::default(), &classic(), Images::default(), 150.0, 50.0);
+        let d = draw(
+            &StampStyle::default(),
+            &classic(),
+            Images::default(),
+            150.0,
+            50.0,
+        );
         let name = &d.text[1];
         assert!(name.bold && !d.text[0].bold);
         // The widest line sets the size and fills the width inside the padding.
@@ -722,10 +741,22 @@ mod tests {
         assert_eq!(width_units(b"\xe9", FontFamily::Helvetica, false), 556.0);
         // Other metrics, another size for the same box.
         let times = draw(&style, &classic(), Images::default(), 150.0, 50.0);
-        let helv = draw(&StampStyle::default(), &classic(), Images::default(), 150.0, 50.0);
+        let helv = draw(
+            &StampStyle::default(),
+            &classic(),
+            Images::default(),
+            150.0,
+            50.0,
+        );
         assert_ne!(times.text[1].size, helv.text[1].size);
         // Text the fonts cannot show is transliterated.
-        let d = draw(&style, &lines(&["रमेश", "x"]), Images::default(), 150.0, 50.0);
+        let d = draw(
+            &style,
+            &lines(&["रमेश", "x"]),
+            Images::default(),
+            150.0,
+            50.0,
+        );
         assert_eq!(d.text[0].text, "Ramesha");
         assert_eq!(decode(0x80), '€');
     }
@@ -826,14 +857,26 @@ mod tests {
             seal: Some((1.0, SealStyle { position, opacity })),
         };
         let style = StampStyle::default();
-        let d = draw(&style, &classic(), seal(SealPosition::Right, 1.0), 200.0, 60.0);
+        let d = draw(
+            &style,
+            &classic(),
+            seal(SealPosition::Right, 1.0),
+            200.0,
+            60.0,
+        );
         let s = d.images.iter().find(|i| i.kind == ImageKind::Seal).unwrap();
         // On the right, clear of the text.
         assert!(s.rect[0] + s.rect[2] <= 200.0);
         assert!(d.text.iter().all(|t| t.x + t.width <= s.rect[0] + 1e-9));
         assert_eq!(d.opacity(), None);
 
-        let d = draw(&style, &classic(), seal(SealPosition::Behind, 0.3), 200.0, 60.0);
+        let d = draw(
+            &style,
+            &classic(),
+            seal(SealPosition::Behind, 0.3),
+            200.0,
+            60.0,
+        );
         // Under everything else, centred in the box.
         assert_eq!(d.images[0].kind, ImageKind::Seal);
         let [x, y, w, h] = d.images[0].rect;
