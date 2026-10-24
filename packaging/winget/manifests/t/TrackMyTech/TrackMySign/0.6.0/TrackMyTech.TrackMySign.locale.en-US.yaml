@@ -1,0 +1,35 @@
+# Created with packaging/winget/manifest.py
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
+
+PackageIdentifier: TrackMyTech.TrackMySign
+PackageVersion: 0.6.0
+PackageLocale: en-US
+Publisher: TrackMy Tech Private Limited
+PublisherUrl: https://sign.rahuldk.in
+PublisherSupportUrl: https://github.com/rahuldk1105/trackmysign/issues
+PrivacyUrl: https://github.com/rahuldk1105/trackmysign/blob/main/PRIVACY.md
+Author: DK Rahul
+PackageName: TrackMy Sign
+PackageUrl: https://github.com/rahuldk1105/trackmysign
+License: MIT
+LicenseUrl: https://github.com/rahuldk1105/trackmysign/blob/main/LICENSE
+Copyright: Copyright (c) 2026 DK Rahul
+ShortDescription: Sign PDFs with the Digital Signature Certificate (DSC) on your USB token.
+Description: |-
+  TrackMy Sign signs PDF documents with the Digital Signature Certificate (DSC) on a USB token, through the token's PKCS#11 driver. Open a PDF, place the signature, enter the token PIN and save a signed copy; the PIN and the private key never leave the token.
+  Signatures are added as an incremental update, so the original bytes and any signatures already on the document stay valid. It also verifies signatures, signs batches and watched folders, adds timestamps and long-term validation data, and can sign returns on the GST portal.
+  Free and open source (MIT).
+Moniker: trackmysign
+Tags:
+- digital-signature
+- dsc
+- esign
+- gst
+- india
+- pdf
+- pdf-signing
+- pkcs11
+- usb-token
+ReleaseNotesUrl: https://github.com/rahuldk1105/trackmysign/releases/tag/v0.6.0
+ManifestType: defaultLocale
+ManifestVersion: 1.12.0
