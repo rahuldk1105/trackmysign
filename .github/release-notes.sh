@@ -9,7 +9,7 @@ section="$(awk -v v="$ver" '
   /^## \[/ { f = 0 }
   f' "$root/CHANGELOG.md" | sed '/./,$!d')"
 prev="$(grep -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' "$root/CHANGELOG.md" |
-  grep -A1 -F "[$ver]" | tail -n +2 | tr -d '#[] ')"
+  grep -A1 -F "[$ver]" | tail -n +2 | tr -d '#[] ' || true)"
 if [[ -n "$section" ]]; then
   printf '%s\n' "$section"
 else
