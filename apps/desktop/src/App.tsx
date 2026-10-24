@@ -12,6 +12,7 @@ import type {
   KnownCert,
   PdfInfo,
   PinStatus,
+  RecentFile,
   Signed,
 } from "./api";
 import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, remindAbout, today, type ReminderDays } from "./expiry";
@@ -60,6 +61,10 @@ interface Saved {
   reminderDismissed: string;
   /** Look for a new version on launch. */
   autoUpdate: boolean;
+  /** Keep the list of recently opened files (in the app's data folder). */
+  recentOn: boolean;
+  /** Folder for signed copies; empty for next to the original. */
+  outDir: string;
 }
 
 const KEY = "trackmysign.settings.v1";
@@ -84,6 +89,8 @@ const defaults: Saved = {
   expiryReminder: 30,
   reminderDismissed: "",
   autoUpdate: true,
+  recentOn: true,
+  outDir: "",
 };
 
 function loadSaved(): Saved {
@@ -206,6 +213,18 @@ function signedName(name: string) {
   return `${name.replace(/\.pdf$/i, "")}_signed.pdf`;
 }
 
+function dirName(path: string) {
+  const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return i > 0 ? path.slice(0, i) : path;
+}
+
+/** Time today, otherwise the date. */
+function openedText(secs: number) {
+  const d = new Date(secs * 1000);
+  if (d.toDateString() === new Date().toDateString()) return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
 // --------------------------------------------------------------------- app
 
 interface Doc {
@@ -271,6 +290,9 @@ export default function App() {
   const [theme, setTheme] = useTheme();
   const [sigImage, setSigImage] = useState<{ url: string; aspect: number } | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [recent, setRecent] = useState<RecentFile[]>([]);
+  /** Folder of the PDF opened last; also kept while the recent list is off. */
+  const [lastFolder, setLastFolder] = useState<string | null>(null);
   const updater = useUpdater(saved.autoUpdate);
   const portal = usePortal();
   const refreshPortal = portal.refresh;
@@ -361,6 +383,32 @@ export default function App() {
     return () => clearInterval(t);
   }, [certs, busy, refreshCerts]);
 
+  // ---- recent files
+  // Read again when back on the start screen, so files deleted meanwhile drop out.
+  const hasDoc = !!doc;
+  useEffect(() => {
+    if (!saved.recentOn) return setRecent([]);
+    api
+      .recentFiles()
+      .then(setRecent)
+      .catch(() => setRecent([]));
+  }, [saved.recentOn, hasDoc]);
+
+  const noteSigned = (path: string, output: string) => {
+    if (loadSaved().recentOn)
+      api
+        .recentSigned(path, output)
+        .then(setRecent)
+        .catch(() => {});
+  };
+
+  const clearRecent = async () => {
+    await api.recentClear().catch(() => {});
+    setRecent([]);
+  };
+
+  const startFolder = lastFolder ?? (recent[0] ? dirName(recent[0].path) : null);
+
   // ---- documents
   const openPath = useCallback(async (path: string, password?: string) => {
     setLoading(true);
@@ -379,6 +427,12 @@ export default function App() {
       setPagesMode("this");
       setPagesSpec("");
       setCertify(null);
+      setLastFolder(dirName(path));
+      if (loadSaved().recentOn)
+        api
+          .recentAdd(path, sizes.length)
+          .then(setRecent)
+          .catch(() => {});
     } catch (e) {
       const err = api.errorOf(e);
       setDoc(null);
@@ -420,8 +474,19 @@ export default function App() {
   );
 
   const pick = useCallback(async () => {
-    openFiles(await api.pickPdfs());
-  }, [openFiles]);
+    openFiles(await api.pickPdfs(startFolder));
+  }, [openFiles, startFolder]);
+
+  /** More files for the batch; the one shown stays first. */
+  const addFiles = async () => {
+    if (!doc) return;
+    const more = await api.pickPdfs(startFolder);
+    if (!more.length) return;
+    const all = batch ?? [doc.info.path];
+    const added = [...all, ...more.filter((p) => !all.includes(p))];
+    setBatch(added.length > 1 ? added : null);
+    setLastFolder(dirName(more[0]));
+  };
 
   const removeFromBatch = (path: string) => {
     if (!batch) return;
@@ -595,6 +660,7 @@ export default function App() {
           image: stampImage?.position ?? null,
           password: doc.password ?? null,
           certify,
+          outDir: saved.outDir || null,
         },
         (p) => {
           if (!started) {
@@ -602,8 +668,10 @@ export default function App() {
             setStep({ kind: "batch", files, running: true });
           }
           if (p.state === "signing") setItem(p.index, { state: "signing" });
-          else if (p.state === "done") setItem(p.index, { state: "done", output: p.output, signedName: p.name });
-          else setItem(p.index, { state: "failed", message: p.message });
+          else if (p.state === "done") {
+            setItem(p.index, { state: "done", output: p.output, signedName: p.name });
+            noteSigned(paths[p.index], p.output);
+          } else setItem(p.index, { state: "failed", message: p.message });
           if (p.state !== "signing") finished++;
         },
       );
@@ -645,9 +713,11 @@ export default function App() {
         field: field?.name ?? null,
         password: doc.password ?? null,
         certify,
+        outDir: saved.outDir || null,
       });
       update({ certName: cert.name });
       setStep({ kind: "done", result });
+      noteSigned(doc.info.path, result.output);
     } catch (e) {
       const err = api.errorOf(e);
       setStep({ kind: "pin", error: err });
@@ -713,11 +783,7 @@ export default function App() {
           <span className="muted doc-none">No document</span>
         )}
         <div className="spacer" />
-        <button className="btn" onClick={pick} disabled={loading} title={`Open a PDF (${MOD}O)`}>
-          <FolderIcon />
-          Open…
-          <kbd>{MOD}O</kbd>
-        </button>
+        <OpenButton recent={saved.recentOn ? recent : null} disabled={loading} onPick={pick} onOpen={(p) => openFiles([p])} />
         <button className="tb-btn" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Settings">
           <GearIcon />
         </button>
@@ -762,6 +828,7 @@ export default function App() {
                       <AlertIcon size={14} /> {docError}
                     </p>
                   )}
+                  {saved.recentOn && recent.length > 0 && <RecentList files={recent} disabled={loading} onOpen={(p) => openFiles([p])} />}
                   {reminders.length > 0 && (
                     <div className="reminders">
                       {reminders.map((k) => (
@@ -804,6 +871,9 @@ export default function App() {
                     ))}
                   </ul>
                   <p className="muted small">The first document is shown. The box goes on the same page and spot of each.</p>
+                  <button className="link" onClick={addFiles}>
+                    Add files…
+                  </button>
                 </section>
               )}
 
@@ -1139,16 +1209,9 @@ export default function App() {
               <button className="btn primary block" disabled={!canSign} onClick={() => setStep({ kind: "pin" })}>
                 {batch ? `Sign ${batch.length} documents` : "Sign document"}
               </button>
-              <p className="muted small">
-                {batch ? (
-                  <>
-                    Saves <span className="mono">name_signed.pdf</span> next to each original
-                  </>
-                ) : (
-                  <>
-                    Saves <span className="mono">{signedName(doc.info.name)}</span> next to the original
-                  </>
-                )}
+              <p className="muted small" title={saved.outDir || undefined}>
+                Saves <span className="mono">{batch ? "name_signed.pdf" : signedName(doc.info.name)}</span>{" "}
+                {saved.outDir ? `in ${baseName(saved.outDir)}` : batch ? "next to each original" : "next to the original"}
               </p>
             </div>
           </aside>
@@ -1213,6 +1276,8 @@ export default function App() {
           onCheckUpdate={updater.check}
           portal={portal.status}
           onPortal={portal.setStatus}
+          recentCount={recent.length}
+          onClearRecent={clearRecent}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -1240,11 +1305,13 @@ export default function App() {
         />
       )}
 
-      {step.kind === "batch" && <BatchDialog files={step.files} running={step.running} error={step.error} onClose={() => setStep({ kind: "idle" })} />}
+      {step.kind === "batch" && (
+        <BatchDialog files={step.files} running={step.running} error={step.error} outDir={!!saved.outDir} onClose={() => setStep({ kind: "idle" })} />
+      )}
 
       {step.kind === "done" && (
         <Modal title="Document signed" icon={<CheckIcon size={16} />} tone="ok" onClose={() => setStep({ kind: "idle" })}>
-          <p>The signed copy was saved next to the original.</p>
+          <p>{saved.outDir ? "The signed copy was saved in the folder chosen in Settings." : "The signed copy was saved next to the original."}</p>
           <div className="file-row mono" title={step.result.output}>
             <FileIcon size={14} />
             <span>{step.result.name}</span>
@@ -1318,6 +1385,115 @@ function TokenStatus({ certs, error, onRetry }: { certs: Cert[] | null; error: s
     <span className="sb-item token ok" title={`${certs[0].tokenLabel} · ${certs[0].issuer}`}>
       <i className="sq" /> {certs[0].tokenLabel} · {certs[0].name}
     </span>
+  );
+}
+
+/** Open… with a menu of recent files beside it; `recent` is null while the list is off. */
+function OpenButton(props: { recent: RecentFile[] | null; disabled: boolean; onPick: () => void; onOpen: (path: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const items = () => [...(wrap.current?.querySelectorAll<HTMLElement>(".menu button:not(:disabled)") ?? [])];
+    items()[0]?.focus();
+    const down = (e: PointerEvent) => !wrap.current?.contains(e.target as Node) && setOpen(false);
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        wrap.current?.querySelector<HTMLElement>(".open-more")?.focus();
+      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const list = items();
+        const i = list.indexOf(document.activeElement as HTMLElement);
+        list[(i + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length]?.focus();
+      }
+    };
+    window.addEventListener("pointerdown", down);
+    window.addEventListener("keydown", key);
+    return () => {
+      window.removeEventListener("pointerdown", down);
+      window.removeEventListener("keydown", key);
+    };
+  }, [open]);
+  const choose = (f: () => void) => {
+    setOpen(false);
+    f();
+  };
+  return (
+    <div className="open-split" ref={wrap}>
+      <button className="btn" onClick={() => choose(props.onPick)} disabled={props.disabled} title={`Open a PDF (${MOD}O)`}>
+        <FolderIcon />
+        Open…
+        <kbd>{MOD}O</kbd>
+      </button>
+      {props.recent && (
+        <button
+          className="btn open-more"
+          onClick={() => setOpen((o) => !o)}
+          disabled={props.disabled}
+          title="Recent files"
+          aria-label="Recent files"
+          aria-haspopup="menu"
+          aria-expanded={open}
+        >
+          <ChevronDownIcon size={14} />
+        </button>
+      )}
+      {open && props.recent && (
+        <div className="menu" role="menu" aria-label="Recent files">
+          <div className="menu-head">Recent</div>
+          {props.recent.length === 0 ? (
+            <button role="menuitem" disabled>
+              <span className="muted">No recent files</span>
+            </button>
+          ) : (
+            props.recent.map((f) => (
+              <button key={f.path} role="menuitem" onClick={() => choose(() => props.onOpen(f.path))} title={f.path}>
+                <FileIcon size={13} />
+                <span className="menu-name">{f.name}</span>
+                {f.signed && <CheckIcon size={12} />}
+                <span className="menu-dir muted">{baseName(dirName(f.path))}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Start screen: recently opened files; a file signed here offers its signed copy too. */
+function RecentList(props: { files: RecentFile[]; disabled: boolean; onOpen: (path: string) => void }) {
+  return (
+    <div className="recent">
+      <h3>Recent</h3>
+      <ul className="recent-list">
+        {props.files.map((f) => (
+          <li key={f.path}>
+            <button className="recent-open" onClick={() => props.onOpen(f.path)} disabled={props.disabled} title={f.path}>
+              <FileIcon size={13} />
+              <span className="recent-main">
+                <span className="recent-name">{f.name}</span>
+                <span className="recent-dir">{dirName(f.path)}</span>
+              </span>
+              <span className="recent-date">{openedText(f.opened)}</span>
+            </button>
+            {f.signed && (
+              <button
+                className="recent-signed"
+                onClick={() => props.onOpen(f.signed!)}
+                disabled={props.disabled}
+                title={`Signed copy: ${f.signed}`}
+                aria-label={`Open the signed copy of ${f.name}`}
+              >
+                <CheckIcon size={12} />
+                Signed
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -1534,6 +1710,8 @@ function Settings(props: {
   onCheckUpdate: () => void;
   portal: api.PortalStatus | null;
   onPortal: (s: api.PortalStatus) => void;
+  recentCount: number;
+  onClearRecent: () => void;
   onClose: () => void;
 }) {
   const { onClose } = props;
@@ -1547,6 +1725,10 @@ function Settings(props: {
     panel.current?.querySelector<HTMLElement>("button")?.focus();
   }, []);
   const cert = props.certs?.[0];
+  const chooseOutDir = async () => {
+    const dir = await api.pickFolder(props.saved.outDir || null);
+    if (dir) props.update({ outDir: dir });
+  };
   return (
     <div className="panel-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="settings" role="dialog" aria-label="Settings" ref={panel}>
@@ -1642,6 +1824,62 @@ function Settings(props: {
               </span>
               <button className="btn" onClick={() => props.update({ box: null })} disabled={!props.saved.box}>
                 Reset
+              </button>
+            </div>
+          </section>
+
+          <section>
+            <h3>Save signed copies to</h3>
+            <div className="segmented" role="radiogroup" aria-label="Save signed copies to">
+              <button
+                role="radio"
+                aria-checked={!props.saved.outDir}
+                className={!props.saved.outDir ? "on" : ""}
+                onClick={() => props.update({ outDir: "" })}
+              >
+                Same folder as original
+              </button>
+              <button role="radio" aria-checked={!!props.saved.outDir} className={props.saved.outDir ? "on" : ""} onClick={chooseOutDir}>
+                Choose folder…
+              </button>
+            </div>
+            {props.saved.outDir ? (
+              <div className="setting-row out-dir">
+                <span className="mono">{props.saved.outDir}</span>
+                <button className="btn" onClick={chooseOutDir}>
+                  Change…
+                </button>
+              </div>
+            ) : null}
+            <p className="muted small">
+              Saved as <span className="mono">name_signed.pdf</span>, also when signing several. An existing file is never replaced: the next copy
+              becomes <span className="mono">name_signed_2.pdf</span>.
+            </p>
+          </section>
+
+          <section>
+            <h3>Recent files</h3>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={props.saved.recentOn}
+                onChange={(e) => {
+                  props.update({ recentOn: e.target.checked });
+                  if (!e.target.checked) props.onClearRecent();
+                }}
+              />
+              Remember recently opened files
+            </label>
+            <p className="muted small">
+              The last 10 PDFs you opened, shown on the start screen and under Open. Kept on this computer only: file names, folders and dates, never
+              their contents.
+            </p>
+            <div className="setting-row">
+              <span className="muted small">
+                {props.recentCount ? `${props.recentCount} file${props.recentCount > 1 ? "s" : ""} in the list.` : "The list is empty."}
+              </span>
+              <button className="btn" onClick={props.onClearRecent} disabled={!props.recentCount}>
+                Clear recent files
               </button>
             </div>
           </section>
@@ -1800,7 +2038,7 @@ function Settings(props: {
   );
 }
 
-function BatchDialog(props: { files: BatchItem[]; running: boolean; error?: string; onClose: () => void }) {
+function BatchDialog(props: { files: BatchItem[]; running: boolean; error?: string; outDir: boolean; onClose: () => void }) {
   const done = props.files.filter((f) => f.state === "done");
   const failed = props.files.filter((f) => f.state === "failed").length;
   const title = props.running ? "Signing documents" : failed || props.error ? "Batch finished with errors" : "Documents signed";
@@ -1812,7 +2050,8 @@ function BatchDialog(props: { files: BatchItem[]; running: boolean; error?: stri
       onClose={props.running ? undefined : props.onClose}
     >
       <p>
-        {done.length} of {props.files.length} signed{failed ? `, ${failed} failed` : ""}. Each signed copy is saved next to its original.
+        {done.length} of {props.files.length} signed{failed ? `, ${failed} failed` : ""}.{" "}
+        {props.outDir ? "The signed copies are saved in the folder chosen in Settings." : "Each signed copy is saved next to its original."}
       </p>
       <ul className="batch-list">
         {props.files.map((f) => (

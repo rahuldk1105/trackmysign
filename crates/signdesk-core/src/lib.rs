@@ -316,11 +316,15 @@ pub fn parse_pages(spec: &str, count: usize) -> Result<Vec<usize>, String> {
 
 /// `invoice.pdf` → `invoice_signed.pdf` (or `invoice_signed_2.pdf`, … if taken).
 pub fn signed_path(input: &Path) -> PathBuf {
+    signed_path_in(input, input.parent().unwrap_or_else(|| Path::new(".")))
+}
+
+/// [`signed_path`], but in `dir` instead of next to the original.
+pub fn signed_path_in(input: &Path, dir: &Path) -> PathBuf {
     let stem = input
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "document".into());
-    let dir = input.parent().unwrap_or_else(|| Path::new("."));
     let first = dir.join(format!("{stem}_signed.pdf"));
     if !first.exists() {
         return first;
