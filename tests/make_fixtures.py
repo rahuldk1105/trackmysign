@@ -140,6 +140,12 @@ pal.save(P("sig-palette.png"), transparency=0)
 jpg = Image.new("RGB", (200, 100), (0, 160, 0))
 jpg.paste((220, 0, 0), (100, 0, 200, 100))
 jpg.save(P("sig.jpg"), quality=95)
+# company seal: a blue disc on a transparent square
+from PIL import ImageDraw
+
+seal = Image.new("RGBA", (120, 120), (0, 0, 0, 0))
+ImageDraw.Draw(seal).ellipse((4, 4, 116, 116), fill=(0, 0, 255, 255))
+seal.save(P("seal.png"))
 
 # 10. password-protected (qpdf): name, source, user password, owner password, options
 for name, src, user, owner, opts in (

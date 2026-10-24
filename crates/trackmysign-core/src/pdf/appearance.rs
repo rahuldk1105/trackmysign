@@ -372,7 +372,9 @@ pub fn draw(style: &StampStyle, lines: &[StampLine], images: Images, w: f64, h: 
     }
     d.text = lay_text(style, lines, text, pad);
     if style.font_size.is_some() {
-        d.clip = Some(text);
+        // Inside the border, which sits in the padding.
+        let [tx, ty, tw, th] = text;
+        d.clip = Some([tx, ty + pad / 2.0, tw, th - pad]);
     }
     d
 }
@@ -682,7 +684,7 @@ mod tests {
         assert!(d.text.iter().all(|t| t.size == 8.0 && t.width <= max));
         let joined: Vec<&str> = d.text.iter().map(|t| t.text.as_str()).collect();
         assert_eq!(joined.join(" "), text[0].text);
-        assert_eq!(d.clip, Some([0.0, 0.0, 120.0, 60.0]));
+        assert_eq!(d.clip, Some([0.0, 2.4, 120.0, 55.2]));
         assert!(
             String::from_utf8(d.content_stream())
                 .unwrap()

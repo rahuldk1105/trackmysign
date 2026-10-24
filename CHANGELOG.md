@@ -8,6 +8,18 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ### Added
 
+- Signature box designer: *Appearance → Design…* sets the layout (text only,
+  image left or above, image only), a company seal or logo right of or behind
+  the text (with opacity), the text lines and their order ("Digitally signed
+  by", name, "For" organisation from the certificate or typed, role, date in
+  one of four formats, reason, location, two lines of your own), font
+  (Helvetica, Times, Courier), bold, fixed or fitted size, colour, alignment,
+  border, background, padding and a decorative tick, with a preview drawn from
+  the signing engine's own layout. Saved with presets and used by the watch
+  folder; command line: `--style style.json` and `--seal seal.png` for `sign`
+  and `watch`, and `style` in `--preset-json`. Without a design the box is
+  unchanged, byte for byte.
+
 - Verify a whole folder: **Verify folder…** (toolbar, start screen, or the
   Signatures panel for the open document's folder) checks every PDF in a
   folder, optionally with subfolders, and lists each file as it is checked:
@@ -40,6 +52,11 @@ All notable changes to TrackMySign are listed here. The format follows
 - `trackmysign watch <FOLDER> [--out DIR] [--preset-json FILE] [--pages …]`
   does the same from the command line, asking for the PIN once and running
   until Ctrl+C.
+
+### Changed
+
+- Text in the signature box that the standard PDF fonts cannot show (Hindi,
+  Tamil and other Indian scripts) is transliterated instead of printed as `?`.
 
 ## [0.4.0] - 2026-10-24
 

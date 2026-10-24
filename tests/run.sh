@@ -391,7 +391,8 @@ WF=$W/watch
 mkdir -p "$WF/in"
 cat >"$WF/preset.json" <<'EOF'
 {"name": "Watch", "reason": "Approved", "location": "Chennai", "image": "off",
- "placement": {"page": "first", "x": 20, "y": 20, "w": 60, "h": 20}}
+ "placement": {"page": "first", "x": 20, "y": 20, "w": 60, "h": 20},
+ "style": {"font": "courier", "tick": true}}
 EOF
 "$BIN" watch "$WF/in" --preset-json "$WF/preset.json" >"$WF/out" 2>"$WF/err" &
 WATCH_PID=$!
@@ -430,12 +431,76 @@ w = s.sig_field if "/Rect" in s.sig_field else s.sig_field["/Kids"][0]
 x1, _, x2, _ = [float(v) for v in w["/Rect"]]
 assert abs((x2 - x1) - 60 * 72 / 25.4) < 0.5, (x1, x2)' "$WF/in/signed/plain_signed.pdf" \
   && echo "PASS watch folder applies the preset" || { echo "FAIL watch preset"; fail=1; }
+python3 -W ignore "$ROOT/tests/check_style.py" "$W/fx/plain.pdf" "$WF/in/signed/plain_signed.pdf" 1 font=Courier ink tick wide || fail=1
 if "$BIN" watch "$WF/in" --out "$WF/in/other" 2>"$W/err" </dev/null; then
   echo "FAIL watch accepted an output folder inside the watched one"; fail=1
 else
   grep -q "can only go to its \"signed\" folder" "$W/err" && echo "PASS watch refuses an output folder inside the watched one" \
     || { echo "FAIL: $(cat "$W/err")"; fail=1; }
 fi
+# Signature styles (--style, --seal): the appearance's fonts, images and opacity,
+# and the rendered page (the box found as the pixels that changed).
+style() { python3 -W ignore "$ROOT/tests/check_style.py" "$@" || fail=1; }
+S=$W/styles
+mkdir -p "$S"
+cat >"$S/seal-behind.json" <<'EOF'
+{"version": 1, "seal": {"position": "behind", "opacity": 0.3}, "role": "Director", "tick": true,
+ "lines": ["signed_by", "organisation", "role", "date"], "date_format": "dd_mm_yyyy_hh_mm"}
+EOF
+cat >"$S/times.json" <<'EOF'
+{"font": "times", "bold_first_line": true, "text_color": "#1B3A8C", "align": "center",
+ "background": "light"}
+EOF
+cat >"$S/image-only.json" <<'EOF'
+{"layout": "image_only", "border": false}
+EOF
+cat >"$S/fixed.json" <<'EOF'
+{"font": "courier", "font_size": 7, "lines": ["signed_by", "custom_1", "date"],
+ "custom_1": "For and on behalf of Acme Exports Private Limited, Chennai",
+ "seal": {"position": "right", "opacity": 1}, "border_color": "#000000", "border_width": 1.5}
+EOF
+sstyle() {
+  local src=$1 out=$2 st=$3; shift 3
+  "$BIN" sign "$src" --style "$S/$st.json" "$@" --reason Approved --out "$S/$out.pdf" >/dev/null \
+    || { echo "FAIL signing $out"; fail=1; }
+}
+sstyle "$W/fx/plain.pdf" seal-behind seal-behind --seal "$W/fx/seal.png"
+check "$W/fx/plain.pdf" "$S/seal-behind.pdf"
+style "$W/fx/plain.pdf" "$S/seal-behind.pdf" 2 xobj=Im2 no-xobj=Im1 ca=0.3 font=Helvetica seal-tint ink tick wide
+sstyle "$W/fx/plain.pdf" times times
+check "$W/fx/plain.pdf" "$S/times.pdf"
+style "$W/fx/plain.pdf" "$S/times.pdf" 2 font=Times-Roman font=Times-Bold no-xobj=Im1 blue-text centered wide
+for p in 1 2 3 4; do
+  sstyle "$W/fx/rotated.pdf" "times-rot$p" times --page $p
+  check "$W/fx/rotated.pdf" "$S/times-rot$p.pdf"
+  style "$W/fx/rotated.pdf" "$S/times-rot$p.pdf" $p font=Times-Bold blue-text centered wide
+done
+sstyle "$W/fx/plain.pdf" image-only image-only --image "$W/fx/sig.png"
+check "$W/fx/plain.pdf" "$S/image-only.pdf"
+style "$W/fx/plain.pdf" "$S/image-only.pdf" 2 xobj=Im1 no-xobj=Im2 no-text red
+sstyle "$W/fx/rotated.pdf" seal-only image-only --seal "$W/fx/seal.png" --page 2
+check "$W/fx/rotated.pdf" "$S/seal-only.pdf"
+style "$W/fx/rotated.pdf" "$S/seal-only.pdf" 2 xobj=Im2 no-text seal-solid
+sstyle "$W/fx/mixed.pdf" pages-fixed fixed --pages all --rect 20,20,260,80 --seal "$W/fx/seal.png" --image "$W/fx/sig.png"
+check "$W/fx/mixed.pdf" "$S/pages-fixed.pdf"
+python3 -W ignore "$ROOT/tests/check_pages.py" "$S/pages-fixed.pdf" 1 1 2 3 4 5 || fail=1
+for p in 1 3 5; do style "$W/fx/mixed.pdf" "$S/pages-fixed.pdf" $p font=Courier xobj=Im1 xobj=Im2 seal-solid red ink; done
+sstyle "$W/fx/field-simple.pdf" field-times times --field ClientSignature
+check "$W/fx/field-simple.pdf" "$S/field-times.pdf"
+style "$W/fx/field-simple.pdf" "$S/field-times.pdf" 1 font=Times-Roman blue-text centered wide
+sstyle "$W/fx/field-rotated.pdf" field-seal seal-behind --field Rotated90 --seal "$W/fx/seal.png"
+check "$W/fx/field-rotated.pdf" "$S/field-seal.pdf"
+style "$W/fx/field-rotated.pdf" "$S/field-seal.pdf" 1 ca=0.3 seal-tint ink wide
+sstyle "$W/fx/enc-aes256.pdf" enc-seal seal-behind --password user --seal "$W/fx/seal.png"
+check --password=user "$W/fx/enc-aes256.pdf" "$S/enc-seal.pdf"
+style --password=user "$W/fx/enc-aes256.pdf" "$S/enc-seal.pdf" 2 ca=0.3 seal-tint ink wide
+python3 -W ignore "$ROOT/tests/verify_check.py" --password=user "$BIN" "$S/enc-seal.pdf" valid "${ROOTS[@]}" || fail=1
+vcheck "$S/times-rot2.pdf" valid
+expect_fail "style with a seal needs --seal" "give it with --seal" \
+  "$BIN" sign "$W/fx/plain.pdf" --style "$S/seal-behind.json"
+printf '{"text_color": "blue"}' >"$S/bad.json"
+expect_fail "bad style rejected" "is not a signature style" \
+  "$BIN" sign "$W/fx/plain.pdf" --style "$S/bad.json"
 # GST portal signing: the listener with a throwaway CA, approving every request
 # (crates/portal-bridge/examples/portal-test-server.rs, never part of the app),
 # a client acting like the portal page, and the portal's own JavaScript run on

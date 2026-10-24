@@ -120,6 +120,7 @@ Other options:
 .\trackmysign.exe sign a.pdf b.pdf c.pdf               # several PDFs, one PIN entry
 .\trackmysign.exe sign file.pdf --image signature.png  # handwritten signature in the box (PNG or JPEG)
 .\trackmysign.exe sign file.pdf --image signature.png --image-position above
+.\trackmysign.exe sign file.pdf --style style.json --seal seal.png  # own box design and company seal
 .\trackmysign.exe --module C:\Windows\System32\eps2003csp11v2.dll certs   # explicit driver
 .\trackmysign.exe sign file.pdf --timestamp --ltv     # long-term validity (needs internet)
 .\trackmysign.exe sign file.pdf --timestamp=http://timestamp.sectigo.com
@@ -151,6 +152,55 @@ signature that says what may change afterwards: nothing, form filling and
 signing, or also comments. Only an unsigned document can be certified, and a
 document certified with `none` cannot be signed again. In the desktop app this
 is *Signature type → Certify* in the side panel.
+
+## Signature box design
+
+*Appearance → Design…* in the side panel changes how the box looks, with a
+preview at the size of the box you placed. The preview is drawn from the same
+layout the PDF is written from, so what you see is what is signed.
+
+- **Layout**: text only, signature image left of or above the text, or the
+  image alone (the company seal when there is no signature image).
+- **Company seal or logo** (PNG with a transparent background, or JPEG): right
+  of the text, or behind it with an opacity of your choice.
+- **Text lines**, switched on and off and put in any order: *Digitally signed
+  by* with the name below it or on one line, *For* the organisation (the
+  certificate's O=, or one you type), a role such as *Director* or *Authorised
+  Signatory*, the date (`2026.10.24 14:05:09 +05:30`, `24-10-2026 14:05 IST`,
+  with seconds, or `24 Oct 2026`), the reason, the location and two lines of
+  your own.
+- **Text**: Helvetica, Times or Courier (the standard PDF fonts, nothing is
+  embedded), name and/or first line in bold, size fitted to the box or fixed
+  (long lines then wrap), black, dark blue or any colour, left or centred.
+- **Box**: border on or off with its colour and width, a light background,
+  padding, and a small tick mark. The tick is decoration only: PDF readers show
+  their own check of the signature.
+
+The box is printed in English letters: Hindi, Tamil and other Indian scripts
+typed into a line are transliterated (*रमेश* prints as *Ramesha*), and the
+designer shows how a line will print. The design is saved with presets, so the
+watch folder uses it too. Without a design, the box looks exactly as before.
+
+On the command line, `--style style.json` takes the same settings (all
+optional, snake_case; the app saves them in this form in each preset's
+`style`):
+
+```json
+{"version": 1, "layout": "auto", "lines": ["signed_by", "organisation", "role", "date"],
+ "role": "Director", "date_format": "dd_mm_yyyy_hh_mm", "font": "times",
+ "bold_first_line": true, "text_color": "#1B3A8C", "align": "center",
+ "seal": {"position": "behind", "opacity": 0.25}}
+```
+
+`layout`: `auto` (as `--image-position` says), `text_only`, `image_left`,
+`image_above`, `image_only`. `lines`: `signed_by_label`, `name`, `signed_by`,
+`organisation`, `role`, `date`, `reason`, `location`, `custom_1`, `custom_2`
+(default: `signed_by_label`, `name`, `date`, `reason`, `location`).
+`date_format`: `classic`, `dd_mm_yyyy_hh_mm`, `dd_mm_yyyy_hh_mm_ss`,
+`dd_mmm_yyyy`. Also `organisation`, `custom_1`, `custom_2`, `font`
+(`helvetica`, `times`, `courier`), `bold_name`, `font_size` (points, `null` to
+fit), `border`, `border_color`, `border_width`, `background` (`none`,
+`light`), `padding`, `tick`. A style with `seal` needs `--seal seal.png`.
 
 ## Verification reports
 
@@ -327,7 +377,8 @@ The command-line tool does the same, for a server or a scanner PC:
 It asks for the PIN once and runs until Ctrl+C. `--preset-json` takes a preset
 as JSON (`{"reason": "Approved", "location": "Chennai", "placement": {"page":
 "last", "x": 120, "y": 250, "w": 60, "h": 20}}`, millimetres from the top-left;
-also `pages`, `image` with `--image`, `invisible`, `timestamp`, `ltv`);
+also `pages`, `image` with `--image`, `invisible`, `timestamp`, `ltv`, and
+`style` as below, with `--seal` when it shows a seal; `--style` replaces it);
 `--keep-originals`, `--daily-limit N` (0 for none) and `--hours` work as in
 the app.
 
