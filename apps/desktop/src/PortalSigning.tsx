@@ -248,7 +248,7 @@ export function PortalSettings(props: { status: PortalStatus | null; onStatus: (
                 ? " On Linux it goes into Chrome's and Firefox's certificate lists (needs certutil, from libnss3-tools); restart Firefox afterwards."
                 : " Windows asks you to confirm."}{" "}
             The certificate can
-            only vouch for 127.0.0.1, and the key that made it is deleted at once. Works while TrackMySign is open.
+            only vouch for 127.0.0.1, and the key that made it is deleted at once. Works while TrackMySign is running, also in the background (see Background below).
           </p>
           {status?.certificateLeft ? (
             <div className="setting-row">

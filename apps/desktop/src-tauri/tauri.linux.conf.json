@@ -12,6 +12,7 @@
     "linux": {
       "deb": {
         "desktopTemplate": "linux/trackmysign.desktop",
+        "depends": ["libayatana-appindicator3-1"],
         "recommends": ["pcscd", "libnss3-tools"]
       }
     }

@@ -8,6 +8,24 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ### Added
 
+- Recent files: the last 10 PDFs you opened are listed on the start screen and
+  under the arrow next to *Open…*, with their folder and date; files signed in
+  the app are marked and their signed copy opens with one click. Files that no
+  longer exist drop out. The list is kept in the app's data folder; turn it off
+  or clear it under *Settings → Recent files*.
+- The Open dialog, and *Add files…* for a batch, start in the folder of the
+  PDF you opened last.
+- *Settings → Save signed copies to*: next to the original (as before) or a
+  folder you choose, for single and batch signing. An existing file is never
+  overwritten; the copy becomes `name_signed_2.pdf`, `name_signed_3.pdf`, ….
+- Run in the background: with *Settings → Background → Keep running in the
+  background* (on by default when GST portal signing is on), closing the window
+  keeps TrackMySign in the system tray (Windows) or menu bar (macOS), so the GST
+  portal can sign without the app being opened first. The tray menu shows the
+  portal signing status and has *Open TrackMySign* and *Quit*. *Start
+  TrackMySign when I sign in* starts it there at sign-in, without a window; the
+  Windows uninstaller removes that entry. Launching the app again, or opening a
+  PDF with it, brings the window back.
 - Linux (x86_64): the desktop app as an AppImage and a .deb, and the
   command-line tool as `trackmysign-linux-x64`. Token drivers are found in the
   usual Linux folders (HyperPKI, ePass2003, ProxKey, mToken CryptoID, SafeNet,
@@ -15,7 +33,9 @@ All notable changes to TrackMySign are listed here. The format follows
   installed). PDFs open with *Open With → TrackMySign* without changing the
   default viewer, the in-app updater updates the AppImage and the .deb, and
   GST portal signing adds its certificate to Chrome's and Firefox's
-  certificate lists (needs `certutil` from the NSS tools).
+  certificate lists (needs `certutil` from the NSS tools). Running in the
+  background puts TrackMySign in the system tray there too (GNOME needs the
+  AppIndicator extension, which Ubuntu has).
 
 ## [0.3.0] - 2026-10-24
 
