@@ -72,6 +72,16 @@ export const hi: Catalog = {
   "batch.leaveOutFile": "{name} हटाएँ",
   "batch.firstShown": "पहला दस्तावेज़ दिखाया गया है। हर दस्तावेज़ में बॉक्स उसी पेज और उसी जगह पर लगेगा।",
 
+  // ---- several files handed over at once (file manager)
+  "handed.title": "मौजूदा बैच में जोड़ें?",
+  "handed.body": {
+    one: "{n} PDF खोली गई, जबकि हस्ताक्षर के लिए {total} दस्तावेज़ पहले से लोड हैं।",
+    other: "{n} PDF खोली गईं, जबकि हस्ताक्षर के लिए {total} दस्तावेज़ पहले से लोड हैं।",
+  },
+  "handed.add": "मौजूदा बैच में जोड़ें",
+  "handed.replace": "बैच बदलें",
+  "handed.ignored": { one: "PDF नहीं है, छोड़ी गई: {names}", other: "PDF नहीं हैं, छोड़ी गईं: {names}" },
+
   "preset.title": "प्रीसेट",
   "preset.hint": "कारण, स्थान और जगह सेव करें ताकि दोबारा इस्तेमाल हो सके।",
   "preset.saveCurrent": "मौजूदा सेटिंग प्रीसेट के रूप में सेव करें…",

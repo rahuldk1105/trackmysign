@@ -29,7 +29,7 @@ highlighted on the page and listed in the side panel: click one and the signatur
 
 *Certificate details* (next to the certificate, and in *Settings → DSC token*) shows the class, fingerprints and chain of your DSC, and saves the public certificate as `.cer`, `.pem` or `.p7b` for a portal or bank that asks for it.
 
-You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows, macOS and Linux). Your default PDF viewer stays as it is.
+You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows, macOS and Linux). Your default PDF viewer stays as it is. Select several PDFs first and they open together as one batch, signed with one PIN entry; files that are not PDFs are left out. If a batch is already loaded, the app asks whether to add them to it or replace it.
 
 The app speaks English, Hindi (हिन्दी) and Tamil (தமிழ்); it follows your system language, or choose one under *Settings → Appearance → Language*. The text printed in the signature box stays in English.
 

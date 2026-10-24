@@ -6,6 +6,16 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Several PDFs selected in Explorer, Finder or a Linux file manager and opened
+  with *Sign with TrackMySign* or *Open With* arrive as one batch instead of one
+  file after another. Files that come in within 0.7 s of each other are put
+  together (Explorer starts the app once per file); if a batch is already
+  loaded, the app asks whether to add them or replace it. Files that are not
+  PDFs are left out, with a note. On Windows the menu entry now also shows for
+  more than 15 selected PDFs (up to 100).
+
 ## [0.4.0] - 2026-10-24
 
 ### Added

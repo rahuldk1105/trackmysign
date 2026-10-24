@@ -671,6 +671,24 @@ button.token {
   flex: none;
   margin-top: 1px;
 }
+.inline-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  margin: 8px 0 0;
+  user-select: text;
+}
+.inline-note .icon {
+  flex: none;
+  color: var(--muted);
+}
+.inline-note span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 
 /* ----------------------------------------------------------- inspector */
 

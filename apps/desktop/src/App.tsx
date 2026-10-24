@@ -286,6 +286,12 @@ export default function App() {
   const [field, setField] = useState<EmptyField | null>(null);
   /** Several PDFs to sign in one go; the first is shown for placing the box. */
   const [batch, setBatch] = useState<string[] | null>(null);
+  const batchNow = useRef(batch);
+  batchNow.current = batch;
+  /** PDFs from the file manager while a batch is loaded: add or replace? */
+  const [handed, setHanded] = useState<string[] | null>(null);
+  /** Names of handed-over files that are not PDFs. */
+  const [ignored, setIgnored] = useState<string[]>([]);
   const [pagesMode, setPagesMode] = useState<PagesMode>("this");
   const [pagesSpec, setPagesSpec] = useState("");
   /** Certify (an author signature) instead of approving; per document. */
@@ -499,6 +505,26 @@ export default function App() {
     setLastFolder(dirName(more[0]));
   };
 
+  /** Files from the file manager: one opens, several become a batch. A
+   * loaded batch is not replaced without asking. */
+  const receive = useCallback(
+    (h: api.Handed) => {
+      setIgnored(h.ignored);
+      const current = batchNow.current;
+      if (!h.files.length || (current && h.files.every((p) => current.includes(p)))) return;
+      if (current) setHanded(h.files);
+      else openFiles(h.files);
+    },
+    [openFiles],
+  );
+
+  const addHanded = () => {
+    if (!handed || !doc) return;
+    const all = batch ?? [doc.info.path];
+    setBatch([...all, ...handed.filter((p) => !all.includes(p))]);
+    setHanded(null);
+  };
+
   const removeFromBatch = (path: string) => {
     if (!batch) return;
     const rest = batch.filter((p) => p !== path);
@@ -515,21 +541,19 @@ export default function App() {
     // opened twice. The startup files are handed out once, so open them even
     // if this effect has been cleaned up in the meantime.
     api
-      .onOpenFiles(openFiles)
+      .onOpenFiles(receive)
       .then((f) => {
         if (cancelled) f();
         else offOpen = f;
         return api.startupFiles();
       })
-      .then((paths) => {
-        openFiles(paths);
-      });
+      .then(receive);
     return () => {
       cancelled = true;
       offDrop?.();
       offOpen?.();
     };
-  }, [openFiles]);
+  }, [openFiles, receive]);
 
   const place = (p: Placement) => {
     setPlacement(p);
@@ -841,6 +865,7 @@ export default function App() {
                       <AlertIcon size={14} /> {docError}
                     </p>
                   )}
+                  {ignored.length > 0 && <IgnoredNote names={ignored} onDismiss={() => setIgnored([])} />}
                   {saved.recentOn && recent.length > 0 && <RecentList files={recent} disabled={loading} onOpen={(p) => openFiles([p])} />}
                   {reminders.length > 0 && (
                     <div className="reminders">
@@ -869,6 +894,12 @@ export default function App() {
         {doc && (
           <aside className="inspector">
             <div className="insp-scroll">
+              {ignored.length > 0 && (
+                <section>
+                  <IgnoredNote names={ignored} onDismiss={() => setIgnored([])} />
+                </section>
+              )}
+
               {batch && (
                 <section>
                   <h3>{t("batch.documents", { n: batch.length })}</h3>
@@ -1327,6 +1358,38 @@ export default function App() {
           onCancel={() => setUnlock(null)}
           onSubmit={(pw) => (unlock.owner ? unlockOwner(pw) : openPath(unlock.path, pw))}
         />
+      )}
+
+      {handed && (
+        <Modal title={t("handed.title")} onClose={() => setHanded(null)}>
+          <p>{t("handed.body", { n: handed.length, total: batch?.length ?? 1 })}</p>
+          <ul className="batch-files">
+            {handed.map((p) => (
+              <li key={p} title={p}>
+                <FileIcon size={13} />
+                <span>{baseName(p)}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="dialog-actions">
+            <button className="btn ghost" onClick={() => setHanded(null)}>
+              {t("common.cancel")}
+            </button>
+            <div className="spacer" />
+            <button
+              className="btn"
+              onClick={() => {
+                openFiles(handed);
+                setHanded(null);
+              }}
+            >
+              {t("handed.replace")}
+            </button>
+            <button className="btn primary" autoFocus onClick={addHanded}>
+              {t("handed.add")}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {step.kind === "batch" && (
@@ -2079,6 +2142,18 @@ function Settings(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+function IgnoredNote(props: { names: string[]; onDismiss: () => void }) {
+  return (
+    <p className="inline-note">
+      <AlertIcon size={14} />
+      <span>{t("handed.ignored", { n: props.names.length, names: props.names.join(", ") })}</span>
+      <button className="tb-btn" onClick={props.onDismiss} title={t("common.close")} aria-label={t("common.close")}>
+        <CloseIcon size={12} />
+      </button>
+    </p>
   );
 }
 

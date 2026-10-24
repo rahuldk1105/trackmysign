@@ -309,15 +309,22 @@ export async function signBatch(args: BatchArgs, progress: (p: BatchProgress) =>
   await invoke("sign_batch", { args, progress: channel });
 }
 
-export async function startupFiles(): Promise<string[]> {
-  return inTauri ? invoke("startup_files") : [];
+/** Files handed over by the system together; `ignored` names the ones that are not PDFs. */
+export interface Handed {
+  files: string[];
+  ignored: string[];
 }
 
-/** PDFs handed over while the app is running (Finder, a second launch). */
-export async function onOpenFiles(cb: (paths: string[]) => void): Promise<() => void> {
+export async function startupFiles(): Promise<Handed> {
+  return inTauri ? invoke("startup_files") : { files: [], ignored: [] };
+}
+
+/** Files handed over while the app is running (Finder, a second launch); a
+ * selection opened in one go arrives as one call. */
+export async function onOpenFiles(cb: (handed: Handed) => void): Promise<() => void> {
   if (!inTauri) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
-  return listen<string[]>("open-files", (e) => cb(e.payload));
+  return listen<Handed>("open-files", (e) => cb(e.payload));
 }
 
 /** Object URL of the saved signature image, or null when none is set. */

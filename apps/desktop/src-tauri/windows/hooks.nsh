@@ -13,11 +13,16 @@
   WriteRegStr HKCU "${TMS_VERB}" "" "Sign with TrackMySign"
   WriteRegStr HKCU "${TMS_VERB}" "Icon" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\",0"
   WriteRegStr HKCU "${TMS_VERB}\command" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\""
+  ; Without this the verb is hidden when more than 15 PDFs are selected
+  ; (Player: up to 100). Explorer still starts one process per file for a
+  ; command verb; the app collects them into one batch.
+  WriteRegStr HKCU "${TMS_VERB}" "MultiSelectModel" "Player"
 
   ; "Open with" list, without touching the .pdf default
   WriteRegStr HKCU "Software\Classes\${TMS_PROGID}" "" "PDF document"
   WriteRegStr HKCU "Software\Classes\${TMS_PROGID}\DefaultIcon" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\",0"
   WriteRegStr HKCU "Software\Classes\${TMS_PROGID}\shell\open\command" "" "$\"$INSTDIR\${MAINBINARYNAME}.exe$\" $\"%1$\""
+  WriteRegStr HKCU "Software\Classes\${TMS_PROGID}\shell\open" "MultiSelectModel" "Player"
   WriteRegStr HKCU "Software\Classes\.pdf\OpenWithProgids" "${TMS_PROGID}" ""
   WriteRegStr HKCU "Software\Classes\Applications\${MAINBINARYNAME}.exe" "FriendlyAppName" "${PRODUCTNAME}"
   WriteRegStr HKCU "Software\Classes\Applications\${MAINBINARYNAME}.exe\SupportedTypes" ".pdf" ""
