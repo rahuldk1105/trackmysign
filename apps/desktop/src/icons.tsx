@@ -126,3 +126,34 @@ export const ExternalIcon = (p: P) => (
     <path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
   </Svg>
 );
+
+/** Page tools: two pages side by side. */
+export const PagesIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="8" height="16" rx="1" />
+    <rect x="13" y="4" width="8" height="16" rx="1" />
+  </Svg>
+);
+
+export const RotateLeftIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 12a9 9 0 1 0 2.6-6.4L3 8" />
+    <path d="M3 3v5h5" />
+  </Svg>
+);
+
+export const RotateRightIcon = RefreshIcon;
+
+export const TrashIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 7h16M10 11v6M14 11v6" />
+    <path d="M6 7l1 13h10l1-13M9 7V4h6v3" />
+  </Svg>
+);
+
+export const UndoIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h11a5 5 0 0 1 0 10h-3" />
+  </Svg>
+);

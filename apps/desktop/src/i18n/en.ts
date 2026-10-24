@@ -633,6 +633,39 @@ export const en = {
   "dialog.images": "Images",
   "dialog.csv": "CSV files",
 
+  // ---- page tools (PageTools.tsx)
+  "pages.open": "Pages",
+  "pages.openHint": "Merge, reorder, turn or delete pages, then save as a new PDF to sign",
+  "pages.title": "Prepare pages",
+  "pages.count": { one: "{n} page", other: "{n} pages" },
+  "pages.addPdf": "Add PDF…",
+  "pages.undo": "Undo",
+  "pages.undoKey": "Undo ({key})",
+  "pages.hint": "Drag pages to change the order.",
+  "pages.needsPassword": "{name} is password-protected.",
+  "pages.needsOwner": "{name} does not allow changing its pages without its owner (permissions) password.",
+  "pages.unlock": "Unlock",
+  "pages.loadFailed": "{name} could not be opened: {message}",
+  "pages.blank": "Blank page",
+  "pages.tileLabel": "{n}: {name}, page {page}",
+  "pages.rotateLeft": "Turn left",
+  "pages.rotateRight": "Turn right",
+  "pages.insertBlank": "Insert a blank page after this one",
+  "pages.delete": "Delete page",
+  "pages.empty": "No pages left. Undo, or add a PDF.",
+  "pages.signedTitle": "Signatures will be removed",
+  "pages.signedBody": {
+    one: "{name} has {n} signature. Changing pages always breaks existing signatures, so the new file will not contain it. Use this only to prepare a document for signing.",
+    other: "{name} has {n} signatures. Changing pages always breaks existing signatures, so the new file will not contain them. Use this only to prepare a document for signing.",
+  },
+  "pages.passwordRemoved": "{name} is password-protected; the new file will open without a password.",
+  "pages.bookmarks": "The bookmarks of {name} are not carried over.",
+  "pages.original": "The original files are not changed. The new PDF opens, ready to sign.",
+  "pages.saveAs": "Save as…",
+  "pages.saveAnyway": "Save without signatures…",
+  "pages.saving": "Saving…",
+  "pages.saveFailed": "Could not save: {message}",
+
   // ---- errors from the backend whose wording the UI owns (i18n/errors.ts)
   "error.noCertOnToken": "No signing certificate found on the token.",
   "error.wrongPin": "Wrong PIN.",
@@ -657,6 +690,8 @@ export const en = {
   "error.tokenLoggedOut": "The token is no longer logged in. Enter the PIN again.",
   "error.watchLocked": "Stop watching to change these settings.",
   "error.watchNoFolder": "Choose the folder to watch.",
+  "error.pagesNotAllowed": "This PDF's security settings do not allow changing its pages; enter its owner (permissions) password.",
+  "error.pagesSameFile": "Save the new PDF under another name: the original is never changed.",
 } satisfies Record<string, string | Plural>;
 
 export type MessageKey = keyof typeof en;

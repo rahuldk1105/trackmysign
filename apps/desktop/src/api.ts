@@ -539,6 +539,46 @@ export async function exportReport(path: string, output: string, password?: stri
   if (inTauri) await invoke("export_report", { path, password: password ?? null, output });
 }
 
+// ------------------------------------------------------------ page tools
+
+/** What a source PDF loses in a new file made from its pages. */
+export type PageNotice =
+  | { kind: "signaturesRemoved"; source: number; count: number }
+  | { kind: "passwordRemoved"; source: number }
+  | { kind: "bookmarksDropped"; source: number }
+  | { kind: "fieldRenamed"; from: string; to: string };
+
+/** One page of the new file: a page of a source, turned clockwise by `rotate`, or an empty one. */
+export type PageItem = { kind: "page"; source: number; page: number; rotate: number } | { kind: "blank"; width: number; height: number };
+
+/** Checks that a PDF can give its pages (password, permissions) and what it would lose. */
+export async function pagesSource(path: string, password?: string): Promise<PageNotice[]> {
+  if (inTauri) return invoke("pages_source", { path, password: password ?? null });
+  return [{ kind: "signaturesRemoved", source: 0, count: 1 }];
+}
+
+/** `contract.pdf` → `contract_prepared.pdf`, next to it. */
+export function preparedPath(path: string): string {
+  return path.replace(/\.pdf$/i, "") + "_prepared.pdf";
+}
+
+/** Asks where to save the new PDF; null when cancelled. */
+export async function pickPreparedPath(path: string): Promise<string | null> {
+  if (!inTauri) return preparedPath(path);
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return save({ defaultPath: preparedPath(path), filters: [{ name: t("dialog.pdfs"), extensions: ["pdf"] }] });
+}
+
+/** Writes a new PDF made of `items` to `output`; the sources are only read. */
+export async function assemblePages(sources: { path: string; password: string | null }[], items: PageItem[], output: string): Promise<PageNotice[]> {
+  if (!inTauri) {
+    await new Promise((r) => setTimeout(r, 400));
+    return [];
+  }
+  const r: { output: string; notices: PageNotice[] } = await invoke("assemble_pages", { args: { sources, items, output } });
+  return r.notices;
+}
+
 // ---------------------------------------------------------- folder check
 
 export type FolderStatus = "allValid" | "invalid" | "changed" | "unsigned" | "unreadable" | "password";

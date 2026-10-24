@@ -1,0 +1,180 @@
+/* Page tools dialog (PageTools.tsx). */
+
+.dialog.pages-dialog {
+  width: 980px;
+  height: calc(100vh - 40px);
+  max-height: 900px;
+  display: flex;
+  flex-direction: column;
+}
+.pages-dialog .dialog-title {
+  padding-right: 12px;
+}
+.pages-dialog .dialog-title .muted {
+  font-size: 12px;
+}
+.pages-dialog .dialog-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.pages-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.pages-bar .muted {
+  margin-left: 6px;
+}
+.pages-locked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border-left: 2px solid var(--accent-text);
+  background: var(--accent-soft);
+}
+.pages-locked > .icon {
+  flex: none;
+  color: var(--accent-text);
+}
+.pages-locked label {
+  margin: 0;
+}
+.pages-locked input {
+  width: 200px;
+  height: 30px;
+}
+.pages-locked input.invalid {
+  border-color: var(--bad);
+}
+.pages-locked .inline-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+.pages-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+  align-content: start;
+  gap: 12px;
+  margin: 0 0 4px;
+  padding: 12px;
+  list-style: none;
+  background: var(--viewer);
+  border: 1px solid var(--line);
+}
+.pages-grid.dragging,
+.pages-grid.dragging .page-tile {
+  cursor: grabbing;
+}
+.page-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 8px 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.page-tile:hover,
+.page-tile.on {
+  border-color: var(--line-strong);
+}
+.page-tile:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -1px;
+}
+.page-tile.lifted {
+  opacity: 0.4;
+}
+/* Where a dragged page lands: a bar in the gap before (or after) a tile. */
+.page-tile.drop-before::before,
+.page-tile.drop-after::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
+}
+.page-tile.drop-before::before {
+  left: -8px;
+}
+.page-tile.drop-after::after {
+  right: -8px;
+}
+.page-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 140px;
+}
+.page-thumb canvas {
+  display: block;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line);
+  transition: transform 0.12s;
+}
+.page-blank {
+  display: block;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+.page-caption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  margin-top: 4px;
+  font-size: 12px;
+  min-width: 0;
+}
+.page-caption .mono {
+  color: var(--text);
+  font-weight: 600;
+}
+.page-source {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.page-source .icon {
+  flex: none;
+}
+.page-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.page-actions {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  padding-top: 2px;
+}
+.page-actions .tb-btn {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 4px;
+}
+.pages-empty {
+  grid-column: 1 / -1;
+  margin: 24px 0;
+  text-align: center;
+}
+.pages-dialog .warn-row {
+  margin-top: 8px;
+}
+.pages-dialog .dialog-actions .muted {
+  max-width: 55%;
+}

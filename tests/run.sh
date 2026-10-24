@@ -501,6 +501,68 @@ expect_fail "style with a seal needs --seal" "give it with --seal" \
 printf '{"text_color": "blue"}' >"$S/bad.json"
 expect_fail "bad style rejected" "is not a signature style" \
   "$BIN" sign "$W/fx/plain.pdf" --style "$S/bad.json"
+# Page tools: merge, pick, turn, delete pages and add blank ones into a new file
+# (sources untouched; every page checked against the page it came from), then sign it.
+A=$W/pages; mkdir -p "$A"
+asm() { python3 -W ignore "$ROOT/tests/check_assemble.py" "$@" || fail=1; }
+before=$(sha256sum "$W"/fx/*.pdf)
+"$BIN" pages merge "$W"/fx/{plain,objstm,rotated,mixed,form,indirect,cropbox,broken,field-nested}.pdf -o "$A/merged.pdf" >/dev/null
+asm --fields=company,din,approvals "$A/merged.pdf" "$W"/fx/{plain,objstm,rotated,mixed,form,indirect,cropbox,broken,field-nested}.pdf#all
+"$BIN" pages merge "$W"/fx/{enc-rc40,enc-aes128,enc-aes256-r5,enc-restricted}.pdf -o "$A/encrypted.pdf" >/dev/null 2>"$A/enc.err"
+asm "$A/encrypted.pdf" "$W"/fx/{enc-rc40,enc-aes128,enc-aes256-r5,enc-restricted}.pdf#all
+grep -q "enc-rc40.pdf is password-protected; the new file will open without a password" "$A/enc.err" \
+  || { echo "FAIL no note that the password is gone: $(cat "$A/enc.err")"; fail=1; }
+SIGNED_SRC=("$W/fx/enc-aes256.pdf" "$W/fx/presigned-form.pdf" "$W/fx/field-mixed.pdf" "$W/fx/form.pdf")
+if "$BIN" pages merge "${SIGNED_SRC[@]}" --password user -o "$A/signed-src.pdf" </dev/null >/dev/null 2>"$A/err"; then
+  echo "FAIL signed sources merged without --yes"; fail=1
+elif grep -q "presigned-form.pdf has 1 signature. The new file will not contain it" "$A/err" \
+     && grep -q -- "--yes" "$A/err" && [ ! -e "$A/signed-src.pdf" ]; then
+  echo "PASS signed sources need --yes"
+else
+  echo "FAIL: $(cat "$A/err")"; fail=1
+fi
+"$BIN" pages merge "${SIGNED_SRC[@]}" --password user --yes -o "$A/signed-src.pdf" >/dev/null 2>"$A/err"
+grep -q 'Form field "company" was renamed "company_2"' "$A/err" || { echo "FAIL no rename note: $(cat "$A/err")"; fail=1; }
+asm --password=user --fields=company,din,Director,company_2,din_2 "$A/signed-src.pdf" \
+  "$W/fx/enc-aes256.pdf#all" "$W/fx/presigned-form.pdf#1~" "$W"/fx/field-mixed.pdf#{1,2~} "$W/fx/form.pdf#all"
+"$BIN" pages select "$W/fx/mixed.pdf" "5,1-3,4-" -o "$A/select.pdf" >/dev/null
+asm "$A/select.pdf" "$W"/fx/mixed.pdf#{5,1,2,3,4,5}
+"$BIN" pages rotate "$W/fx/rotated.pdf" 90 --pages 2,4 -o "$A/rotate.pdf" >/dev/null
+asm "$A/rotate.pdf" "$W"/fx/rotated.pdf#{1,2@90,3,4@90}
+"$BIN" pages rotate "$W/fx/objstm.pdf" -90 -o "$A/rotate-left.pdf" >/dev/null
+asm "$A/rotate-left.pdf" "$W"/fx/objstm.pdf#{1@-90,2@-90}
+"$BIN" pages delete "$W/fx/mixed.pdf" 2,4 -o "$A/delete.pdf" >/dev/null
+asm "$A/delete.pdf" "$W"/fx/mixed.pdf#{1,3,5}
+"$BIN" pages insert-blank "$W/fx/mixed.pdf" --after 4 -o "$A/blank.pdf" >/dev/null
+asm "$A/blank.pdf" "$W"/fx/mixed.pdf#{1,2,3,4} blank=420x595 "$W/fx/mixed.pdf#5"
+"$BIN" pages insert-blank "$W/fx/plain.pdf" --after 0 --size letter -o "$A/blank-first.pdf" >/dev/null
+asm "$A/blank-first.pdf" blank=612x792 "$W/fx/plain.pdf#all"
+cp "$W/fx/plain.pdf" "$A/copy.pdf"
+"$BIN" pages select "$A/copy.pdf" 2,1 >/dev/null
+asm "$A/copy_prepared.pdf" "$A"/copy.pdf#{2,1}
+pages_refused() {
+  local what=$1 pattern=$2; shift 2
+  if "$@" >/dev/null 2>"$W/err"; then
+    echo "FAIL $what: written"; fail=1
+  elif grep -q "$pattern" "$W/err"; then
+    echo "PASS $what"
+  else
+    echo "FAIL $what: $(cat "$W/err")"; fail=1
+  fi
+}
+pages_refused "pages never overwrite a source" "is one of the inputs" "$BIN" pages rotate "$A/copy.pdf" 90 -o "$A/copy.pdf"
+pages_refused "deleting every page refused" "every page" "$BIN" pages delete "$W/fx/plain.pdf" 1-2 -o "$A/none.pdf"
+[ ! -e "$A/none.pdf" ] && cmp -s "$A/copy.pdf" "$W/fx/plain.pdf" || { echo "FAIL refused page change wrote a file"; fail=1; }
+[ "$(sha256sum "$W"/fx/*.pdf)" = "$before" ] && echo "PASS page tools leave the sources unchanged" \
+  || { echo "FAIL a source PDF changed"; fail=1; }
+for f in merged encrypted signed-src select rotate blank; do
+  "$BIN" sign "$A/$f.pdf" --out "$A/$f-signed.pdf" --reason Approved >/dev/null
+  check "$A/$f.pdf" "$A/$f-signed.pdf"
+  vcheck "$A/$f-signed.pdf" valid
+done
+field "$A/signed-src.pdf" Director pages-field
+vcheck "$W/signed/pages-field.pdf" valid
+
 # GST portal signing: the listener with a throwaway CA, approving every request
 # (crates/portal-bridge/examples/portal-test-server.rs, never part of the app),
 # a client acting like the portal page, and the portal's own JavaScript run on

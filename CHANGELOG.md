@@ -6,6 +6,19 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Page tools to prepare a document before signing: **Pages** in the toolbar
+  shows the pages as thumbnails to drag into order, turn, delete, insert blank
+  pages and append other PDFs (**Add PDF…**), with undo; **Save as…** writes a
+  new PDF (`name_prepared.pdf` by default) and opens it for signing. Command
+  line: `trackmysign pages merge|select|rotate|delete|insert-blank … -o
+  out.pdf`. The originals are never changed. Page contents, resources,
+  inherited sizes and rotation, links, comments and form fields are copied
+  (same-named fields renamed); bookmarks are not. Password-protected sources
+  are opened with their password and the new file has none. Signatures in a
+  source cannot carry over: the app and the command line warn and ask first.
+
 ## [0.5.0] - 2026-10-24
 
 ### Added

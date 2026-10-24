@@ -12,6 +12,7 @@ use trackmysign_core::certdetails::{
 };
 use trackmysign_core::certinfo::{CertSummary, Validity};
 use trackmysign_core::folder::{self, FileResult, FileStatus, Options, Progress};
+use trackmysign_core::pdf::assemble::{self, Item, Notice};
 use trackmysign_core::report::Report;
 use trackmysign_core::token::{Driver, TokenCert, TokenSigner, Tokens, driver_name};
 use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
@@ -181,6 +182,13 @@ enum Cmd {
         #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
         pin: Option<String>,
     },
+    /// Prepare a PDF for signing: merge, pick, reorder, turn, delete pages or
+    /// add a blank one. Always writes a new file (default
+    /// <name>_prepared.pdf); signatures already in a source do not carry over.
+    Pages {
+        #[command(subcommand)]
+        op: PagesCmd,
+    },
     /// Check the signatures in a PDF. Exits with status 2 if any signature is
     /// invalid or the content was changed after signing.
     Verify {
@@ -214,6 +222,72 @@ enum Cmd {
         #[arg(long)]
         require_signed: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum PagesCmd {
+    /// Join PDFs, in the order given.
+    Merge {
+        #[arg(required = true, num_args = 2..)]
+        pdfs: Vec<PathBuf>,
+        #[command(flatten)]
+        out: PagesOut,
+    },
+    /// Keep only some pages, in the order given: `1-3,5,7-` (`7-` runs to
+    /// the end, `5-3` backwards, a page may repeat).
+    Select {
+        pdf: PathBuf,
+        pages: String,
+        #[command(flatten)]
+        out: PagesOut,
+    },
+    /// Turn pages clockwise by 90, 180 or 270 degrees (-90 turns left).
+    Rotate {
+        pdf: PathBuf,
+        #[arg(allow_negative_numbers = true)]
+        angle: i32,
+        /// Pages to turn: `all` or a list such as `2,4` (default: all).
+        #[arg(long)]
+        pages: Option<String>,
+        #[command(flatten)]
+        out: PagesOut,
+    },
+    /// Leave out pages: a list such as `2,4-6`.
+    Delete {
+        pdf: PathBuf,
+        pages: String,
+        #[command(flatten)]
+        out: PagesOut,
+    },
+    /// Add an empty page after page N (0: before the first page).
+    InsertBlank {
+        pdf: PathBuf,
+        #[arg(long, value_name = "N")]
+        after: usize,
+        /// A4, Letter, or `same` as the page next to it.
+        #[arg(long, value_enum, default_value_t = BlankSize::Same)]
+        size: BlankSize,
+        #[command(flatten)]
+        out: PagesOut,
+    },
+}
+
+#[derive(clap::Args)]
+struct PagesOut {
+    /// File to write. Default: <first input>_prepared.pdf next to it. Never
+    /// one of the inputs.
+    #[arg(short, long)]
+    out: Option<PathBuf>,
+    /// Go ahead without asking when a source PDF is signed.
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum BlankSize {
+    Same,
+    A4,
+    Letter,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -1094,6 +1168,7 @@ fn run() -> Result<()> {
                 _ => println!("{end} {signed} file(s) signed."),
             }
         }
+        Cmd::Pages { op } => pages(op, cli.password.as_deref())?,
         Cmd::Verify { pdf, report, json } => {
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
             let name = pdf
@@ -1185,6 +1260,149 @@ fn run() -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// `trackmysign pages …`: reads the sources, works out the new page order,
+/// warns about what will not carry over and writes the new file.
+fn pages(op: PagesCmd, password: Option<&str>) -> Result<()> {
+    let (paths, out) = match &op {
+        PagesCmd::Merge { pdfs, out } => (pdfs.clone(), out),
+        PagesCmd::Select { pdf, out, .. }
+        | PagesCmd::Rotate { pdf, out, .. }
+        | PagesCmd::Delete { pdf, out, .. }
+        | PagesCmd::InsertBlank { pdf, out, .. } => (vec![pdf.clone()], out),
+    };
+    let target = out
+        .out
+        .clone()
+        .unwrap_or_else(|| assemble::prepared_path(&paths[0]));
+    let same = |a: &Path, b: &Path| match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    };
+    if let Some(p) = paths.iter().find(|p| same(p, &target)) {
+        bail!(
+            "{} is one of the inputs; the original is never changed (--out)",
+            p.display()
+        );
+    }
+    let data = paths
+        .iter()
+        .map(|p| std::fs::read(p).with_context(|| format!("reading {}", p.display())))
+        .collect::<Result<Vec<_>>>()?;
+    let docs = paths
+        .iter()
+        .zip(&data)
+        .map(|(p, d)| {
+            with_password(p, password, |pw| assemble::open(d, pw).map_err(Error::from))
+                .map(|(doc, _)| doc)
+                .with_context(|| p.display().to_string())
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let pages: Vec<_> = docs.iter().map(|d| d.pages()).collect::<Result<_, _>>()?;
+    let all = |s: usize| {
+        (0..pages[s].len()).map(move |page| Item::Page {
+            source: s,
+            page,
+            rotate: 0,
+        })
+    };
+    let count = pages[0].len();
+    let items: Vec<Item> = match &op {
+        PagesCmd::Merge { .. } => (0..docs.len()).flat_map(all).collect(),
+        PagesCmd::Select { pages: spec, .. } => assemble::parse_selection(spec, count)
+            .map_err(anyhow::Error::msg)?
+            .into_iter()
+            .map(|page| Item::Page {
+                source: 0,
+                page,
+                rotate: 0,
+            })
+            .collect(),
+        PagesCmd::Rotate {
+            angle, pages: spec, ..
+        } => {
+            if angle % 90 != 0 {
+                bail!("pages turn by 90, 180 or 270 degrees");
+            }
+            let turn = match spec {
+                Some(spec) => parse_pages(spec, count).map_err(anyhow::Error::msg)?,
+                None => (0..count).collect(),
+            };
+            (0..count)
+                .map(|page| Item::Page {
+                    source: 0,
+                    page,
+                    rotate: if turn.contains(&page) { *angle } else { 0 },
+                })
+                .collect()
+        }
+        PagesCmd::Delete { pages: spec, .. } => {
+            let gone = parse_pages(spec, count).map_err(anyhow::Error::msg)?;
+            if gone.len() == count {
+                bail!("that would delete every page");
+            }
+            all(0)
+                .filter(|i| !matches!(i, Item::Page { page, .. } if gone.contains(page)))
+                .collect()
+        }
+        PagesCmd::InsertBlank { after, size, .. } => {
+            if *after > count {
+                bail!("the PDF has only {count} page(s)");
+            }
+            let (width, height) = match size {
+                BlankSize::A4 => (595.28, 841.89),
+                BlankSize::Letter => (612.0, 792.0),
+                BlankSize::Same => pages[0][after.saturating_sub(1)].display_size(),
+            };
+            let mut items: Vec<Item> = all(0).collect();
+            items.insert(*after, Item::Blank { width, height });
+            items
+        }
+    };
+
+    let names: Vec<String> = paths
+        .iter()
+        .map(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        })
+        .collect();
+    let mut signed = false;
+    for (i, doc) in docs.iter().enumerate() {
+        for n in assemble::notices(i, doc)? {
+            if matches!(n, Notice::SignaturesRemoved { .. }) {
+                signed = true;
+                eprintln!("Warning: {}", n.describe(&names));
+            }
+        }
+    }
+    if signed && !out.yes {
+        if !std::io::stdin().is_terminal() {
+            bail!("not written: a source PDF is signed (--yes to go ahead)");
+        }
+        eprint!("Write the new file without these signatures? [y/N] ");
+        let mut answer = String::new();
+        std::io::stdin().read_line(&mut answer)?;
+        if !matches!(answer.trim(), "y" | "Y" | "yes") {
+            bail!("not written");
+        }
+    }
+    let made = assemble::assemble(&docs, &items)?;
+    for n in &made.notices {
+        if !matches!(n, Notice::SignaturesRemoved { .. }) {
+            eprintln!("Note: {}", n.describe(&names));
+        }
+    }
+    std::fs::write(&target, &made.data).with_context(|| format!("writing {}", target.display()))?;
+    println!(
+        "Saved: {} ({} page{})",
+        target.display(),
+        items.len(),
+        if items.len() == 1 { "" } else { "s" }
+    );
     Ok(())
 }
 

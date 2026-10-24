@@ -6,6 +6,7 @@ mod folder;
 mod incoming;
 mod known;
 mod output;
+mod pages;
 mod portal;
 mod recent;
 mod verify;
@@ -43,7 +44,7 @@ impl From<Error> for CommandError {
             Error::PinLocked => "pinLocked",
             Error::Token(_) => "token",
             Error::Pdf(PdfError::PasswordRequired | PdfError::WrongPassword) => "password",
-            Error::Pdf(PdfError::SigningNotAllowed) => "permission",
+            Error::Pdf(PdfError::SigningNotAllowed | PdfError::AssemblyNotAllowed) => "permission",
             Error::Pdf(_) | Error::NotPermitted(_) => "pdf",
             Error::Timestamp(_) => "timestamp",
             Error::Ltv(_) => "ltv",
@@ -894,6 +895,8 @@ pub fn run() {
             open_file,
             reveal_file,
             open_website,
+            pages::pages_source,
+            pages::assemble_pages,
             verify::verify_pdf,
             verify::export_report,
             folder::verify_folder,

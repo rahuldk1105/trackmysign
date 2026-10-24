@@ -20,6 +20,7 @@ import { FolderDialog, type FolderRun } from "./FolderVerify";
 import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, reminderLabel, remindAbout, today, type ReminderDays } from "./expiry";
 import { currentLang, isLangPref, LANGUAGE_NAMES, t, tx, useLanguage, type LangPref, type MessageKey } from "./i18n";
 import { errorText, translateMessage } from "./i18n/errors";
+import { PagesDialog } from "./PageTools";
 import { loadPdf, PdfView, type PageSize, type Placement } from "./PdfView";
 import { StampDesigner, type PictureInfo } from "./StampDesigner";
 import { StampView, type StampUrls } from "./StampView";
@@ -44,6 +45,7 @@ import {
   GearIcon,
   LockIcon,
   MinusIcon,
+  PagesIcon,
   PlusIcon,
   RefreshIcon,
   ShieldIcon,
@@ -313,6 +315,7 @@ export default function App() {
   const [goto, setGoto] = useState<{ page: number; n: number } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [pagesOpen, setPagesOpen] = useState(false);
   /** The folder check stays while its dialog is closed to look at a file. */
   const [folderRun, setFolderRun] = useState<FolderRun | null>(null);
   const [folderOpen, setFolderOpen] = useState<{ folder: string | null } | null>(null);
@@ -684,7 +687,7 @@ export default function App() {
       ? (certs.length ? certs : known).filter((k) => remindAbout(k.daysLeft, saved.expiryReminder))
       : [];
   const dismissReminders = () => update({ reminderDismissed: today() });
-  const dialogOpen = step.kind !== "idle" || settingsOpen || detailsOpen || designOpen || !!folderOpen || !!unlock || !!portal.request;
+  const dialogOpen = step.kind !== "idle" || settingsOpen || detailsOpen || designOpen || pagesOpen || !!folderOpen || !!unlock || !!portal.request;
 
   /** Opens the folder check; a finished check of another folder makes way for `folder`. */
   const verifyFolder = (folder?: string) => {
@@ -881,6 +884,11 @@ export default function App() {
                 <span>{t("toolbar.fitWidth")}</span>
               </button>
             </div>
+            <i className="tb-sep" />
+            <button className="tb-btn text" onClick={() => setPagesOpen(true)} disabled={step.kind === "signing" || (step.kind === "batch" && step.running)} title={t("pages.openHint")}>
+              <PagesIcon />
+              <span>{t("pages.open")}</span>
+            </button>
           </>
         ) : (
           <span className="muted doc-none">{t("toolbar.noDocument")}</span>
@@ -1441,6 +1449,21 @@ export default function App() {
       )}
 
       {detailsOpen && cert && <CertDetailsDialog cert={cert} onClose={() => setDetailsOpen(false)} />}
+
+      {pagesOpen && doc && (
+        <PagesDialog
+          path={doc.info.path}
+          password={doc.password}
+          pdf={doc.pdf}
+          sizes={doc.sizes}
+          onSaved={(output) => {
+            setPagesOpen(false);
+            setBatch(null);
+            openPath(output);
+          }}
+          onClose={() => setPagesOpen(false)}
+        />
+      )}
 
       {folderOpen && (
         <FolderDialog

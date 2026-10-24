@@ -22,6 +22,7 @@ const SENTENCES: Record<string, MessageKey> = {
   "The token is no longer logged in. Enter the PIN again.": "error.tokenLoggedOut",
   "Stop watching to change these settings.": "error.watchLocked",
   "Choose the folder to watch.": "error.watchNoFolder",
+  "Save the new PDF under another name: the original is never changed.": "error.pagesSameFile",
 };
 
 /** Sentences that end in a detail from elsewhere (a server, the OS), kept as is. */
@@ -55,7 +56,7 @@ export function errorText(e: ApiError): string {
     case "password":
       return t(/not correct/.test(e.message) ? "error.wrongPassword" : "error.passwordRequired");
     case "permission":
-      return t("error.signingNotAllowed");
+      return t(/changing its pages/.test(e.message) ? "error.pagesNotAllowed" : "error.signingNotAllowed");
     case "expired": {
       const date = /expired on (.+?)\. /.exec(e.message)?.[1];
       return date ? t("error.expired", { date }) : e.message;

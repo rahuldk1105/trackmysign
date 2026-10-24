@@ -127,6 +127,7 @@ Other options:
 .\trackmysign.exe sign file.pdf --password "secret"  # password-protected PDF
 .\trackmysign.exe sign file.pdf --certify forms       # certify as the author (first signature only)
 .\trackmysign.exe watch C:\Scans                      # sign every PDF put into a folder (see Watch folder)
+.\trackmysign.exe pages merge a.pdf b.pdf -o out.pdf  # merge, reorder, turn, delete pages (see Preparing pages)
 ```
 
 Long-term validity is off by default, so signing works fully offline. `--timestamp`
@@ -152,6 +153,38 @@ signature that says what may change afterwards: nothing, form filling and
 signing, or also comments. Only an unsigned document can be certified, and a
 document certified with `none` cannot be signed again. In the desktop app this
 is *Signature type → Certify* in the side panel.
+
+## Preparing pages before signing
+
+**Pages** in the toolbar opens the open document's pages as thumbnails: drag
+them into order, turn them left or right, delete them, insert a blank page
+(the size of the page before it), append other PDFs with **Add PDF…**, and
+undo (Ctrl+Z). **Save as…** writes a new PDF (by default
+`name_prepared.pdf` next to the original), which then opens, ready to sign.
+The original files are never changed. The command line does the same:
+
+```powershell
+.\trackmysign.exe pages merge a.pdf b.pdf -o out.pdf            # join PDFs in this order
+.\trackmysign.exe pages select in.pdf "1-3,5,7-" -o out.pdf     # keep and order pages (7- = to the end, 5-3 backwards)
+.\trackmysign.exe pages rotate in.pdf 90 --pages 2,4 -o out.pdf # turn clockwise (-90 turns left); all pages without --pages
+.\trackmysign.exe pages delete in.pdf 2,4-6 -o out.pdf
+.\trackmysign.exe pages insert-blank in.pdf --after 3 --size a4 -o out.pdf  # --after 0: before the first page; --size same|a4|letter
+```
+
+Without `-o` the result is `<first input>_prepared.pdf`; an input file is
+never accepted as the output. Contents, fonts, images, links between kept
+pages, comments and form fields are copied; page sizes and rotation stay as
+they were (also when inherited from the page tree); form fields from different
+files with the same name are renamed (`company` becomes `company_2`).
+Bookmarks are not carried over. A password-protected PDF is opened with its
+password (`--password`, or asked for) and the new file has no password; a PDF
+whose security settings do not allow changing pages needs its owner
+(permissions) password.
+
+Existing signatures cannot survive changes to the pages: the new file does not
+contain them. When a source is signed, the app warns before saving and asks
+again, and the command line asks (or needs `--yes`). Use the page tools to
+prepare a document for signing, not to edit one that is already signed.
 
 ## Signature box design
 
