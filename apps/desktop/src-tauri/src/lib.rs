@@ -847,14 +847,22 @@ mod tests {
             "platforms": {
                 "windows-x86_64": { "url": format!("{base}/TrackMySign-Setup-windows-x64.exe"), "signature": "c2ln" },
                 "darwin-aarch64": { "url": format!("{base}/TrackMySign-macos-universal.app.tar.gz"), "signature": "c2ln" },
-                "darwin-x86_64": { "url": format!("{base}/TrackMySign-macos-universal.app.tar.gz"), "signature": "c2ln" }
+                "darwin-x86_64": { "url": format!("{base}/TrackMySign-macos-universal.app.tar.gz"), "signature": "c2ln" },
+                "linux-x86_64-appimage": { "url": format!("{base}/TrackMySign-linux-x86_64.AppImage"), "signature": "c2ln" },
+                "linux-x86_64-deb": { "url": format!("{base}/TrackMySign-linux-amd64.deb"), "signature": "c2ln" }
             }
         });
         let release: tauri_plugin_updater::RemoteRelease =
             serde_json::from_value(manifest).unwrap();
         assert_eq!(release.version.to_string(), "0.2.0");
         assert!(release.pub_date.is_some());
-        for target in ["windows-x86_64", "darwin-aarch64", "darwin-x86_64"] {
+        for target in [
+            "windows-x86_64",
+            "darwin-aarch64",
+            "darwin-x86_64",
+            "linux-x86_64-appimage",
+            "linux-x86_64-deb",
+        ] {
             let url = release.download_url(target).unwrap();
             assert!(url.as_str().starts_with(base), "{url}");
             assert_eq!(release.signature(target).unwrap(), "c2ln");

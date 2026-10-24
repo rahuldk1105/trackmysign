@@ -109,7 +109,11 @@
   var ua = navigator.userAgent || "";
   var plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
   var mobile = /Android|iPhone|iPad|iPod/i.test(ua);
-  var os = /Win/i.test(plat) || /Windows/i.test(ua) ? "win" : /Mac/i.test(plat) || /Mac OS X/i.test(ua) ? "mac" : null;
+  var os =
+    /Win/i.test(plat) || /Windows/i.test(ua) ? "win"
+    : /Mac/i.test(plat) || /Mac OS X/i.test(ua) ? "mac"
+    : /Linux/i.test(plat) || /Linux/i.test(ua) ? "linux"
+    : null;
 
   // ------------------------------------------------------ download tabs
   function selectTab(name) {
@@ -133,7 +137,7 @@
     var primary = $("[data-dl-primary]");
     if (pane && primary) {
       primary.href = pane.href;
-      $("[data-dl-label]").textContent = os === "win" ? "Download for Windows" : "Download for macOS";
+      $("[data-dl-label]").textContent = { win: "Download for Windows", mac: "Download for macOS", linux: "Download for Linux" }[os];
     }
   }
 

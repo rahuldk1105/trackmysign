@@ -41,6 +41,16 @@ All notable changes to TrackMySign are listed here. The format follows
   public certificate can be saved as `.cer` (DER), `.pem`, or with its chain
   as `.p7b`. On the command line: `trackmysign certs --details`, and
   `trackmysign certs --export N [--pem | --chain] [--out FILE]`.
+- Linux (x86_64): the desktop app as an AppImage and a .deb, and the
+  command-line tool as `trackmysign-linux-x64`. Token drivers are found in the
+  usual Linux folders (HyperPKI, ePass2003, ProxKey, mToken CryptoID, SafeNet,
+  IDPrime, Bit4id, OpenSC, and the p11-kit proxy when nothing else is
+  installed). PDFs open with *Open With → TrackMySign* without changing the
+  default viewer, the in-app updater updates the AppImage and the .deb, and
+  GST portal signing adds its certificate to Chrome's and Firefox's
+  certificate lists (needs `certutil` from the NSS tools). Running in the
+  background puts TrackMySign in the system tray there too (GNOME needs the
+  AppIndicator extension, which Ubuntu has).
 
 ## [0.3.0] - 2026-10-24
 
