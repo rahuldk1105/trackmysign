@@ -1,6 +1,6 @@
 [package]
 name = "trackmysign-desktop"
-version = "0.5.0"
+version = "0.6.0"
 description = "TrackMy Sign — sign PDFs with your DSC token"
 edition = "2024"
 
