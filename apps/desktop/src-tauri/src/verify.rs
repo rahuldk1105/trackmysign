@@ -1,7 +1,12 @@
-//! `verify_pdf`: the signatures already in a document, for the inspector.
+//! `verify_pdf`: the signatures already in a document, for the inspector;
+//! `export_report`: the same check as a PDF report for auditors.
+
+use std::path::Path;
 
 use serde::Serialize;
+use signdesk_core::report::Report;
 use signdesk_core::verify::{Changes, SignatureReport, Status, Trust};
+use tauri::AppHandle;
 
 use super::CmdResult;
 
@@ -94,6 +99,33 @@ pub async fn verify_pdf(path: String, password: Option<String>) -> CmdResult<Vec
         let data = std::fs::read(&path)?;
         let reports = signdesk_core::verify_with_password(&data, password.as_deref())?;
         Ok(reports.iter().map(SignatureDto::from).collect())
+    })
+    .await
+    .map_err(|e| super::CommandError {
+        kind: "other",
+        message: e.to_string(),
+    })?
+}
+
+/// Checks the signatures of `path` again and writes the verification report
+/// (PDF) to `output`.
+#[tauri::command]
+pub async fn export_report(
+    app: AppHandle,
+    path: String,
+    password: Option<String>,
+    output: String,
+) -> CmdResult<()> {
+    let version = app.package_info().version.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = std::fs::read(&path)?;
+        let name = Path::new(&path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let report = Report::new(&data, &name, password.as_deref(), &version)?;
+        std::fs::write(&output, report.to_pdf())?;
+        Ok(())
     })
     .await
     .map_err(|e| super::CommandError {

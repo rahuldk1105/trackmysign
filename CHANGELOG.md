@@ -6,6 +6,15 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Signature verification report for auditors: **Export report…** in the
+  Signatures panel, or `trackmysign verify file.pdf --report report.pdf`,
+  saves an A4 PDF with the file's SHA-256, the time of the check (IST and UTC),
+  a summary line and every signature's details, and says what is not checked
+  (revocation, timestamp tokens). `trackmysign verify --json` prints the
+  result as JSON with a documented schema.
+
 ## [0.3.0] - 2026-10-24
 
 ### Added

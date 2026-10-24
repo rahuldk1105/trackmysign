@@ -7,6 +7,7 @@ pub mod image;
 pub mod ltv;
 pub mod pdf;
 pub mod portal;
+pub mod report;
 pub mod token;
 pub mod tsa;
 pub mod verify;

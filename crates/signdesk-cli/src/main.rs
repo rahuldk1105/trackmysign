@@ -6,12 +6,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use signdesk_core::certinfo::Validity;
+use signdesk_core::report::Report;
 use signdesk_core::token::{Driver, TokenCert, Tokens, driver_name};
 use signdesk_core::verify::{Changes, SignatureReport, Status, Trust};
 use signdesk_core::{
     DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, ImagePosition, PdfError, PdfInfo, SignRequest,
     StampImage, check_permitted_with_password, inspect_with_password, parse_pages, sign_pdf,
-    signed_path, verify_with_password,
+    signed_path,
 };
 
 #[derive(Parser)]
@@ -99,7 +100,15 @@ enum Cmd {
     },
     /// Check the signatures in a PDF. Exits with status 2 if any signature is
     /// invalid or the content was changed after signing.
-    Verify { pdf: PathBuf },
+    Verify {
+        pdf: PathBuf,
+        /// Also write a verification report for auditors (A4 PDF) to this file.
+        #[arg(long, value_name = "FILE")]
+        report: Option<PathBuf>,
+        /// Print the result as JSON instead of text (schema in the README).
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -671,18 +680,34 @@ fn run() -> Result<()> {
                 bail!("{failed} of {} PDFs could not be signed", pdfs.len());
             }
         }
-        Cmd::Verify { pdf } => {
+        Cmd::Verify { pdf, report, json } => {
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
-            let (reports, _) = with_password(&pdf, cli.password.as_deref(), |pw| {
-                verify_with_password(&data, pw)
+            let name = pdf
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let (checked, _) = with_password(&pdf, cli.password.as_deref(), |pw| {
+                Report::new(&data, &name, pw, env!("CARGO_PKG_VERSION"))
             })?;
-            if reports.is_empty() {
-                println!("No signatures found.");
+            if json {
+                println!("{}", checked.to_json());
+            } else {
+                if checked.signatures.is_empty() {
+                    println!("No signatures found.");
+                }
+                for r in &checked.signatures {
+                    println!("{}", describe_signature(r));
+                }
             }
-            for r in &reports {
-                println!("{}", describe_signature(r));
+            if let Some(path) = &report {
+                std::fs::write(path, checked.to_pdf())
+                    .with_context(|| format!("writing {}", path.display()))?;
+                if !json {
+                    println!("Report: {}", path.display());
+                }
             }
-            if reports
+            if checked
+                .signatures
                 .iter()
                 .any(|r| r.status == Status::Invalid || r.changes == Changes::Content)
             {
