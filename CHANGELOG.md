@@ -6,6 +6,14 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- winget manifests (`TrackMyTech.TrackMySign`) in `packaging/winget`, with a
+  generator, validation against the official schemas (run in CI) and a CI job
+  that opens the winget-pkgs pull request for each release when the
+  `WINGET_TOKEN` secret is set. `winget install --id TrackMyTech.TrackMySign`
+  works once the package is approved.
+
 ## [0.5.0] - 2026-10-24
 
 ### Added

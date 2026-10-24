@@ -28,13 +28,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y softhsm2 opensc qpdf poppler-utils libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
           sudo usermod -aG softhsm "$USER" || true
-          pip install --break-system-packages pyhanko pyhanko-certvalidator reportlab
+          pip install --break-system-packages pyhanko pyhanko-certvalidator reportlab jsonschema pyyaml
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Build desktop frontend
         working-directory: apps/desktop
         run: npm ci && npm run build && npm test
+      - name: winget manifests
+        run: python3 -m unittest discover -s packaging/winget
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
@@ -389,3 +391,68 @@ jobs:
             --appimage-sig "$dir/$appimage" --deb-sig "$dir/$deb" \
             --notes-file "$dir/notes.md" --out latest.json
           gh release upload "$REL" latest.json --clobber
+
+  # winget (microsoft/winget-pkgs): a pull request adding each real release, once
+  # the package is in winget-pkgs and the WINGET_TOKEN secret exists (a classic
+  # token with the public_repo scope, of an account with a fork of winget-pkgs).
+  # The first version goes in by hand, see packaging/winget/README.md.
+  winget:
+    name: winget
+    needs: desktop
+    if: github.event_name != 'pull_request' && (inputs.release_tag || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    env:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+      KOMAC_VERSION: 2.16.0
+      KOMAC_SHA256: 7d2707fa6210f2789a3702de49fbd150b736dbf426ee0b9bc8e098736f9fd82d
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate and validate manifests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          REL="${RELEASE_TAG:-$GITHUB_REF_NAME}"
+          dir="$RUNNER_TEMP/winget"
+          gh release download "$REL" --dir "$dir" --pattern TrackMySign-Setup-windows-x64.exe
+          date="$(gh release view "$REL" --json publishedAt --jq '.publishedAt[:10]')"
+          pip install --break-system-packages jsonschema pyyaml
+          python3 packaging/winget/manifest.py generate --version "$REL" \
+            --installer "$dir/TrackMySign-Setup-windows-x64.exe" --release-date "$date" --out "$dir/manifests"
+          python3 packaging/winget/manifest.py validate "$dir/manifests"
+          echo "WINGET_REL=$REL" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: winget-manifests
+          path: ${{ runner.temp }}/winget/manifests
+      - name: Open winget-pkgs pull request
+        if: env.WINGET_TOKEN != ''
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/komac.tar.gz" \
+            "https://github.com/russellbanks/Komac/releases/download/v$KOMAC_VERSION/komac-$KOMAC_VERSION-x86_64-unknown-linux-gnu.tar.gz"
+          echo "$KOMAC_SHA256  $RUNNER_TEMP/komac.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/komac.tar.gz" -C "$RUNNER_TEMP" komac
+          komac="$RUNNER_TEMP/komac"
+          id=TrackMyTech.TrackMySign
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GITHUB_TOKEN" \
+            https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/t/TrackMyTech/TrackMySign)"
+          if [ "$code" = 404 ]; then
+            echo "::notice::$id is not in winget-pkgs yet; submit the first version by hand (packaging/winget/README.md)"
+            exit 0
+          elif [ "$code" != 200 ]; then
+            echo "::error::GitHub answered $code for winget-pkgs (WINGET_TOKEN expired?)"
+            exit 1
+          fi
+          ver="${WINGET_REL#v}"
+          "$komac" update "$id" --version "$ver" \
+            --urls "https://github.com/$GITHUB_REPOSITORY/releases/download/$WINGET_REL/TrackMySign-Setup-windows-x64.exe" \
+            --release-notes-url "https://github.com/$GITHUB_REPOSITORY/releases/tag/$WINGET_REL" \
+            --submit
+      - name: Skip winget submission
+        if: env.WINGET_TOKEN == ''
+        run: echo "WINGET_TOKEN not set; manifests generated and validated, nothing submitted"

@@ -1,0 +1,32 @@
+# Created with packaging/winget/manifest.py
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+
+PackageIdentifier: TrackMyTech.TrackMySign
+PackageVersion: 0.5.0
+InstallerLocale: en-US
+InstallerType: nullsoft
+Scope: user
+InstallModes:
+- interactive
+- silent
+- silentWithProgress
+InstallerSwitches:
+  Silent: /S
+  SilentWithProgress: /P
+UpgradeBehavior: install
+FileExtensions:
+- pdf
+ProductCode: TrackMySign
+ReleaseDate: 2026-10-24
+AppsAndFeaturesEntries:
+- DisplayName: TrackMySign
+  Publisher: DK Rahul
+  ProductCode: TrackMySign
+InstallationMetadata:
+  DefaultInstallLocation: '%LocalAppData%\TrackMySign'
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/rahuldk1105/trackmysign/releases/download/v0.5.0/TrackMySign-Setup-windows-x64.exe
+  InstallerSha256: C0919833B197D8E595C3E99D9F9AD55FF257EEC01EBA5B8A483EF91D7689B590
+ManifestType: installer
+ManifestVersion: 1.12.0

@@ -22,6 +22,17 @@ Download from [sign.rahuldk.in](https://sign.rahuldk.in) or the [latest release]
   `sudo apt install ./TrackMySign-linux-amd64.deb`. Install your token's Linux driver (or
   OpenSC) and `pcscd`.
 
+### Install with winget
+
+```
+winget install --id TrackMyTech.TrackMySign
+```
+
+This works once Microsoft has approved the package in the winget community
+repository; until then, use the installer above. New releases are submitted
+there too, so `winget upgrade` picks them up after review. See
+[packaging/winget](packaging/winget/README.md).
+
 Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`, or in a folder you pick under *Settings → Save signed copies to*; an existing file is never replaced (`name_signed_2.pdf` instead). Recently opened files are listed on the start screen and under the Open button.
 
 Forms from banks and government offices often come with empty signature fields. These are
