@@ -24,7 +24,24 @@ pub const SCOPE: &str = "Checks that the signed bytes are intact, that each sign
 /// is removed. New fields may appear without a new version.
 pub const SCHEMA_VERSION: u32 = 1;
 
+/// The JSON's `checked` and `not_checked`.
+pub(crate) const CHECKED: &[&str] = &[
+    "integrity",
+    "signature",
+    "certificate_chain",
+    "changes_after_signing",
+];
+pub(crate) const NOT_CHECKED: &[&str] = &["revocation", "timestamp_token"];
+
 const IST_SECS: i32 = 5 * 3600 + 30 * 60;
+
+pub(crate) const INK: Rgb = [0.1, 0.1, 0.1];
+pub(crate) const MUTED: Rgb = [0.42, 0.42, 0.42];
+pub(crate) const LINE: Rgb = [0.8, 0.8, 0.8];
+/// #1B3A8C, the app's accent.
+pub(crate) const ACCENT: Rgb = [0.106, 0.227, 0.549];
+pub(crate) const OK: Rgb = [0.09, 0.43, 0.21];
+pub(crate) const BAD: Rgb = [0.72, 0.11, 0.11];
 
 pub struct Report {
     pub file_name: String,
@@ -79,14 +96,14 @@ impl Report {
             && !self.certification_broken()
     }
 
-    fn content_changed(&self) -> bool {
+    pub fn content_changed(&self) -> bool {
         self.signatures
             .iter()
             .any(|r| r.changes == Changes::Content)
     }
 
     /// Changed after a certification that allowed no changes (as `verify` notes it).
-    fn certification_broken(&self) -> bool {
+    pub fn certification_broken(&self) -> bool {
         self.signatures.iter().any(|r| {
             r.certification == Some(DocMdp::NoChanges)
                 && (matches!(r.changes, Changes::FormOrAnnotations | Changes::Content)
@@ -159,13 +176,6 @@ impl Report {
     // ------------------------------------------------------------- PDF
 
     pub fn to_pdf(&self) -> Vec<u8> {
-        const INK: Rgb = [0.1, 0.1, 0.1];
-        const MUTED: Rgb = [0.42, 0.42, 0.42];
-        const LINE: Rgb = [0.8, 0.8, 0.8];
-        // #1B3A8C, the app's accent.
-        const ACCENT: Rgb = [0.106, 0.227, 0.549];
-        const OK: Rgb = [0.09, 0.43, 0.21];
-        const BAD: Rgb = [0.72, 0.11, 0.11];
         let title = Style::new(Face::Bold, 18.0, INK);
         let heading = Style::new(Face::Bold, 11.0, INK);
         let label = Style::new(Face::Regular, 9.0, MUTED);
@@ -213,14 +223,7 @@ impl Report {
         for (i, r) in self.signatures.iter().enumerate() {
             d.keep(120.0);
             d.rule(0.5, LINE, 12.0);
-            let (word, color) = match r.status {
-                Status::Valid if r.changes == Changes::Content => {
-                    ("Valid, content changed later", BAD)
-                }
-                Status::Valid => ("Valid", OK),
-                Status::Invalid => ("Invalid", BAD),
-                Status::Unknown => ("Unknown", INK),
-            };
+            let (word, color) = verdict(r);
             d.paragraph(
                 &format!("Signature {} of {n}: {word}", i + 1),
                 Style::new(Face::Bold, 11.0, color),
@@ -277,13 +280,8 @@ impl Report {
                 content_changed: self.content_changed(),
                 all_valid: self.all_valid(),
             },
-            checked: &[
-                "integrity",
-                "signature",
-                "certificate_chain",
-                "changes_after_signing",
-            ],
-            not_checked: &["revocation", "timestamp_token"],
+            checked: CHECKED,
+            not_checked: NOT_CHECKED,
             signatures: self
                 .signatures
                 .iter()
@@ -295,7 +293,17 @@ impl Report {
     }
 }
 
-fn signature_rows(r: &SignatureReport) -> Vec<(&'static str, String)> {
+/// "Valid", "Invalid", … and its colour, for a signature's heading.
+pub(crate) fn verdict(r: &SignatureReport) -> (&'static str, Rgb) {
+    match r.status {
+        Status::Valid if r.changes == Changes::Content => ("Valid, content changed later", BAD),
+        Status::Valid => ("Valid", OK),
+        Status::Invalid => ("Invalid", BAD),
+        Status::Unknown => ("Unknown", INK),
+    }
+}
+
+pub(crate) fn signature_rows(r: &SignatureReport) -> Vec<(&'static str, String)> {
     let dash = || "—".to_string();
     let opt = |v: &Option<String>| v.as_deref().map_or_else(dash, shown);
     let mut rows = vec![
@@ -417,7 +425,7 @@ fn coverage(r: &SignatureReport) -> String {
 
 /// Text from the document as the report shows it, marked when it had to be
 /// transliterated (the JSON keeps the original).
-fn shown(s: &str) -> String {
+pub(crate) fn shown(s: &str) -> String {
     let t = transliterate(s);
     if t == s {
         t
@@ -426,7 +434,7 @@ fn shown(s: &str) -> String {
     }
 }
 
-fn plural(n: usize, what: &str) -> String {
+pub(crate) fn plural(n: usize, what: &str) -> String {
     if n == 1 {
         format!("1 {what}")
     } else {
@@ -434,7 +442,7 @@ fn plural(n: usize, what: &str) -> String {
     }
 }
 
-fn thousands(n: usize) -> String {
+pub(crate) fn thousands(n: usize) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
@@ -448,7 +456,7 @@ fn thousands(n: usize) -> String {
 
 /// "24 Oct 2026, 15:00:12 IST (09:30:12 UTC)"; the UTC date is repeated
 /// when it differs.
-fn ist_and_utc(t: DateTime<Utc>) -> String {
+pub(crate) fn ist_and_utc(t: DateTime<Utc>) -> String {
     let ist = t.with_timezone(&FixedOffset::east_opt(IST_SECS).unwrap());
     let utc = if ist.date_naive() == t.date_naive() {
         t.format("%H:%M:%S UTC")
@@ -494,7 +502,7 @@ struct JsonSummary {
 }
 
 #[derive(Serialize)]
-struct JsonSignature<'a> {
+pub(crate) struct JsonSignature<'a> {
     index: usize,
     field: &'a str,
     status: &'static str,
@@ -560,7 +568,7 @@ impl<'a> JsonCert<'a> {
 }
 
 impl<'a> JsonSignature<'a> {
-    fn new(index: usize, r: &'a SignatureReport) -> Self {
+    pub(crate) fn new(index: usize, r: &'a SignatureReport) -> Self {
         JsonSignature {
             index,
             field: &r.field,

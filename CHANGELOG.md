@@ -6,6 +6,19 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Verify a whole folder: **Verify folder…** (toolbar, start screen, or the
+  Signatures panel for the open document's folder) checks every PDF in a
+  folder, optionally with subfolders, and lists each file as it is checked:
+  all valid, invalid signature, changed after signing, unsigned, unreadable or
+  needs a password (one password can be given for all). Filter by problems or
+  unsigned files, click one to open it, and export one PDF report for the
+  folder or a CSV with a row per signature. Command line:
+  `trackmysign verify-folder <folder> [--recursive] [--password P]
+  [--report out.pdf] [--csv out.csv] [--json] [--require-signed]`, exit status
+  2 when anything signed is not valid or a PDF could not be checked.
+
 ## [0.4.0] - 2026-10-24
 
 ### Added

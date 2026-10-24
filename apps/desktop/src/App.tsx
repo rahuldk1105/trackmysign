@@ -16,6 +16,7 @@ import type {
   Signed,
 } from "./api";
 import { CertDetailsDialog } from "./CertDetails";
+import { FolderDialog, type FolderRun } from "./FolderVerify";
 import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, reminderLabel, remindAbout, today, type ReminderDays } from "./expiry";
 import { currentLang, isLangPref, LANGUAGE_NAMES, t, tx, useLanguage, type LangPref, type MessageKey } from "./i18n";
 import { errorText, translateMessage } from "./i18n/errors";
@@ -41,6 +42,7 @@ import {
   MinusIcon,
   PlusIcon,
   RefreshIcon,
+  ShieldIcon,
 } from "./icons";
 
 // ---------------------------------------------------------------- settings
@@ -298,6 +300,9 @@ export default function App() {
   const [goto, setGoto] = useState<{ page: number; n: number } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  /** The folder check stays while its dialog is closed to look at a file. */
+  const [folderRun, setFolderRun] = useState<FolderRun | null>(null);
+  const [folderOpen, setFolderOpen] = useState<{ folder: string | null } | null>(null);
   const [theme, setTheme] = useTheme();
   const [sigImage, setSigImage] = useState<{ url: string; aspect: number } | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -615,7 +620,13 @@ export default function App() {
       ? (certs.length ? certs : known).filter((k) => remindAbout(k.daysLeft, saved.expiryReminder))
       : [];
   const dismissReminders = () => update({ reminderDismissed: today() });
-  const dialogOpen = step.kind !== "idle" || settingsOpen || detailsOpen || !!unlock || !!portal.request;
+  const dialogOpen = step.kind !== "idle" || settingsOpen || detailsOpen || !!folderOpen || !!unlock || !!portal.request;
+
+  /** Opens the folder check; a finished check of another folder makes way for `folder`. */
+  const verifyFolder = (folder?: string) => {
+    if (folder && folderRun && !folderRun.running && folderRun.folder !== folder) setFolderRun(null);
+    setFolderOpen({ folder: folder ?? folderRun?.folder ?? startFolder });
+  };
 
   // ---- keyboard
   const keys = useRef({ pick, zoomBy, dialogOpen, hasDoc: !!doc });
@@ -797,6 +808,9 @@ export default function App() {
         )}
         <div className="spacer" />
         <OpenButton recent={saved.recentOn ? recent : null} disabled={loading} onPick={pick} onOpen={(p) => openFiles([p])} />
+        <button className={`tb-btn ${folderRun?.running ? "on" : ""}`} onClick={() => verifyFolder()} title={t("folder.verifyHint")} aria-label={t("folder.verify")}>
+          <ShieldIcon />
+        </button>
         <button className="tb-btn" onClick={() => setSettingsOpen(true)} title={t("common.settings")} aria-label={t("common.settings")}>
           <GearIcon />
         </button>
@@ -835,6 +849,10 @@ export default function App() {
                   <button className="btn primary" onClick={pick} disabled={loading}>
                     <FolderIcon />
                     {loading ? t("empty.opening") : t("empty.openPdf")}
+                  </button>
+                  <button className="btn ghost empty-folder" onClick={() => verifyFolder()} title={t("folder.verifyHint")}>
+                    <ShieldIcon />
+                    {t("folder.verify")}
                   </button>
                   {docError && (
                     <p className="inline-error">
@@ -1220,7 +1238,7 @@ export default function App() {
                 </section>
               )}
 
-              <SignaturesPanel path={doc.info.path} password={doc.password} count={doc.info.signatures} />
+              <SignaturesPanel path={doc.info.path} password={doc.password} count={doc.info.signatures} onVerifyFolder={() => verifyFolder(dirName(doc.info.path))} />
             </div>
 
             <div className="insp-foot">
@@ -1305,6 +1323,20 @@ export default function App() {
       )}
 
       {detailsOpen && cert && <CertDetailsDialog cert={cert} onClose={() => setDetailsOpen(false)} />}
+
+      {folderOpen && (
+        <FolderDialog
+          run={folderRun}
+          folder={folderOpen.folder}
+          setRun={setFolderRun}
+          onOpen={(path, password) => {
+            setFolderOpen(null);
+            setBatch(null);
+            openPath(path, password);
+          }}
+          onClose={() => setFolderOpen(null)}
+        />
+      )}
 
       {(step.kind === "pin" || step.kind === "signing") && cert && doc && (
         <PinDialog

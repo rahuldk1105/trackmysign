@@ -2,6 +2,7 @@
 
 mod background;
 mod certs;
+mod folder;
 mod known;
 mod output;
 mod portal;
@@ -743,6 +744,7 @@ pub fn run() {
         .manage(Mutex::new(opened))
         .manage(portal::PortalState::default())
         .manage(background::BackgroundState::default())
+        .manage(folder::FolderState::default())
         .on_window_event(background::on_window_event)
         .setup(move |app| {
             background::start(app.handle(), hidden);
@@ -774,6 +776,10 @@ pub fn run() {
             open_website,
             verify::verify_pdf,
             verify::export_report,
+            folder::verify_folder,
+            folder::stop_folder_verify,
+            folder::export_folder_report,
+            folder::export_folder_csv,
             portal::portal_status,
             portal::portal_enable,
             portal::portal_disable,

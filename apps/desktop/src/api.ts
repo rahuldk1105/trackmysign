@@ -499,6 +499,81 @@ export async function exportReport(path: string, output: string, password?: stri
   if (inTauri) await invoke("export_report", { path, password: password ?? null, output });
 }
 
+// ---------------------------------------------------------- folder check
+
+export type FolderStatus = "allValid" | "invalid" | "changed" | "unsigned" | "unreadable" | "password";
+
+/** One PDF of a folder check. */
+export interface FolderFile {
+  path: string;
+  /** Relative to the folder, with `/` between folder names. */
+  relative: string;
+  size: number | null;
+  status: FolderStatus;
+  signatures: number;
+  signers: string[];
+  /** Why the file could not be checked. */
+  error: string | null;
+  summary: string | null;
+  /** Opened only with the password given for the folder. */
+  usedPassword: boolean;
+}
+
+export type FolderProgress = { state: "found"; files: string[] } | { state: "checked"; index: number; file: FolderFile };
+
+const mockFolder: [string, FolderStatus, string[]][] = [
+  ["INV-2026-0142.pdf", "allValid", ["DK RAHUL"]],
+  ["INV-2026-0143.pdf", "allValid", ["DK RAHUL", "CA AUDITOR PARTNER"]],
+  ["INV-2026-0144.pdf", "changed", ["DK RAHUL"]],
+  ["Board/minutes-oct.pdf", "invalid", ["DIRECTOR TWO"]],
+  ["Board/agenda.pdf", "unsigned", []],
+  ["Board/salary.pdf", "password", []],
+  ["scan.pdf", "unreadable", []],
+];
+
+/** Checks every PDF in `folder` (results through `progress`); true when stopped early. */
+export async function verifyFolder(folder: string, recursive: boolean, password: string, progress: (p: FolderProgress) => void): Promise<boolean> {
+  if (inTauri) {
+    const channel = new Channel<FolderProgress>();
+    channel.onmessage = progress;
+    return invoke("verify_folder", { folder, recursive, password: password || null, progress: channel });
+  }
+  const files = mockFolder.filter(([p]) => recursive || !p.includes("/"));
+  progress({ state: "found", files: files.map(([p]) => p) });
+  for (const [index, [relative, status, signers]] of files.entries()) {
+    await new Promise((r) => setTimeout(r, 300));
+    const error = status === "password" ? "this PDF is password-protected; enter its password to open it" : status === "unreadable" ? "not a PDF file" : null;
+    progress({
+      state: "checked",
+      index,
+      file: { path: `${folder}\\${relative}`, relative, size: 48213, status, signatures: signers.length, signers, error, summary: null, usedPassword: false },
+    });
+  }
+  return false;
+}
+
+export async function stopFolderVerify(): Promise<void> {
+  if (inTauri) await invoke("stop_folder_verify");
+}
+
+/** `C:\Invoices` → `C:\Invoices_verification.pdf` (next to the folder, not inside it). */
+export function folderReportPath(folder: string, ext: "pdf" | "csv"): string {
+  return folder.replace(/[\\/]+$/, "") + `_verification.${ext}`;
+}
+
+/** Asks where to save the folder report or CSV; null when cancelled. */
+export async function pickFolderExport(folder: string, ext: "pdf" | "csv"): Promise<string | null> {
+  if (!inTauri) return folderReportPath(folder, ext);
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const filter = ext === "pdf" ? { name: t("dialog.pdfs"), extensions: ["pdf"] } : { name: t("dialog.csv"), extensions: ["csv"] };
+  return save({ defaultPath: folderReportPath(folder, ext), filters: [filter] });
+}
+
+/** Writes the last folder check to `output`: the PDF report or the CSV. */
+export async function exportFolder(output: string, ext: "pdf" | "csv"): Promise<void> {
+  if (inTauri) await invoke(ext === "pdf" ? "export_folder_report" : "export_folder_csv", { output });
+}
+
 export interface PortalStatus {
   /** Turned on in Settings (the listener runs while the app is open). */
   enabled: boolean;
