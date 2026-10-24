@@ -238,7 +238,13 @@ export function PortalSettings(props: { status: PortalStatus | null; onStatus: (
         <>
           <p className="muted small">{t("portal.intro")}</p>
           <p className="muted small">
-            {t("portal.introTrust", { confirm: /mac/i.test(navigator.platform) ? t("portal.macConfirm") : t("portal.windowsConfirm") })}
+            {t("portal.introTrust", {
+              confirm: /mac/i.test(navigator.platform)
+                ? t("portal.macConfirm")
+                : /linux/i.test(navigator.platform)
+                  ? t("portal.linuxConfirm")
+                  : t("portal.windowsConfirm"),
+            })}
           </p>
           {status?.certificateLeft ? (
             <div className="setting-row">

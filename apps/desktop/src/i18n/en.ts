@@ -340,6 +340,7 @@ export const en = {
   "portal.introTrust":
     "Turning it on adds a certificate made for this computer to your user's trusted certificates, so the browser accepts the connection. {confirm} The certificate can only vouch for 127.0.0.1, and the key that made it is deleted at once. Works while TrackMySign is running, also in the background (see Background below).",
   "portal.macConfirm": "macOS asks for your password.",
+  "portal.linuxConfirm": "On Linux it goes into Chrome's and Firefox's certificate lists (needs certutil, from libnss3-tools); restart Firefox afterwards.",
   "portal.windowsConfirm": "Windows asks you to confirm.",
   "portal.certLeft": "The certificate from before is still trusted.",
   "portal.removeCert": "Remove certificate",
@@ -440,6 +441,13 @@ export const en = {
   "policy.indiaPkiCa": "India PKI certificate policy (CA)",
   "policy.ekycSingle": "eKYC single factor",
   "policy.ekycMulti": "eKYC multi factor",
+
+  // ---- verification report
+  "report.export": "Export report…",
+  "report.exporting": "Exporting…",
+  "report.hint": "PDF report of these checks, for auditors",
+  "report.failed": "Could not save the report: {message}",
+  "report.saved": "Report saved: {file}",
 
   // ---- native dialogs
   "dialog.pdfs": "PDF documents",

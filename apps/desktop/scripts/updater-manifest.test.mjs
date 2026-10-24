@@ -3,7 +3,17 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { buildManifest, MACOS_ASSET, publicKeyId, signatureKeyId, tagVersion, validateManifest, WINDOWS_ASSET } from "./updater-manifest.mjs";
+import {
+  APPIMAGE_ASSET,
+  buildManifest,
+  DEB_ASSET,
+  MACOS_ASSET,
+  publicKeyId,
+  signatureKeyId,
+  tagVersion,
+  validateManifest,
+  WINDOWS_ASSET,
+} from "./updater-manifest.mjs";
 
 // A throwaway key pair (not the release key) and a signature made with it.
 const TEST_PUBKEY =
@@ -13,7 +23,16 @@ const TEST_SIG =
 
 const base = "https://github.com/rahuldk1105/trackmysign/releases/download/v0.2.0";
 const manifest = () =>
-  buildManifest({ version: "0.2.0", notes: "## What's Changed\n* Updates\n", pubDate: "2026-10-23T10:00:00Z", baseUrl: base, windowsSig: TEST_SIG + "\n", macosSig: TEST_SIG });
+  buildManifest({
+    version: "0.2.0",
+    notes: "## What's Changed\n* Updates\n",
+    pubDate: "2026-10-23T10:00:00Z",
+    baseUrl: base,
+    windowsSig: TEST_SIG + "\n",
+    macosSig: TEST_SIG,
+    appimageSig: TEST_SIG,
+    debSig: TEST_SIG + "\n",
+  });
 
 test("tag versions", () => {
   assert.equal(tagVersion("v0.1.5"), "0.1.5");
@@ -37,11 +56,16 @@ test("the app's configured public key parses", () => {
 
 test("manifest has all platforms, mac ones on the universal archive", () => {
   const m = manifest();
-  assert.deepEqual(Object.keys(m.platforms).sort(), ["darwin-aarch64", "darwin-x86_64", "windows-x86_64"]);
+  assert.deepEqual(Object.keys(m.platforms).sort(), ["darwin-aarch64", "darwin-x86_64", "linux-x86_64-appimage", "linux-x86_64-deb", "windows-x86_64"]);
   assert.equal(m.platforms["windows-x86_64"].url, `${base}/${WINDOWS_ASSET}`);
   assert.equal(m.platforms["darwin-aarch64"].url, `${base}/${MACOS_ASSET}`);
   assert.equal(m.platforms["darwin-x86_64"].url, `${base}/${MACOS_ASSET}`);
+  assert.equal(m.platforms["linux-x86_64-appimage"].url, `${base}/${APPIMAGE_ASSET}`);
+  assert.equal(m.platforms["linux-x86_64-deb"].url, `${base}/${DEB_ASSET}`);
+  // No plain "linux-x86_64": an app not installed from a package gets no update.
+  assert.equal(m.platforms["linux-x86_64"], undefined);
   assert.equal(m.platforms["windows-x86_64"].signature, TEST_SIG);
+  assert.equal(m.platforms["linux-x86_64-deb"].signature, TEST_SIG);
   assert.equal(m.notes, "## What's Changed\n* Updates");
   assert.deepEqual(validateManifest(m, TEST_PUBKEY), []);
   // Round trip through JSON, as the app reads it.
@@ -54,10 +78,11 @@ test("validation catches what the updater would reject", () => {
 
   const m = manifest();
   delete m.platforms["darwin-x86_64"];
+  delete m.platforms["linux-x86_64-deb"];
   m.version = "v-next";
   m.pub_date = "yesterday";
   m.platforms["windows-x86_64"].url = "http://example.com/setup.exe";
   m.platforms["darwin-aarch64"].signature = "";
   const errors = validateManifest(m, TEST_PUBKEY).join("\n");
-  for (const want of ["version", "pub_date", "darwin-x86_64 is missing", "windows-x86_64.url", "darwin-aarch64.signature"]) assert.match(errors, new RegExp(want));
+  for (const want of ["version", "pub_date", "darwin-x86_64 is missing", "linux-x86_64-deb is missing", "windows-x86_64.url", "darwin-aarch64.signature"]) assert.match(errors, new RegExp(want));
 });

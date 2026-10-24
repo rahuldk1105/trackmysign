@@ -30,8 +30,8 @@ cd apps/desktop && npm ci && npx tauri dev       # desktop app with live reload
 
 On Linux the desktop app also needs the WebKitGTK development packages, for
 example on Ubuntu: `sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev`.
-The app is built for Windows and macOS; Linux is fine for development and the
-tests, with OpenSC as the only auto-detected driver.
+The app is built for Windows, macOS and Linux (`npx tauri build --bundles deb`
+makes a .deb locally).
 
 The desktop crate embeds the built front end, so run `npm run build` in
 `apps/desktop` once before `cargo clippy` or `cargo test` at the workspace root.
@@ -98,12 +98,13 @@ Most tokens sold in India ship a PKCS#11 driver, so supporting a new one is
 usually a one-line change:
 
 1. Find the driver file the vendor installs. On Windows it is a `.dll`, usually in
-   `C:\Windows\System32`; on macOS a `.dylib`, often in `/usr/local/lib`. Check that
+   `C:\Windows\System32`; on macOS a `.dylib`, often in `/usr/local/lib`; on Linux a
+   `.so`, usually in `/usr/lib`. Check that
    it works first:
    `trackmysign --module <path to driver> certs` (or set `TRACKMYSIGN_PKCS11_MODULE`).
 2. Add it to `known_locations()` in `crates/signdesk-core/src/token.rs` as
-   `(product name, folder, file name)`, in the `#[cfg(windows)]` or
-   `#[cfg(target_os = "macos")]` block. A `*` in the file name matches a version
+   `(product name, folder, file name)`, in the `#[cfg(windows)]`,
+   `#[cfg(target_os = "macos")]` or Linux block. A `*` in the file name matches a version
    number that changes between driver releases (`TRUSTKEYP11*.dll`). Vendor drivers
    go before OpenSC, which stays last.
 3. If you used a `*` or the name is close to an existing one, add a case to the

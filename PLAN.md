@@ -7,7 +7,7 @@ without Adobe.
 
 | Topic | Decision |
 |---|---|
-| Platform | Desktop app first (Windows primary, macOS second). Hosted website + helper possibly later. |
+| Platform | Desktop app first (Windows primary, macOS second, Linux x86_64 AppImage/.deb). Hosted website + helper possibly later. |
 | Shell / UI | Tauri (Rust) + React/TypeScript, PDF.js for rendering & placement |
 | Token access | PKCS#11 directly (token does **not** appear in Windows cert store) via Hypersecu middleware; OpenSC as fallback |
 | Signature appearance | Visible, text only ("Digitally signed by NAME / Date / Reason"), click to place; last position remembered |

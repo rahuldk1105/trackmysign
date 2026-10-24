@@ -339,6 +339,7 @@ export const ta: Catalog = {
   "portal.introTrust":
     "இயக்கினால், இந்தக் கணினிக்காக உருவாக்கிய ஒரு சான்றிதழ் உங்கள் பயனரின் நம்பகமான சான்றிதழ்களில் சேர்க்கப்படும்; அப்போதுதான் உலாவி இணைப்பை ஏற்கும். {confirm} இந்தச் சான்றிதழ் 127.0.0.1-க்கு மட்டுமே செல்லும்; அதை உருவாக்கிய key உடனே நீக்கப்படும். TrackMySign இயங்கும்போது, பின்னணியிலும், செயல்படும் (கீழே ‘பின்னணி’ பார்க்கவும்).",
   "portal.macConfirm": "macOS உங்கள் கடவுச்சொல்லைக் கேட்கும்.",
+  "portal.linuxConfirm": "Linux-இல் இது Chrome, Firefox சான்றிதழ் பட்டியல்களில் சேர்க்கப்படும் (libnss3-tools-இலிருந்து certutil தேவை); பிறகு Firefox-ஐ மறுதொடக்கம் செய்யவும்.",
   "portal.windowsConfirm": "Windows உறுதிப்படுத்தக் கேட்கும்.",
   "portal.certLeft": "முந்தைய சான்றிதழ் இன்னும் நம்பகப் பட்டியலில் உள்ளது.",
   "portal.removeCert": "சான்றிதழை நீக்கு",
@@ -439,6 +440,13 @@ export const ta: Catalog = {
   "policy.indiaPkiCa": "India PKI சான்றிதழ் கொள்கை (CA)",
   "policy.ekycSingle": "eKYC ஒற்றைக் காரணி",
   "policy.ekycMulti": "eKYC பல காரணி",
+
+  // ---- verification report
+  "report.export": "அறிக்கையை ஏற்றுமதி செய்…",
+  "report.exporting": "ஏற்றுமதி செய்கிறது…",
+  "report.hint": "தணிக்கையாளர்களுக்கான இந்தச் சரிபார்ப்புகளின் PDF அறிக்கை",
+  "report.failed": "அறிக்கையைச் சேமிக்க முடியவில்லை: {message}",
+  "report.saved": "அறிக்கை சேமிக்கப்பட்டது: {file}",
 
   // ---- native dialogs
   "dialog.pdfs": "PDF ஆவணங்கள்",

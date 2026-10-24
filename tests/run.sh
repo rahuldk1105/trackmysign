@@ -329,6 +329,24 @@ if cmp -s "$C/me.cer" "$TEST_PKI/sign.der" \
 else
   echo "FAIL certificate export: $(cat "$C/details")"; fail=1
 fi
+
+# Verification reports (PDF and JSON) for auditors: signed file, then the texts the report must show.
+mkdir -p "$W/reports"
+report() { python3 -W ignore "$ROOT/tests/check_report.py" "$@" || fail=1; }
+"$BIN" sign "$W/fx/plain.pdf" --reason "स्वीकृत" --location "चेन्नई" --out "$W/signed/indic.pdf" >/dev/null
+report "$BIN" "$W/signed/twice.pdf" "$W/reports" "3 signatures — all valid, document unchanged since the last signature" \
+  "Signer CA AUDITOR PARTNER" "Coverage 2 later revisions: signatures only" "Coverage Covers the whole document" \
+  "Organisation Personal" "Issuer Test Sub-CA for Class 3 Individual 2026" "Timestamp None"
+report "$BIN" "$W/tampered-twice.pdf" "$W/reports" "3 signatures — all INVALID" "Signature 1 of 3: Invalid" \
+  "Notes The document digest does not match: the signed bytes were changed."
+report "$BIN" "$W/changed.pdf" "$W/reports" "CONTENT CHANGED after signature 1" "later revisions: CONTENT CHANGED"
+report "$BIN" "$W/signed/cert-forms-approved.pdf" "$W/reports" "2 signatures — all valid" \
+  "Certification Level 2: form filling and signing allowed"
+report "$BIN" "$W/signed/ltv.pdf" "$W/reports" "Timestamp Present (the timestamp token is not verified)"
+report --password=own "$BIN" "$W/signed/enc-aes256.pdf" "$W/reports" "1 signature — valid, document unchanged since it was signed" \
+  "Protection Password-protected"
+report "$BIN" "$W/signed/indic.pdf" "$W/reports" "Reason Svikrita (transliterated)" "Location Chennai (transliterated)"
+report "$BIN" "$W/fx/plain.pdf" "$W/reports" "No signatures found."
 # GST portal signing: the listener with a throwaway CA, approving every request
 # (crates/portal-bridge/examples/portal-test-server.rs, never part of the app),
 # a client acting like the portal page, and the portal's own JavaScript run on

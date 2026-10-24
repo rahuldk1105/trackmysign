@@ -1,12 +1,12 @@
 // Inspector section listing the signatures already in the open document,
-// each checked by the Rust core (`verify_pdf`).
+// each checked by the Rust core (`verify_pdf`), with a PDF report to export.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import * as api from "./api";
 import type { SignatureCheck } from "./api";
-import { t, type MessageKey } from "./i18n";
+import { t, tx, type MessageKey } from "./i18n";
 import { errorText } from "./i18n/errors";
-import { AlertIcon, ChevronDownIcon, ChevronUpIcon, ShieldIcon } from "./icons";
+import { AlertIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon, ShieldIcon } from "./icons";
 import "./signatures.css";
 
 type Tone = "ok" | "bad" | "neutral";
@@ -147,14 +147,58 @@ function SignatureItem({ s }: { s: SignatureCheck }) {
   );
 }
 
+function fileName(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
+}
+
+/** Bottom-right notice after the report was saved; closes by itself. */
+function SavedToast({ output, onClose }: { output: string; onClose: () => void }) {
+  useEffect(() => {
+    const timer = window.setTimeout(onClose, 8000);
+    return () => window.clearTimeout(timer);
+  }, [output, onClose]);
+  return (
+    <div className="toast" role="status">
+      <CheckIcon size={14} />
+      <span className="toast-text">{tx("report.saved", { file: <span className="mono">{fileName(output)}</span> })}</span>
+      <button className="link" onClick={() => api.revealFile(output)}>
+        {t("common.showInFolder")}
+      </button>
+      <button className="tb-btn" onClick={onClose} title={t("common.close")} aria-label={t("common.close")}>
+        <CloseIcon />
+      </button>
+    </div>
+  );
+}
+
 export function SignaturesPanel({ path, password, count }: { path: string; password?: string; count: number }) {
   const [checks, setChecks] = useState<SignatureCheck[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  const closeToast = useCallback(() => setSaved(null), []);
+
+  async function exportReport() {
+    const output = await api.pickReportPath(path);
+    if (!output) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      await api.exportReport(path, output, password);
+      setSaved(output);
+    } catch (e) {
+      setExportError(errorText(api.errorOf(e)));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     let live = true;
     setChecks(null);
     setError(null);
+    setExportError(null);
     api
       .verifyPdf(path, password)
       .then((c) => live && setChecks(c))
@@ -185,6 +229,15 @@ export function SignaturesPanel({ path, password, count }: { path: string; passw
           ))}
         </ul>
       )}
+      {checks && checks.length > 0 && (
+        <div className="sig-export">
+          <button className="btn" onClick={exportReport} disabled={exporting} title={t("report.hint")}>
+            {exporting ? t("report.exporting") : t("report.export")}
+          </button>
+          {exportError && <p className="sig-export-error">{t("report.failed", { message: exportError })}</p>}
+        </div>
+      )}
+      {saved && <SavedToast output={saved} onClose={closeToast} />}
       <p className="muted small">
         {checks?.some((c) => c.certification === 1)
           ? t("sig.noChangesAllowed")

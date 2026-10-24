@@ -30,7 +30,8 @@ pub struct Driver {
 
 /// Where token vendors install their drivers: product, folder, file name.
 /// A `*` in the file name stands for a version number that changes between
-/// releases. Vendor drivers come first; OpenSC is the last resort.
+/// releases. Vendor drivers come first; OpenSC (and on Linux the p11-kit
+/// proxy) is the last resort.
 fn known_locations() -> Vec<(&'static str, PathBuf, &'static str)> {
     let mut v: Vec<(&'static str, PathBuf, &'static str)> = Vec::new();
     #[cfg(windows)]
@@ -113,14 +114,63 @@ fn known_locations() -> Vec<(&'static str, PathBuf, &'static str)> {
             v.push(("OpenSC", dir.into(), "opensc-pkcs11.so"));
         }
     }
+    // Linux. Vendor installers copy their driver straight into /usr/lib
+    // (some into a folder of their own); the multiarch, lib64 and /usr/local
+    // folders are searched as well. Verified: HyperPKI (Hypersecu's Linux
+    // guide), SafeNet and IDPrime (SafeNet Authentication Client), Bit4id
+    // libbit4xpki (vendor manual), OpenSC and p11-kit (distribution
+    // packages). Unverified, from the vendors' Windows and macOS names: the
+    // ePass2003 and ProxKey folders, libeps2003csp11, mToken CryptoID and
+    // Bit4id libbit4ipki.
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        for dir in ["/usr/lib/x86_64-linux-gnu", "/usr/lib"] {
+        const LIB: [&str; 4] = [
+            "/usr/lib",
+            "/usr/lib/x86_64-linux-gnu",
+            "/usr/lib64",
+            "/usr/local/lib",
+        ];
+        for (name, file) in [
+            ("Hypersecu HyperPKI", "libcastle_v2.so*"),
+            ("Feitian ePass2003", "libcastle.so*"),
+            ("Feitian ePass2003", "libeps2003csp11.so"),
+            ("Watchdata ProxKey", "libwdpkcs_*.so"),
+            ("Longmai mToken CryptoID", "libcryptoid*_pkcs11.so"),
+            ("SafeNet eToken", "libeTPkcs11.so"),
+            ("Gemalto IDPrime", "libIDPrimePKCS11.so"),
+        ] {
+            for dir in LIB {
+                v.push((name, dir.into(), file));
+            }
+        }
+        v.push((
+            "Watchdata ProxKey",
+            "/usr/lib/WatchData/ProxKey/lib".into(),
+            "libwdpkcs_*.so",
+        ));
+        v.push((
+            "Longmai mToken CryptoID",
+            "/opt/CryptoIDE/lib".into(),
+            "libcryptoid*_pkcs11.so",
+        ));
+        for dir in ["/usr/lib/bit4id", "/usr/local/lib/bit4id"] {
+            v.push(("Bit4id", dir.into(), "libbit4xpki.so"));
+            v.push(("Bit4id", dir.into(), "libbit4ipki.so"));
+        }
+        for dir in LIB {
             v.push(("OpenSC", dir.into(), "opensc-pkcs11.so"));
+        }
+        for dir in LIB {
+            v.push((P11_KIT, dir.into(), "p11-kit-proxy.so"));
         }
     }
     v
 }
+
+/// The p11-kit proxy offers every module registered with p11-kit, so it is
+/// only used when no driver of its own was found.
+#[cfg(all(unix, not(target_os = "macos")))]
+const P11_KIT: &str = "p11-kit";
 
 /// Case-insensitive file name match with at most one `*`.
 fn name_matches(pattern: &str, name: &str) -> bool {
@@ -160,6 +210,10 @@ pub fn installed_drivers() -> Vec<Driver> {
     let mut out: Vec<Driver> = Vec::new();
     let mut seen: Vec<PathBuf> = Vec::new();
     for (name, dir, pattern) in known_locations() {
+        #[cfg(all(unix, not(target_os = "macos")))]
+        if name == P11_KIT && !out.is_empty() {
+            continue;
+        }
         let mut found: Vec<PathBuf> = if pattern.contains('*') {
             let Ok(rd) = std::fs::read_dir(&dir) else {
                 continue;
@@ -684,9 +738,27 @@ mod tests {
         ));
         assert!(name_matches("eTPKCS11.dll", "etpkcs11.dll"));
         assert!(!name_matches("eps2003csp11.dll", "eps2003csp11v2.dll"));
+        assert!(name_matches("libcastle_v2.so*", "libcastle_v2.so.1.0.0"));
+        assert!(!name_matches("libcastle.so*", "libcastle_v2.so.1.0.0"));
+        assert!(name_matches("libwdpkcs_*.so", "libwdpkcs_SignatureP11.so"));
         assert_eq!(
             driver_name(Path::new("/x/unknown-pkcs11.so")),
             "unknown-pkcs11.so"
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_driver_names() {
+        for (path, name) in [
+            ("/usr/lib/libcastle_v2.so.1.0.0", "Hypersecu HyperPKI"),
+            ("/usr/lib/libcastle.so.1.0.0", "Feitian ePass2003"),
+            ("/usr/lib/libeTPkcs11.so", "SafeNet eToken"),
+            ("/usr/lib/bit4id/libbit4xpki.so", "Bit4id"),
+            ("/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so", "OpenSC"),
+            ("/usr/lib/x86_64-linux-gnu/p11-kit-proxy.so", "p11-kit"),
+        ] {
+            assert_eq!(driver_name(Path::new(path)), name);
+        }
     }
 }

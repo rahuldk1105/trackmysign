@@ -8,6 +8,12 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ### Added
 
+- Signature verification report for auditors: **Export report…** in the
+  Signatures panel, or `trackmysign verify file.pdf --report report.pdf`,
+  saves an A4 PDF with the file's SHA-256, the time of the check (IST and UTC),
+  a summary line and every signature's details, and says what is not checked
+  (revocation, timestamp tokens). `trackmysign verify --json` prints the
+  result as JSON with a documented schema.
 - Recent files: the last 10 PDFs you opened are listed on the start screen and
   under the arrow next to *Open…*, with their folder and date; files signed in
   the app are marked and their signed copy opens with one click. Files that no
@@ -35,6 +41,16 @@ All notable changes to TrackMySign are listed here. The format follows
   public certificate can be saved as `.cer` (DER), `.pem`, or with its chain
   as `.p7b`. On the command line: `trackmysign certs --details`, and
   `trackmysign certs --export N [--pem | --chain] [--out FILE]`.
+- Linux (x86_64): the desktop app as an AppImage and a .deb, and the
+  command-line tool as `trackmysign-linux-x64`. Token drivers are found in the
+  usual Linux folders (HyperPKI, ePass2003, ProxKey, mToken CryptoID, SafeNet,
+  IDPrime, Bit4id, OpenSC, and the p11-kit proxy when nothing else is
+  installed). PDFs open with *Open With → TrackMySign* without changing the
+  default viewer, the in-app updater updates the AppImage and the .deb, and
+  GST portal signing adds its certificate to Chrome's and Firefox's
+  certificate lists (needs `certutil` from the NSS tools). Running in the
+  background puts TrackMySign in the system tray there too (GNOME needs the
+  AppIndicator extension, which Ubuntu has).
 - The desktop app in Hindi and Tamil. It follows the system language; choose
   System, English, हिन्दी or தமிழ் under *Settings → Appearance → Language*.
   The signature box in the PDF stays in English.

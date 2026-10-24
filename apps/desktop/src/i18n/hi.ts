@@ -339,6 +339,7 @@ export const hi: Catalog = {
   "portal.introTrust":
     "चालू करने पर इस कंप्यूटर के लिए बना एक सर्टिफिकेट आपके यूज़र के विश्वसनीय सर्टिफिकेटों में जुड़ता है, ताकि ब्राउज़र कनेक्शन स्वीकार करे। {confirm} यह सर्टिफिकेट केवल 127.0.0.1 के लिए मान्य है, और इसे बनाने वाली key तुरंत मिटा दी जाती है। TrackMySign चलते रहने तक काम करता है, बैकग्राउंड में भी (नीचे ‘बैकग्राउंड’ देखें)।",
   "portal.macConfirm": "macOS आपका पासवर्ड माँगेगा।",
+  "portal.linuxConfirm": "Linux पर यह Chrome और Firefox की सर्टिफिकेट सूची में जुड़ता है (certutil चाहिए, libnss3-tools से); बाद में Firefox रीस्टार्ट करें।",
   "portal.windowsConfirm": "Windows पुष्टि माँगेगा।",
   "portal.certLeft": "पहले का सर्टिफिकेट अब भी विश्वसनीय सूची में है।",
   "portal.removeCert": "सर्टिफिकेट हटाएँ",
@@ -439,6 +440,13 @@ export const hi: Catalog = {
   "policy.indiaPkiCa": "India PKI सर्टिफिकेट नीति (CA)",
   "policy.ekycSingle": "eKYC सिंगल फ़ैक्टर",
   "policy.ekycMulti": "eKYC मल्टी फ़ैक्टर",
+
+  // ---- verification report
+  "report.export": "रिपोर्ट एक्सपोर्ट करें…",
+  "report.exporting": "एक्सपोर्ट हो रहा है…",
+  "report.hint": "ऑडिटर के लिए इन जाँचों की PDF रिपोर्ट",
+  "report.failed": "रिपोर्ट सेव नहीं हो सकी: {message}",
+  "report.saved": "रिपोर्ट सेव हो गई: {file}",
 
   // ---- native dialogs
   "dialog.pdfs": "PDF दस्तावेज़",

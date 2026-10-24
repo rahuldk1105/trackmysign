@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": ["pdf"],
+        "mimeType": "application/pdf",
+        "name": "PDF document",
+        "role": "Viewer"
+      }
+    ],
+    "linux": {
+      "deb": {
+        "desktopTemplate": "linux/trackmysign.desktop",
+        "depends": ["libayatana-appindicator3-1"],
+        "recommends": ["pcscd", "libnss3-tools"]
+      }
+    }
+  }
+}

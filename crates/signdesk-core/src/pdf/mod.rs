@@ -6,3 +6,4 @@ pub mod fields;
 pub mod object;
 pub mod reader;
 pub mod sign;
+pub mod textdoc;
