@@ -26,6 +26,15 @@ All notable changes to TrackMySign are listed here. The format follows
   TrackMySign when I sign in* starts it there at sign-in, without a window; the
   Windows uninstaller removes that entry. Launching the app again, or opening a
   PDF with it, brings the window back.
+- Certificate details: *Details* next to the certificate picker (or
+  *Certificate details* under the signer and in *Settings → DSC token*) shows
+  the holder, organisation, PAN hash (subject serial number), email, issuing
+  CA, serial number, validity with days left, key type and size, key usage,
+  certificate policies (India PKI Class 1/2/3 and eKYC named), SHA-1 and
+  SHA-256 fingerprints to copy, and the chain up to the CCA India root. The
+  public certificate can be saved as `.cer` (DER), `.pem`, or with its chain
+  as `.p7b`. On the command line: `trackmysign certs --details`, and
+  `trackmysign certs --export N [--pem | --chain] [--out FILE]`.
 - The desktop app in Hindi and Tamil. It follows the system language; choose
   System, English, हिन्दी or தமிழ் under *Settings → Appearance → Language*.
   The signature box in the PDF stays in English.

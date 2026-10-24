@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
-use signdesk_core::certinfo::Validity;
+use signdesk_core::certdetails::{
+    CertificateDetails, complete_chain, export_file_name, to_p7b, to_pem,
+};
+use signdesk_core::certinfo::{CertSummary, Validity};
 use signdesk_core::token::{Driver, TokenCert, Tokens, driver_name};
 use signdesk_core::verify::{Changes, SignatureReport, Status, Trust};
 use signdesk_core::{
@@ -34,8 +37,26 @@ struct Cli {
 // Parsed once at startup, so the size of Sign does not matter.
 #[allow(clippy::large_enum_variant)]
 enum Cmd {
-    /// List certificates on the connected token(s).
-    Certs,
+    /// List certificates on the connected token(s), show their details or
+    /// save one (the public certificate only) to a file.
+    Certs {
+        /// Show every field: email, serial number, key, key usage, policies,
+        /// fingerprints and the issuer chain.
+        #[arg(long)]
+        details: bool,
+        /// Save certificate N (number from the list) to a file.
+        #[arg(long, value_name = "N")]
+        export: Option<usize>,
+        /// File to write. Default: <Name>_DSC.cer (.pem, .p7b) in the current folder.
+        #[arg(long, requires = "export")]
+        out: Option<PathBuf>,
+        /// Write PEM (Base64 text) instead of DER.
+        #[arg(long, requires = "export", conflicts_with = "chain")]
+        pem: bool,
+        /// Write the certificate with its issuer chain as a PKCS#7 file (.p7b, DER).
+        #[arg(long, requires = "export")]
+        chain: bool,
+    },
     /// Show page count, page sizes, existing signatures and empty signature fields.
     Info { pdf: PathBuf },
     /// Sign one or more PDFs with one PIN entry. Writes <name>_signed.pdf
@@ -339,6 +360,66 @@ fn describe(i: usize, c: &TokenCert) -> String {
     )
 }
 
+/// The fields of `certs --details`, below the short description.
+fn describe_details(der: &[u8], chain: &[Vec<u8>]) -> Result<String> {
+    let d = CertificateDetails::from_der(der)?;
+    let mut out = Vec::new();
+    let mut line = |k: &str, v: String| out.push(format!("   {k}: {v}"));
+    line("Subject", d.subject.clone());
+    if let Some(v) = &d.subject_serial {
+        line("Subject serial number", v.clone());
+    }
+    if let Some(v) = &d.email {
+        line("Email", v.clone());
+    }
+    line("Issuer", d.issuer.clone());
+    line("Serial number", d.serial_hex.clone());
+    line(
+        "Valid",
+        format!(
+            "{} to {}",
+            d.not_before.format("%d %b %Y %H:%M:%S UTC"),
+            d.not_after.format("%d %b %Y %H:%M:%S UTC")
+        ),
+    );
+    line("Key", d.key.clone());
+    line(
+        "Key usage",
+        match &d.key_usage {
+            Some(v) => v.join(", "),
+            None => "not restricted".into(),
+        },
+    );
+    if !d.extended_key_usage.is_empty() {
+        let v: Vec<String> = d
+            .extended_key_usage
+            .iter()
+            .map(|u| match u.name {
+                Some(n) => format!("{n} ({})", u.oid),
+                None => u.oid.clone(),
+            })
+            .collect();
+        line("Extended key usage", v.join(", "));
+    }
+    for p in &d.policies {
+        line(
+            "Policy",
+            match p.name {
+                Some(n) => format!("{n} ({})", p.oid),
+                None => p.oid.clone(),
+            },
+        );
+    }
+    line("SHA-1", d.sha1.clone());
+    line("SHA-256", d.sha256.clone());
+    let mut names = vec![d.name.clone()];
+    for c in chain {
+        names.push(CertSummary::from_der(c)?.subject_cn);
+    }
+    line("Chain", names.join(" <- "));
+    Ok(out.join("\n"))
+}
+
 fn describe_signature(r: &SignatureReport) -> String {
     let mut out = vec![format!(
         "{}: {}",
@@ -452,8 +533,34 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Certs => {
+        Cmd::Certs {
+            details,
+            export,
+            out,
+            pem,
+            chain,
+        } => {
             let tokens = open_tokens(&cli.module)?;
+            if let Some(n) = export {
+                let certs = tokens.signing_certificates()?;
+                let c = certs
+                    .get(n.wrapping_sub(1))
+                    .with_context(|| format!("no certificate #{n}; run `trackmysign certs`"))?;
+                let (data, ext) = if chain {
+                    let mut all = vec![c.der.clone()];
+                    all.extend(complete_chain(&c.der, &tokens.chain(c)));
+                    (to_p7b(&all)?, "p7b")
+                } else if pem {
+                    (to_pem(&c.der).into_bytes(), "pem")
+                } else {
+                    (c.der.clone(), "cer")
+                };
+                let out =
+                    out.unwrap_or_else(|| export_file_name(&c.summary.subject_cn, ext).into());
+                std::fs::write(&out, data).with_context(|| format!("writing {}", out.display()))?;
+                println!("Saved: {}", out.display());
+                return Ok(());
+            }
             for t in &tokens.tokens {
                 println!("Driver: {} ({})", t.driver.name, t.driver.path.display());
             }
@@ -470,6 +577,10 @@ fn run() -> Result<()> {
             }
             for (i, c) in certs.iter().enumerate() {
                 println!("{}", describe(i + 1, c));
+                if details {
+                    let chain = complete_chain(&c.der, &tokens.chain(c));
+                    println!("{}", describe_details(&c.der, &chain)?);
+                }
             }
         }
         Cmd::Info { pdf } => {

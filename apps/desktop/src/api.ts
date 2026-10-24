@@ -229,6 +229,77 @@ export async function pinStatus(certId: string, driverPath: string): Promise<Pin
   return { countLow: false, finalTry: false, locked: false };
 }
 
+/** An OID, with its meaning when known. */
+export interface NamedOid {
+  oid: string;
+  name: string | null;
+}
+
+/** Everything about a certificate on the token (public data only). */
+export interface CertDetails {
+  name: string;
+  organization: string | null;
+  /** Subject serialNumber attribute; Indian DSCs put a hash of the PAN here. */
+  subjectSerial: string | null;
+  email: string | null;
+  /** Full distinguished names. */
+  subject: string;
+  issuer: string;
+  issuerName: string;
+  /** Hex. */
+  serial: string;
+  validFrom: string;
+  validUntil: string;
+  daysLeft: number;
+  /** "RSA 2048", "EC P-256". */
+  key: string;
+  /** Null when the certificate does not restrict its key's use. */
+  keyUsage: string[] | null;
+  extendedKeyUsage: NamedOid[];
+  policies: NamedOid[];
+  sha1: string;
+  sha256: string;
+  /** Issuers, nearest first. */
+  chain: { name: string; issuer: string; validUntil: string; builtIn: boolean }[];
+}
+
+/** DER `.cer`, PEM `.pem`, or the certificate with its issuers as a `.p7b`. */
+export type ExportFormat = "der" | "pem" | "chain";
+
+export async function certificateDetails(certId: string, driverPath: string): Promise<CertDetails> {
+  if (inTauri) return invoke("certificate_details", { certId, driverPath });
+  return {
+    name: "DK RAHUL",
+    organization: "Personal",
+    subjectSerial: "6442fd73a940c1186d6268bd27f89233e12429902c7805037e8aab6e717be6d9",
+    email: "rahul@example.com",
+    subject: "CN=DK RAHUL,O=Personal,C=IN",
+    issuer: "CN=Verasys Sub CA 2022,C=IN",
+    issuerName: "Verasys Sub CA 2022",
+    serial: "1B30D7FA4A072C4F",
+    validFrom: "12 Dec 2024 10:15 UTC",
+    validUntil: "11 Dec 2026 10:15 UTC",
+    daysLeft: 49,
+    key: "RSA 2048",
+    keyUsage: ["Digital signature", "Non-repudiation"],
+    extendedKeyUsage: [{ oid: "1.3.6.1.4.1.311.10.3.12", name: "Document signing (Microsoft)" }],
+    policies: [{ oid: "2.16.356.100.2.3", name: "Class 3" }],
+    sha1: "6B:68:01:6C:01:12:98:3B:8B:8D:62:5A:DE:EE:D3:F6:DD:18:79:C9",
+    sha256: "5A:CA:DF:19:C4:04:D1:38:06:B6:C2:8E:6A:0C:AF:4B:74:65:89:59:0C:21:E6:01:4A:6C:65:08:7E:30:DF:FB",
+    chain: [
+      { name: "Verasys Sub CA 2022", issuer: "Verasys CA 2022", validUntil: "01 Feb 2032", builtIn: false },
+      { name: "Verasys CA 2022", issuer: "CCA India 2022", validUntil: "01 Feb 2032", builtIn: false },
+      { name: "CCA India 2022", issuer: "CCA India 2022", validUntil: "02 Feb 2042", builtIn: true },
+    ],
+  };
+}
+
+/** Asks where to save the public certificate and saves it there; null when cancelled. */
+export async function exportCertificate(certId: string, driverPath: string, format: ExportFormat): Promise<string | null> {
+  if (inTauri) return invoke("export_certificate", { certId, driverPath, format });
+  return `C:\\Users\\rahul\\Downloads\\DK_RAHUL_DSC.${{ der: "cer", pem: "pem", chain: "p7b" }[format]}`;
+}
+
 /** PDFs the app was started with (command line, Finder, "Sign with TrackMySign"). */
 /** Signs every file in one token session; per-file results arrive through `progress`. */
 export async function signBatch(args: BatchArgs, progress: (p: BatchProgress) => void): Promise<void> {

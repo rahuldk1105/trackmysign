@@ -23,6 +23,8 @@ Open a PDF (or drag it into the window), click where the signature should go, pr
 Forms from banks and government offices often come with empty signature fields. These are
 highlighted on the page and listed in the side panel: click one and the signature fills that field.
 
+*Certificate details* (next to the certificate, and in *Settings → DSC token*) shows the class, fingerprints and chain of your DSC, and saves the public certificate as `.cer`, `.pem` or `.p7b` for a portal or bank that asks for it.
+
 You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows and macOS). Your default PDF viewer stays as it is.
 
 The app speaks English, Hindi (हिन्दी) and Tamil (தமிழ்); it follows your system language, or choose one under *Settings → Appearance → Language*. The text printed in the signature box stays in English.
@@ -90,6 +92,8 @@ macOS), or pass `--module` to the command-line tool.
 Other options:
 
 ```powershell
+.\trackmysign.exe certs --details                    # email, serial, key, policies, fingerprints, chain
+.\trackmysign.exe certs --export 1                   # save certificate 1 as <Name>_DSC.cer (--pem, --chain for .p7b)
 .\trackmysign.exe info file.pdf                       # pages, existing signatures, empty signature fields
 .\trackmysign.exe sign file.pdf --field Director      # sign into an empty signature field
 .\trackmysign.exe verify file.pdf                     # check existing signatures

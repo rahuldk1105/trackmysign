@@ -320,6 +320,30 @@ impl Token {
         Ok(v)
     }
 
+    /// Issuer certificates of `cert` found on the token, nearest first (no PIN needed).
+    pub fn chain(&self, cert: &TokenCert) -> Vec<Vec<u8>> {
+        let all = self.certificates().unwrap_or_default();
+        let mut chain: Vec<Vec<u8>> = Vec::new();
+        let mut current = cert.summary.clone();
+        for _ in 0..8 {
+            if current.issuer_der == current.subject_der {
+                break;
+            }
+            let Some(parent) = all
+                .iter()
+                .find(|c| c.summary.subject_der == current.issuer_der && c.der != cert.der)
+            else {
+                break;
+            };
+            if chain.contains(&parent.der) {
+                break;
+            }
+            chain.push(parent.der.clone());
+            current = parent.summary.clone();
+        }
+        chain
+    }
+
     /// Logs in with `pin` and returns a signer bound to `cert`'s private key.
     /// The session stays logged in, so one signer can sign a whole batch.
     pub fn signer(&self, cert: &TokenCert, pin: &str) -> Result<TokenSigner, Error> {
@@ -345,26 +369,7 @@ impl Token {
             None
         };
 
-        // Issuer chain from the other certificates stored on the token.
-        let all = self.certificates().unwrap_or_default();
-        let mut chain: Vec<Vec<u8>> = Vec::new();
-        let mut current = cert.summary.clone();
-        for _ in 0..8 {
-            if current.issuer_der == current.subject_der {
-                break;
-            }
-            let Some(parent) = all
-                .iter()
-                .find(|c| c.summary.subject_der == current.issuer_der && c.der != cert.der)
-            else {
-                break;
-            };
-            if chain.contains(&parent.der) {
-                break;
-            }
-            chain.push(parent.der.clone());
-            current = parent.summary.clone();
-        }
+        let chain = self.chain(cert);
 
         Ok(TokenSigner {
             ctx: self.ctx.clone(),
@@ -442,6 +447,15 @@ impl Tokens {
         }
         out.sort_by_key(|c| (!c.summary.can_sign, c.summary.expired));
         Ok(out)
+    }
+
+    /// Issuer certificates of `cert` on its token, nearest first.
+    pub fn chain(&self, cert: &TokenCert) -> Vec<Vec<u8>> {
+        self.tokens
+            .iter()
+            .find(|t| t.driver.path == cert.driver.path)
+            .map(|t| t.chain(cert))
+            .unwrap_or_default()
     }
 
     /// Logs in through the driver `cert` was read from.

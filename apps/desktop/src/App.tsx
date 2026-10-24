@@ -15,6 +15,7 @@ import type {
   RecentFile,
   Signed,
 } from "./api";
+import { CertDetailsDialog } from "./CertDetails";
 import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, reminderLabel, remindAbout, today, type ReminderDays } from "./expiry";
 import { currentLang, isLangPref, LANGUAGE_NAMES, t, tx, useLanguage, type LangPref, type MessageKey } from "./i18n";
 import { errorText, translateMessage } from "./i18n/errors";
@@ -296,6 +297,7 @@ export default function App() {
   const [page, setPage] = useState(0);
   const [goto, setGoto] = useState<{ page: number; n: number } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [theme, setTheme] = useTheme();
   const [sigImage, setSigImage] = useState<{ url: string; aspect: number } | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -613,7 +615,7 @@ export default function App() {
       ? (certs.length ? certs : known).filter((k) => remindAbout(k.daysLeft, saved.expiryReminder))
       : [];
   const dismissReminders = () => update({ reminderDismissed: today() });
-  const dialogOpen = step.kind !== "idle" || settingsOpen || !!unlock || !!portal.request;
+  const dialogOpen = step.kind !== "idle" || settingsOpen || detailsOpen || !!unlock || !!portal.request;
 
   // ---- keyboard
   const keys = useRef({ pick, zoomBy, dialogOpen, hasDoc: !!doc });
@@ -911,14 +913,19 @@ export default function App() {
                 ) : (
                   <>
                     {certs.length > 1 && (
-                      <select value={certIndex} onChange={(e) => setCertIndex(Number(e.target.value))} aria-label={t("common.certificate")}>
-                        {certs.map((c, i) => (
-                          <option key={i} value={i}>
-                            {c.name} — {c.issuer}
-                            {manyDrivers ? ` (${c.driver})` : ""}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="cert-pick">
+                        <select value={certIndex} onChange={(e) => setCertIndex(Number(e.target.value))} aria-label={t("common.certificate")}>
+                          {certs.map((c, i) => (
+                            <option key={i} value={i}>
+                              {c.name} — {c.issuer}
+                              {manyDrivers ? ` (${c.driver})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <button className="btn" onClick={() => setDetailsOpen(true)} title={t("cert.details")}>
+                          {t("cert.detailsShort")}
+                        </button>
+                      </div>
                     )}
                     <dl className="kv">
                       <dt>{t("common.name")}</dt>
@@ -932,6 +939,11 @@ export default function App() {
                       <dt>{t("common.driver")}</dt>
                       <dd title={cert.driverPath}>{cert.driver}</dd>
                     </dl>
+                    {certs.length === 1 && (
+                      <button className="link cert-details-link" onClick={() => setDetailsOpen(true)}>
+                        {t("cert.details")}
+                      </button>
+                    )}
                     {cert.expired ? (
                       <div className="warn-row">
                         <AlertIcon size={14} />
@@ -1273,6 +1285,8 @@ export default function App() {
           saved={saved}
           update={update}
           certs={certs}
+          selected={cert}
+          onCertDetails={() => setDetailsOpen(true)}
           certError={certError}
           drivers={drivers}
           image={sigImage?.url ?? null}
@@ -1289,6 +1303,8 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+
+      {detailsOpen && cert && <CertDetailsDialog cert={cert} onClose={() => setDetailsOpen(false)} />}
 
       {(step.kind === "pin" || step.kind === "signing") && cert && doc && (
         <PinDialog
@@ -1711,6 +1727,9 @@ function Settings(props: {
   saved: Saved;
   update: (p: Partial<Saved>) => void;
   certs: Cert[] | null;
+  /** The certificate chosen in the side panel. */
+  selected?: Cert;
+  onCertDetails: () => void;
   certError: string | null;
   drivers: Driver[] | undefined;
   image: string | null;
@@ -1736,7 +1755,7 @@ function Settings(props: {
   useEffect(() => {
     panel.current?.querySelector<HTMLElement>("button")?.focus();
   }, []);
-  const cert = props.certs?.[0];
+  const cert = props.selected ?? props.certs?.[0];
   const chooseOutDir = async () => {
     const dir = await api.pickFolder(props.saved.outDir || null);
     if (dir) props.update({ outDir: dir });
@@ -1988,6 +2007,11 @@ function Settings(props: {
                 </>
               )}
             </dl>
+            {cert && (
+              <button className="btn cert-details-btn" onClick={props.onCertDetails}>
+                {t("cert.details")}
+              </button>
+            )}
             {!cert && props.certError && <p className="muted small">{props.certError}</p>}
             <h4>{t("settings.drivers")}</h4>
             {props.drivers === undefined ? (
