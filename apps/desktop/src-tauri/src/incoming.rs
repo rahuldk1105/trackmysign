@@ -1,4 +1,4 @@
-//! PDFs handed over by the system: on the command line ("Open with",
+//! Files handed over by the system: on the command line ("Open with",
 //! "Sign with TrackMySign", drag onto the icon), by Finder, or by a second
 //! launch while the app is running.
 //!
@@ -8,7 +8,6 @@
 //! several events. So files are collected until none has arrived for
 //! [`WINDOW`], then handed to the window together.
 
-use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -24,25 +23,24 @@ pub const WINDOW: Duration = Duration::from_millis(700);
 pub struct Arrival {
     /// PDFs, in the order they arrived.
     pub files: Vec<String>,
-    /// Names of the other files, which are left out.
-    pub ignored: Vec<String>,
+    /// Other files, for signing as `.p7s` / `.p7m` (or checking, when
+    /// they are signatures), in the order they arrived.
+    pub others: Vec<String>,
 }
 
 impl Arrival {
     pub fn is_empty(&self) -> bool {
-        self.files.is_empty() && self.ignored.is_empty()
+        self.files.is_empty() && self.others.is_empty()
     }
 
-    /// Sorts `paths` into PDFs and the names of everything else.
+    /// Sorts `paths` into PDFs and everything else.
     pub fn sort(paths: impl IntoIterator<Item = String>) -> Arrival {
         let mut a = Arrival::default();
         for p in paths {
             if p.to_lowercase().ends_with(".pdf") {
                 a.files.push(p);
             } else {
-                let name = Path::new(&p).file_name().map(|n| n.to_string_lossy());
-                a.ignored
-                    .push(name.map_or_else(|| p.clone(), |n| n.into_owned()));
+                a.others.push(p);
             }
         }
         a
@@ -76,9 +74,9 @@ impl Coalescer {
                 self.collected.files.push(f);
             }
         }
-        for n in arrival.ignored {
-            if !self.collected.ignored.contains(&n) {
-                self.collected.ignored.push(n);
+        for o in arrival.others {
+            if !self.collected.others.contains(&o) {
+                self.collected.others.push(o);
             }
         }
         self.last = Some(now);
@@ -206,7 +204,7 @@ mod tests {
     fn sorts_pdfs_from_other_files() {
         let a = pdfs(&["/d/a.pdf", "/d/notes.txt", "/d/B.PDF", "/d/scan.jpeg"]);
         assert_eq!(files(&a), ["/d/a.pdf", "/d/B.PDF"]);
-        assert_eq!(a.ignored, ["notes.txt", "scan.jpeg"]);
+        assert_eq!(a.others, ["/d/notes.txt", "/d/scan.jpeg"]);
     }
 
     #[test]
@@ -235,7 +233,7 @@ mod tests {
         c.push(t0 + ms(150), pdfs(&["c.pdf", "x.txt"]));
         let batch = c.take_due(t0 + ms(850)).unwrap();
         assert_eq!(files(&batch), ["c.pdf", "a.pdf", "b.pdf"]);
-        assert_eq!(batch.ignored, ["x.txt"]);
+        assert_eq!(batch.others, ["x.txt"]);
     }
 
     #[test]
@@ -304,7 +302,7 @@ mod tests {
         assert_eq!(inc.poll(), Poll::Held);
         let a = inc.startup();
         assert_eq!(files(&a), ["a.pdf", "b.pdf"]);
-        assert_eq!(a.ignored, ["notes.docx"]);
+        assert_eq!(a.others, ["notes.docx"]);
         assert_eq!(inc.poll(), Poll::Idle);
         assert!(!inc.arrive(Arrival::default()));
     }

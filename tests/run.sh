@@ -503,6 +503,153 @@ expect_fail "style with a seal needs --seal" "give it with --seal" \
 printf '{"text_color": "blue"}' >"$S/bad.json"
 expect_fail "bad style rejected" "is not a signature style" \
   "$BIN" sign "$W/fx/plain.pdf" --style "$S/bad.json"
+# Page tools: merge, pick, turn, delete pages and add blank ones into a new file
+# (sources untouched; every page checked against the page it came from), then sign it.
+A=$W/pages; mkdir -p "$A"
+asm() { python3 -W ignore "$ROOT/tests/check_assemble.py" "$@" || fail=1; }
+before=$(sha256sum "$W"/fx/*.pdf)
+"$BIN" pages merge "$W"/fx/{plain,objstm,rotated,mixed,form,indirect,cropbox,broken,field-nested}.pdf -o "$A/merged.pdf" >/dev/null
+asm --fields=company,din,approvals "$A/merged.pdf" "$W"/fx/{plain,objstm,rotated,mixed,form,indirect,cropbox,broken,field-nested}.pdf#all
+"$BIN" pages merge "$W"/fx/{enc-rc40,enc-aes128,enc-aes256-r5,enc-restricted}.pdf -o "$A/encrypted.pdf" >/dev/null 2>"$A/enc.err"
+asm "$A/encrypted.pdf" "$W"/fx/{enc-rc40,enc-aes128,enc-aes256-r5,enc-restricted}.pdf#all
+grep -q "enc-rc40.pdf is password-protected; the new file will open without a password" "$A/enc.err" \
+  || { echo "FAIL no note that the password is gone: $(cat "$A/enc.err")"; fail=1; }
+SIGNED_SRC=("$W/fx/enc-aes256.pdf" "$W/fx/presigned-form.pdf" "$W/fx/field-mixed.pdf" "$W/fx/form.pdf")
+if "$BIN" pages merge "${SIGNED_SRC[@]}" --password user -o "$A/signed-src.pdf" </dev/null >/dev/null 2>"$A/err"; then
+  echo "FAIL signed sources merged without --yes"; fail=1
+elif grep -q "presigned-form.pdf has 1 signature. The new file will not contain it" "$A/err" \
+     && grep -q -- "--yes" "$A/err" && [ ! -e "$A/signed-src.pdf" ]; then
+  echo "PASS signed sources need --yes"
+else
+  echo "FAIL: $(cat "$A/err")"; fail=1
+fi
+"$BIN" pages merge "${SIGNED_SRC[@]}" --password user --yes -o "$A/signed-src.pdf" >/dev/null 2>"$A/err"
+grep -q 'Form field "company" was renamed "company_2"' "$A/err" || { echo "FAIL no rename note: $(cat "$A/err")"; fail=1; }
+asm --password=user --fields=company,din,Director,company_2,din_2 "$A/signed-src.pdf" \
+  "$W/fx/enc-aes256.pdf#all" "$W/fx/presigned-form.pdf#1~" "$W"/fx/field-mixed.pdf#{1,2~} "$W/fx/form.pdf#all"
+"$BIN" pages select "$W/fx/mixed.pdf" "5,1-3,4-" -o "$A/select.pdf" >/dev/null
+asm "$A/select.pdf" "$W"/fx/mixed.pdf#{5,1,2,3,4,5}
+"$BIN" pages rotate "$W/fx/rotated.pdf" 90 --pages 2,4 -o "$A/rotate.pdf" >/dev/null
+asm "$A/rotate.pdf" "$W"/fx/rotated.pdf#{1,2@90,3,4@90}
+"$BIN" pages rotate "$W/fx/objstm.pdf" -90 -o "$A/rotate-left.pdf" >/dev/null
+asm "$A/rotate-left.pdf" "$W"/fx/objstm.pdf#{1@-90,2@-90}
+"$BIN" pages delete "$W/fx/mixed.pdf" 2,4 -o "$A/delete.pdf" >/dev/null
+asm "$A/delete.pdf" "$W"/fx/mixed.pdf#{1,3,5}
+"$BIN" pages insert-blank "$W/fx/mixed.pdf" --after 4 -o "$A/blank.pdf" >/dev/null
+asm "$A/blank.pdf" "$W"/fx/mixed.pdf#{1,2,3,4} blank=420x595 "$W/fx/mixed.pdf#5"
+"$BIN" pages insert-blank "$W/fx/plain.pdf" --after 0 --size letter -o "$A/blank-first.pdf" >/dev/null
+asm "$A/blank-first.pdf" blank=612x792 "$W/fx/plain.pdf#all"
+cp "$W/fx/plain.pdf" "$A/copy.pdf"
+"$BIN" pages select "$A/copy.pdf" 2,1 >/dev/null
+asm "$A/copy_prepared.pdf" "$A"/copy.pdf#{2,1}
+pages_refused() {
+  local what=$1 pattern=$2; shift 2
+  if "$@" >/dev/null 2>"$W/err"; then
+    echo "FAIL $what: written"; fail=1
+  elif grep -q "$pattern" "$W/err"; then
+    echo "PASS $what"
+  else
+    echo "FAIL $what: $(cat "$W/err")"; fail=1
+  fi
+}
+pages_refused "pages never overwrite a source" "is one of the inputs" "$BIN" pages rotate "$A/copy.pdf" 90 -o "$A/copy.pdf"
+pages_refused "deleting every page refused" "every page" "$BIN" pages delete "$W/fx/plain.pdf" 1-2 -o "$A/none.pdf"
+[ ! -e "$A/none.pdf" ] && cmp -s "$A/copy.pdf" "$W/fx/plain.pdf" || { echo "FAIL refused page change wrote a file"; fail=1; }
+[ "$(sha256sum "$W"/fx/*.pdf)" = "$before" ] && echo "PASS page tools leave the sources unchanged" \
+  || { echo "FAIL a source PDF changed"; fail=1; }
+for f in merged encrypted signed-src select rotate blank; do
+  "$BIN" sign "$A/$f.pdf" --out "$A/$f-signed.pdf" --reason Approved >/dev/null
+  check "$A/$f.pdf" "$A/$f-signed.pdf"
+  vcheck "$A/$f-signed.pdf" valid
+done
+field "$A/signed-src.pdf" Director pages-field
+vcheck "$W/signed/pages-field.pdf" valid
+
+# Signing other files (.p7s detached / .p7m attached): checked by OpenSSL and by verify-file.
+F=$W/files
+mkdir -p "$F"
+python3 -c 'import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED) as z:
+    z.writestr("[Content_Types].xml", "<Types/>")
+    z.writestr("word/document.xml", "<w:document>Bid for tender 42</w:document>")' "$F/bid.docx"
+printf '<?xml version="1.0" encoding="UTF-8"?>\n<bid tender="42" amount="1250000"/>\n' >"$F/bid.xml"
+head -c 70000 /dev/urandom >"$F/drawing.bin"
+"$BIN" sign-file "$F/bid.docx" "$F/bid.xml" "$F/drawing.bin" >"$F/out" || fail=1
+[ "$(grep -c '^Signing as' "$F/out")" = 1 ] && [ "$(grep -c '^Signed:' "$F/out")" = 3 ] \
+  && echo "PASS sign-file: three files, one PIN" || { echo "FAIL sign-file: $(cat "$F/out")"; fail=1; }
+ossl_verify() {  # file, signature: OpenSSL checks the detached signature over the file
+  openssl cms -verify -binary -content "$1" -inform DER -in "$2" -CAfile "$TEST_PKI/root.pem" -out /dev/null 2>"$F/ossl.err"
+}
+for f in bid.docx bid.xml drawing.bin; do
+  openssl asn1parse -inform DER -in "$F/$f.p7s" >"$F/asn1.txt"
+  if ossl_verify "$F/$f" "$F/$f.p7s" && "$BIN" verify-file "$F/$f" >"$F/v.out" && grep -q "^$f: VALID" "$F/v.out" \
+     && grep -q "Signature: $f.p7s (detached)" "$F/v.out" && grep -q "Chain: RAHUL TEST DIRECTOR <- Test Sub-CA" "$F/v.out" \
+     && grep -q "SHA-256: $(sha256sum "$F/$f" | cut -d' ' -f1 | tr a-f A-F)" "$F/v.out" \
+     && grep -q ':contentType$' "$F/asn1.txt" && grep -q ':signingTime$' "$F/asn1.txt" && grep -q ':messageDigest$' "$F/asn1.txt" \
+     && grep -q 'id-smime-aa-signingCertificateV2' "$F/asn1.txt" && grep -q ':sha256$' "$F/asn1.txt" \
+     && ! openssl cms -verify -binary -inform DER -in "$F/$f.p7s" -noverify -out /dev/null 2>/dev/null; then
+    echo "PASS $f.p7s verifies (OpenSSL and verify-file)"
+  else
+    echo "FAIL $f.p7s: $(cat "$F/ossl.err" "$F/v.out")"; fail=1
+  fi
+done
+# Tampered file: both refuse it, verify-file exits 2.
+cp "$F/bid.docx" "$F/bid-changed.docx"
+python3 -c 'import sys; p = sys.argv[1]; d = bytearray(open(p, "rb").read()); d[40] ^= 1; open(p, "wb").write(d)' "$F/bid-changed.docx"
+rc=0; "$BIN" verify-file "$F/bid-changed.docx" --sig "$F/bid.docx.p7s" >"$F/v.out" || rc=$?
+if [ $rc = 2 ] && grep -q "bid-changed.docx: INVALID" "$F/v.out" && ! ossl_verify "$F/bid-changed.docx" "$F/bid.docx.p7s"; then
+  echo "PASS changed file rejected"
+else
+  echo "FAIL changed file accepted (rc $rc): $(cat "$F/v.out")"; fail=1
+fi
+"$BIN" verify-file "$F/bid.docx.p7s" >"$F/v.out" && grep -q "bid.docx: VALID" "$F/v.out" \
+  && echo "PASS verify-file finds the file next to its .p7s" || { echo "FAIL verify-file on the .p7s: $(cat "$F/v.out")"; fail=1; }
+if "$BIN" sign-file "$F/bid.xml" >/dev/null 2>"$W/err"; then
+  echo "FAIL existing .p7s replaced without --force"; fail=1
+else
+  grep -q "already exists (--force" "$W/err" && echo "PASS existing .p7s kept" || { echo "FAIL: $(cat "$W/err")"; fail=1; }
+fi
+# Attached (.p7m): OpenSSL gets the file back; verify-file --extract saves it.
+"$BIN" sign-file --attached "$F/bid.xml" >/dev/null || fail=1
+mkdir -p "$F/x"
+if openssl cms -verify -binary -inform DER -in "$F/bid.xml.p7m" -CAfile "$TEST_PKI/root.pem" -out "$F/x/ossl.xml" 2>"$F/ossl.err" \
+   && cmp -s "$F/x/ossl.xml" "$F/bid.xml" \
+   && "$BIN" verify-file "$F/bid.xml.p7m" --extract --out "$F/x/bid.xml" >"$F/v.out" && grep -q "attached: the file is inside" "$F/v.out" \
+   && cmp -s "$F/x/bid.xml" "$F/bid.xml" \
+   && "$BIN" verify-file "$F/bid.xml.p7m" --extract >/dev/null && cmp -s "$F/bid (2).xml" "$F/bid.xml"; then
+  echo "PASS .p7m round trip"
+else
+  echo "FAIL .p7m: $(cat "$F/ossl.err" "$F/v.out")"; fail=1
+fi
+python3 -c 'import sys; p = sys.argv[1]; d = bytearray(open(p, "rb").read()); i = d.find(b"1250000"); d[i] ^= 1; open(p, "wb").write(d)' "$F/bid.xml.p7m"
+rc=0; "$BIN" verify-file "$F/bid.xml.p7m" >"$F/v.out" || rc=$?
+[ $rc = 2 ] && grep -q "INVALID" "$F/v.out" && echo "PASS changed .p7m rejected" || { echo "FAIL changed .p7m (rc $rc): $(cat "$F/v.out")"; fail=1; }
+# A .p7m from another tool (OpenSSL streams BER) is read too.
+openssl cms -sign -nodetach -binary -in "$F/bid.docx" -signer "$TEST_PKI/sub.pem" -inkey "$TEST_PKI/sub.key" -outform DER -out "$F/other.docx.p7m"
+if "$BIN" verify-file "$F/other.docx.p7m" --extract --out "$F/x/other.docx" >"$F/v.out" && grep -q "VALID" "$F/v.out" \
+   && cmp -s "$F/x/other.docx" "$F/bid.docx"; then
+  echo "PASS OpenSSL .p7m verified and extracted"
+else
+  echo "FAIL OpenSSL .p7m: $(cat "$F/v.out")"; fail=1
+fi
+# Timestamp from the local TSA (CAdES-T), and the per-signature PIN key in a batch.
+"$BIN" sign-file --timestamp "$TSA" --out "$F/drawing-ts.p7s" "$F/drawing.bin" >/dev/null || fail=1
+openssl asn1parse -inform DER -in "$F/drawing-ts.p7s" >"$F/asn1.txt"
+if ossl_verify "$F/drawing.bin" "$F/drawing-ts.p7s" && grep -q 'id-smime-aa-timeStampToken' "$F/asn1.txt" \
+   && "$BIN" verify-file "$F/drawing.bin" --sig "$F/drawing-ts.p7s" >"$F/v.out" && grep -q "Timestamp: attached" "$F/v.out"; then
+  echo "PASS timestamped .p7s"
+else
+  echo "FAIL timestamped .p7s: $(cat "$F/ossl.err" "$F/v.out")"; fail=1
+fi
+mkdir -p "$F/aa"
+cp "$F/bid.xml" "$F/drawing.bin" "$F/aa/"
+"${AA[@]}" "$BIN" sign-file --attached "$F/aa/bid.xml" "$F/aa/drawing.bin" >"$F/out" || fail=1
+if [ "$(grep -c '^Signed:' "$F/out")" = 2 ] && "$BIN" verify-file "$F/aa/drawing.bin.p7m" >/dev/null \
+   && "$BIN" verify-file "$F/aa/bid.xml.p7m" >/dev/null; then
+  echo "PASS sign-file with a per-signature PIN"
+else
+  echo "FAIL sign-file with a per-signature PIN: $(cat "$F/out")"; fail=1
+fi
 # GST portal signing: the listener with a throwaway CA, approving every request
 # (crates/portal-bridge/examples/portal-test-server.rs, never part of the app),
 # a client acting like the portal page, and the portal's own JavaScript run on
@@ -569,11 +716,14 @@ cp "$W/fx/objstm.pdf" "$H/batch-b.pdf"
 "$BIN" sign "$W/fx/field-simple.pdf" --field ClientSignature --out "$H/field.pdf" >/dev/null
 "$BIN" sign "$W/fx/plain.pdf" --certify forms --out "$H/certified.pdf" >/dev/null
 "$BIN" sign "$H/batch-a.pdf" "$H/batch-b.pdf" >/dev/null
+printf 'minutes of the meeting\n' >"$H/minutes.txt"
+"$BIN" sign-file "$H/minutes.txt" >/dev/null
 if [ -d "$HIST" ]; then
   python3 -W ignore "$ROOT/tests/check_history.py" "$BIN" "$HIST" "$H" \
     "$W/fx/plain.pdf|$H/one.pdf|sign|manual" "$W/fx/rotated.pdf|$H/pages.pdf|sign_pages|manual" \
     "$W/fx/field-simple.pdf|$H/field.pdf|sign_field|manual" "$W/fx/plain.pdf|$H/certified.pdf|certify|manual" \
-    "$H/batch-a.pdf|$H/batch-a_signed.pdf|sign|batch" "$H/batch-b.pdf|$H/batch-b_signed.pdf|sign|batch" || fail=1
+    "$H/batch-a.pdf|$H/batch-a_signed.pdf|sign|batch" "$H/batch-b.pdf|$H/batch-b_signed.pdf|sign|batch" \
+    "$H/minutes.txt|$H/minutes.txt.p7s|sign_file|manual" || fail=1
 else
   echo "FAIL signing history: $HIST was not created"; fail=1
 fi

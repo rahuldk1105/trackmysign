@@ -40,7 +40,9 @@ function coverage(s: SignatureCheck): string {
   }
 }
 
-function SignatureItem({ s }: { s: SignatureCheck }) {
+/** One checked signature; `file` for a `.p7s` / `.p7m`, which has no
+ * form field or later revisions. */
+export function SignatureItem({ s, file }: { s: SignatureCheck; file?: boolean }) {
   const [open, setOpen] = useState(false);
   const { tone, label } = verdict(s);
   return (
@@ -85,8 +87,12 @@ function SignatureItem({ s }: { s: SignatureCheck }) {
             <dd>{s.location}</dd>
           </>
         )}
-        <dt>{t("sig.coverage")}</dt>
-        <dd className={s.changes === "content" ? "bad" : undefined}>{coverage(s)}</dd>
+        {!file && (
+          <>
+            <dt>{t("sig.coverage")}</dt>
+            <dd className={s.changes === "content" ? "bad" : undefined}>{coverage(s)}</dd>
+          </>
+        )}
         <dt>{t("sig.trust")}</dt>
         <dd className={s.trust === "cca" ? "ok" : undefined}>
           {s.trust === "cca" ? t("sig.cca") : t("sig.notChecked")}
@@ -105,8 +111,12 @@ function SignatureItem({ s }: { s: SignatureCheck }) {
       </button>
       {open && (
         <dl className="kv sig-details">
-          <dt>{t("common.field")}</dt>
-          <dd className="mono">{s.field}</dd>
+          {!file && (
+            <>
+              <dt>{t("common.field")}</dt>
+              <dd className="mono">{s.field}</dd>
+            </>
+          )}
           {s.certValidFrom && (
             <>
               <dt>{t("common.certificate")}</dt>
@@ -116,7 +126,7 @@ function SignatureItem({ s }: { s: SignatureCheck }) {
             </>
           )}
           <dt>{t("sig.format")}</dt>
-          <dd className="mono">{[s.subFilter, s.digest].filter(Boolean).join(", ") || "—"}</dd>
+          <dd className="mono">{[file ? "CMS / PKCS#7" : s.subFilter, s.digest].filter(Boolean).join(", ") || "—"}</dd>
           {s.timestamped && (
             <>
               <dt>{t("sig.timestamp")}</dt>

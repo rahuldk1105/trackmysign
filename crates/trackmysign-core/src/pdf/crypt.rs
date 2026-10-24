@@ -169,6 +169,14 @@ impl Crypt {
         self.owner || p & (1 << 5) != 0 || (self.revision >= 3 && p & (1 << 8) != 0)
     }
 
+    /// Whether pages may be taken into a new document: "assemble the
+    /// document" (bit 11, revision 3+) or "modify" (bit 4), or the owner
+    /// password was given.
+    pub fn may_assemble(&self) -> bool {
+        let p = self.permissions;
+        self.owner || p & (1 << 3) != 0 || (self.revision >= 3 && p & (1 << 10) != 0)
+    }
+
     /// Decrypts the strings and stream data of object `id`.
     pub fn decrypt(&self, id: u32, gn: u16, obj: Obj) -> Obj {
         self.apply(id, gn, obj, false)

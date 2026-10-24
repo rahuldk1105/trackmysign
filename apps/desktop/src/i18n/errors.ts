@@ -27,6 +27,8 @@ const SENTENCES: Record<string, MessageKey> = {
   "The entry before this one was changed or deleted.": "error.historyChanged",
   "The record of the newest entry (head.json) is missing.": "error.historyHeadMissing",
   "Every entry was deleted.": "error.historyAllDeleted",
+  "Save the new PDF under another name: the original is never changed.": "error.pagesSameFile",
+  "The signature is detached: the file is not inside it.": "error.notAttached",
 };
 
 /** Sentences that end in a detail from elsewhere (a server, the OS), kept as is. */
@@ -62,7 +64,7 @@ export function errorText(e: ApiError): string {
     case "password":
       return t(/not correct/.test(e.message) ? "error.wrongPassword" : "error.passwordRequired");
     case "permission":
-      return t("error.signingNotAllowed");
+      return t(/changing its pages/.test(e.message) ? "error.pagesNotAllowed" : "error.signingNotAllowed");
     case "expired": {
       const date = /expired on (.+?)\. /.exec(e.message)?.[1];
       return date ? t("error.expired", { date }) : e.message;

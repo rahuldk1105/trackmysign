@@ -56,6 +56,8 @@ pub enum Action {
     Certify,
     /// A GST portal request (a hash or text, not a PDF).
     PortalSign,
+    /// Any file signed as a `.p7s` (detached) or `.p7m` (attached).
+    SignFile,
     /// The history was cleared; the chain starts again here.
     Cleared,
     /// Months older than the retention setting were deleted.
@@ -74,6 +76,7 @@ impl Action {
             Action::SignField => "Signed a signature field",
             Action::Certify => "Certified",
             Action::PortalSign => "GST portal signature",
+            Action::SignFile => "Signed a file (CMS)",
             Action::Cleared => "History cleared",
             Action::Pruned => "Old entries deleted",
             Action::Paused => "History turned off",
@@ -96,6 +99,7 @@ impl Action {
             Action::SignField => "sign_field",
             Action::Certify => "certify",
             Action::PortalSign => "portal_sign",
+            Action::SignFile => "sign_file",
             Action::Cleared => "cleared",
             Action::Pruned => "pruned",
             Action::Paused => "paused",
@@ -345,6 +349,22 @@ impl Entry {
         e.certify = req.certify.map(|c| c.level());
         e.timestamp = req.timestamp.clone();
         e.ltv = req.ltv;
+        e
+    }
+
+    /// Signing `input` as a `.p7s` or `.p7m`.
+    pub fn file_signing(
+        source: Source,
+        program: &str,
+        input: &Path,
+        req: &crate::filesig::FileSignRequest,
+    ) -> Entry {
+        let mut e = Entry::new(Action::SignFile, Some(source), program);
+        e.input = Some(FileRef {
+            path: input.to_string_lossy().into_owned(),
+            sha256: None,
+        });
+        e.timestamp = req.timestamp.clone();
         e
     }
 

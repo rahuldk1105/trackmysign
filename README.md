@@ -6,6 +6,8 @@ Sign PDFs with your USB DSC token (tested design: Hypersecu HyperPKI HYP2003) �
   signatures already on the document (auditor, CA, co-director) stay valid.
 - Standard `adbe.pkcs7.detached` / SHA-256 signatures that Adobe Reader validates.
 - Visible "Digitally signed by …" box, or invisible.
+- Other files (Word, Excel, ZIP, XML, …) are signed as standard `.p7s` / `.p7m`
+  (CMS / PKCS#7) signatures, see [Signing other files](#signing-other-files-p7s--p7m).
 - Your PIN is never stored. Tokens whose key asks for the PIN on every
   signature work too, batches included, with the PIN entered once.
 
@@ -112,6 +114,8 @@ Other options:
 .\trackmysign.exe verify file.pdf --report report.pdf # ... and save a PDF report for auditors
 .\trackmysign.exe verify file.pdf --json              # ... as JSON, for scripts
 .\trackmysign.exe verify-folder C:\Invoices --recursive --report invoices.pdf --csv invoices.csv
+.\trackmysign.exe sign-file bid.docx prices.xlsx      # bid.docx.p7s, prices.xlsx.p7s (see Signing other files)
+.\trackmysign.exe verify-file bid.docx               # check bid.docx.p7s
 .\trackmysign.exe sign file.pdf --page 1 --position top-right
 .\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
 .\trackmysign.exe sign file.pdf --pages all            # one signature, box on every page
@@ -128,6 +132,7 @@ Other options:
 .\trackmysign.exe sign file.pdf --certify forms       # certify as the author (first signature only)
 .\trackmysign.exe watch C:\Scans                      # sign every PDF put into a folder (see Watch folder)
 .\trackmysign.exe history --since 2026-10-01          # what was signed on this computer (see Signing history)
+.\trackmysign.exe pages merge a.pdf b.pdf -o out.pdf  # merge, reorder, turn, delete pages (see Preparing pages)
 ```
 
 Long-term validity is off by default, so signing works fully offline. `--timestamp`
@@ -153,6 +158,38 @@ signature that says what may change afterwards: nothing, form filling and
 signing, or also comments. Only an unsigned document can be certified, and a
 document certified with `none` cannot be signed again. In the desktop app this
 is *Signature type → Certify* in the side panel.
+
+## Preparing pages before signing
+
+**Pages** in the toolbar opens the open document's pages as thumbnails: drag
+them into order, turn them left or right, delete them, insert a blank page
+(the size of the page before it), append other PDFs with **Add PDF…**, and
+undo (Ctrl+Z). **Save as…** writes a new PDF (by default
+`name_prepared.pdf` next to the original), which then opens, ready to sign.
+The original files are never changed. The command line does the same:
+
+```powershell
+.\trackmysign.exe pages merge a.pdf b.pdf -o out.pdf            # join PDFs in this order
+.\trackmysign.exe pages select in.pdf "1-3,5,7-" -o out.pdf     # keep and order pages (7- = to the end, 5-3 backwards)
+.\trackmysign.exe pages rotate in.pdf 90 --pages 2,4 -o out.pdf # turn clockwise (-90 turns left); all pages without --pages
+.\trackmysign.exe pages delete in.pdf 2,4-6 -o out.pdf
+.\trackmysign.exe pages insert-blank in.pdf --after 3 --size a4 -o out.pdf  # --after 0: before the first page; --size same|a4|letter
+```
+
+Without `-o` the result is `<first input>_prepared.pdf`; an input file is
+never accepted as the output. Contents, fonts, images, links between kept
+pages, comments and form fields are copied; page sizes and rotation stay as
+they were (also when inherited from the page tree); form fields from different
+files with the same name are renamed (`company` becomes `company_2`).
+Bookmarks are not carried over. A password-protected PDF is opened with its
+password (`--password`, or asked for) and the new file has no password; a PDF
+whose security settings do not allow changing pages needs its owner
+(permissions) password.
+
+Existing signatures cannot survive changes to the pages: the new file does not
+contain them. When a source is signed, the app warns before saving and asks
+again, and the command line asks (or needs `--yes`). Use the page tools to
+prepare a document for signing, not to edit one that is already signed.
 
 ## Signature box design
 
@@ -319,6 +356,73 @@ or changes meaning):
 `content_changed` means the content changed after a signature, or anything
 changed after a certification that allowed no changes.
 
+## Signing other files (.p7s / .p7m)
+
+Word, Excel, ZIP, XML, images or any other file can be signed with the DSC as a
+standard CMS / PKCS#7 signature (RFC 5652), the format OpenSSL, Java and
+Windows tools read:
+
+- **Separate file (`.p7s`, detached, the default)**: `bid.docx.p7s` is saved
+  next to `bid.docx`, which stays as it is. Send or upload both.
+- **File inside (`.p7m`, attached / enveloping)**: `bid.docx.p7m` contains the
+  file and its signature. Send or upload the `.p7m`; the recipient gets the
+  file back with *Save original…* (or `openssl cms -verify`).
+
+Both are DER, SHA-256 (RSA PKCS#1 v1.5 or ECDSA, as the key is), with the
+signed attributes contentType, signingTime, messageDigest and ESS
+signingCertificateV2 and the certificate chain included, which is CAdES-BES;
+with a trusted timestamp (RFC 3161, the server from Settings or `--timestamp`)
+it is CAdES-T. This is the same signature TrackMySign puts into a PDF, built
+by the same code.
+
+Where these are accepted: there is no single published format for "signed
+documents" on Indian e-procurement portals. GePNIC portals (CPPP
+eprocure.gov.in and the state portals built on it) sign bid documents inside
+the browser with their own DSC signer component while you upload them, so they
+do not need a `.p7s` from you. Detached `.p7s` / attached `.p7m` is the
+general-purpose format for the other cases, when a department, buyer or
+auditor wants a file other than a PDF digitally signed with a DSC. Check what the receiving office
+expects (and whether it wants the `.p7s` or the `.p7m`) before relying on one.
+A PDF is better signed as a PDF (the signature shows in Adobe Reader); a
+`.p7s` of a PDF works too.
+
+In the app, **Sign other files…** (the toolbar button next to *Verify folder*,
+or the start screen) or dropping / opening a file that is not a PDF shows the
+file panel: each file with its size, SHA-256 and the `.p7s` already next to it,
+checked as for a PDF signature (valid or not, signer, issuer, signing time,
+chain, CCA India trust). Choose *Separate file (.p7s)* or *File inside
+(.p7m)*, optionally the timestamp, and **Sign**: one PIN entry for all files,
+as with a PDF batch (also for keys that ask for the PIN on every signature).
+An existing `.p7s` / `.p7m` is replaced, after the panel has said so. A `.p7s`
+or `.p7m` opened or dropped is checked (a `.p7s` against the file of the same
+name next to it); for a `.p7m`, **Save original…** writes the file inside.
+"Sign with TrackMySign" in Explorer's right-click menu stays for PDFs only:
+registering it for every file type would add the entry to every file on the
+PC; use *Open with* or drag the files onto the window instead.
+
+```powershell
+.\trackmysign.exe sign-file bid.docx prices.xlsx drawing.zip       # bid.docx.p7s, … : one PIN for all
+.\trackmysign.exe sign-file --attached data.xml                    # data.xml.p7m with the file inside
+.\trackmysign.exe sign-file bid.docx --timestamp --out C:\Out\bid.p7s --force
+.\trackmysign.exe verify-file bid.docx                             # finds bid.docx.p7s next to it
+.\trackmysign.exe verify-file bid.docx --sig signature.p7s
+.\trackmysign.exe verify-file data.xml.p7m --extract               # saves data.xml (or "data (2).xml")
+```
+
+`sign-file` does not replace an existing signature file unless `--force` is
+given; `--out` is for a single file. `verify-file` accepts DER, PEM or Base64
+signatures, and BER as OpenSSL writes a `.p7m`; it exits with status 2 when the
+signature is not valid (the file changed, or the signature does not match the
+certificate) or could not be checked (for example a `.p7s` without its file).
+Trust is checked against the CCA India 2022 root as for PDFs; revocation is not
+checked, and an attached timestamp is reported but not verified. The same
+signature checks with OpenSSL:
+
+```sh
+openssl cms -verify -binary -inform DER -in bid.docx.p7s -content bid.docx -CAfile CCAIndia2022.pem
+openssl cms -verify -binary -inform DER -in data.xml.p7m -out data.xml -CAfile CCAIndia2022.pem
+```
+
 ## Watch folder
 
 *Settings → Watch folder* signs every PDF put into a folder you choose, one at
@@ -387,8 +491,9 @@ the app.
 
 TrackMySign keeps a private log of every signature it makes on your computer:
 single documents, batches, every-page and empty-field signatures,
-certifications, the watch folder and GST portal requests, from the app and the
-command line. **History** (toolbar or start screen) lists them, newest first,
+certifications, files signed as `.p7s` or `.p7m`, the watch folder and GST
+portal requests, from the app and the command line. **History** (toolbar or
+start screen) lists them, newest first,
 with the date (IST; the UTC time is in the details), document, action,
 certificate and outcome. Search by file name or signer, filter by dates,
 source (single, batch, watch folder, GST portal) and outcome, and click an
@@ -433,7 +538,7 @@ when the integrity check finds a problem. `--json` prints `schema`
 (`"trackmysign-history"`), `schema_version` (1), `generator`, `integrity`
 (`entries`, `files`, `problems[]` with `file`, `line`, `seq`, `message`) and
 `entries[]`, each with `seq`, `time` (UTC), `action` (`sign`, `sign_pages`,
-`sign_field`, `certify`, `portal_sign`, or the notes `cleared`, `pruned`,
+`sign_field`, `certify`, `portal_sign`, `sign_file`, or the notes `cleared`, `pruned`,
 `paused`, `resumed`), `source` (`manual`, `batch`, `watch`, `portal`),
 `program`, `input` and `output` (`path`, `sha256`), `origin` and `portal`
 (`pan`, `kind`, `data`, `sha256`) for the GST portal, `cert` (`subject`,
@@ -507,8 +612,12 @@ Browsers:
 trusted certificates (Windows and macOS ask again; on Linux from the same
 Chrome and Firefox lists) and deletes its files.
 
-MCA21 V3 and the Income Tax portal are **not** supported: they use eMudhra's
-emBridge, whose requests are encrypted with keys licensed to eMudhra. Portal
+MCA21 V3, the Income Tax portal and TRACES (tdscpc.gov.in) are **not**
+supported: they use eMudhra's emBridge, whose requests are encrypted with keys
+licensed to eMudhra. TRACES and the old MCA V2 forms portal used a
+WebSocket protocol like the GST portal's, but the old TRACES site now redirects to
+the new one, which signs through emBridge, and MCA V2 no longer accepts
+filings, so there is nothing left to connect to. Portal
 signing is an independent, interoperable implementation of the local protocol
 the GST portal's own JavaScript uses; TrackMySign is not affiliated with or
 endorsed by GSTN, the GST Council or eMudhra.

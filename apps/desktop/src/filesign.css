@@ -1,0 +1,104 @@
+/* Sign other files dialog (FileSigning.tsx). */
+
+.dialog.files-dialog {
+  width: 680px;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+.files-dialog .dialog-title {
+  padding-right: 12px;
+}
+.files-dialog .dialog-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.files-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  min-height: 0;
+  border: 1px solid var(--line);
+}
+.files-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.files-item:last-child {
+  border-bottom: 0;
+}
+.files-item p {
+  margin: 0;
+}
+.files-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.files-head .icon {
+  flex: none;
+  color: var(--muted);
+}
+.files-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+.files-hash {
+  display: flex;
+  gap: 8px;
+}
+.files-hash .mono {
+  font-size: 11px;
+  word-break: break-all;
+  user-select: text;
+}
+.files-extract {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.files-extract .icon {
+  color: var(--ok);
+  vertical-align: -2px;
+}
+.files-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.files-result.done {
+  color: var(--ok);
+}
+.files-result.done span {
+  color: var(--text);
+}
+.files-result.failed {
+  color: var(--bad);
+}
+.files-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.files-options p {
+  margin: 0;
+}
+.files-options .segmented {
+  max-width: 360px;
+}
+.files-options select {
+  max-width: 100%;
+}
+.files-dialog .bad {
+  color: var(--bad);
+}
