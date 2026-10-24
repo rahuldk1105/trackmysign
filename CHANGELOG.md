@@ -6,6 +6,8 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-24
+
 ### Added
 
 - More token drivers detected automatically on Windows and macOS: Feitian
@@ -43,8 +45,19 @@ All notable changes to TrackMySign are listed here. The format follows
   you click; `trackmysign info` lists them and `sign --field NAME` uses one.
   Field locks are recorded in the signature, and a field that demands a format
   TrackMySign cannot produce is refused with an explanation.
+- Certification signatures (*Signature type → Certify*, `--certify`): the first
+  signature can say what may change afterwards — nothing, form filling and
+  signing, or also comments.
+- Tokens whose key asks for the PIN on every signature: the PIN is entered once,
+  also for batches, and the PIN dialog warns when few attempts are left.
+- In-app updates: the app checks GitHub Releases on launch (can be turned off in
+  Settings) and installs a new version in one click. Copies installed from
+  0.1.x need to install 0.2.0 by hand once.
 
-More features are in progress.
+### Security
+
+- Signature verification checks RSA signatures without the `rsa` crate
+  (RUSTSEC-2023-0071).
 
 ## [0.1.4] - 2026-10-23
 
@@ -110,7 +123,8 @@ First release.
 - Website at [sign.rahuldk.in](https://sign.rahuldk.in).
 - End-to-end tests with a SoftHSM virtual token, validated with pyHanko and qpdf.
 
-[Unreleased]: https://github.com/rahuldk1105/trackmysign/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/rahuldk1105/trackmysign/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/rahuldk1105/trackmysign/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/rahuldk1105/trackmysign/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/rahuldk1105/trackmysign/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/rahuldk1105/trackmysign/compare/v0.1.1...v0.1.2

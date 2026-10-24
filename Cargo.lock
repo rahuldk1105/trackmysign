@@ -3896,7 +3896,7 @@ dependencies = [
 
 [[package]]
 name = "signdesk-core"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
  "aes",
  "cbc",
@@ -4938,7 +4938,7 @@ dependencies = [
 
 [[package]]
 name = "trackmysign"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4949,7 +4949,7 @@ dependencies = [
 
 [[package]]
 name = "trackmysign-desktop"
-version = "0.1.4"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde",
