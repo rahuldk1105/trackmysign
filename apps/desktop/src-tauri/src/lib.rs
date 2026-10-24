@@ -1,7 +1,10 @@
 //! Tauri backend: thin commands over `signdesk-core`.
 
+mod background;
 mod known;
+mod output;
 mod portal;
+mod recent;
 mod verify;
 
 use std::path::{Path, PathBuf};
@@ -12,7 +15,7 @@ use signdesk_core::certinfo::{Validity, days_until};
 use signdesk_core::token::{Token, TokenCert, Tokens, installed_drivers};
 use signdesk_core::{
     DisplayRect, DocMdp, Error, ImagePosition, PdfError, SignRequest, StampImage,
-    inspect_with_password, sign_pdf, signed_path,
+    inspect_with_password, sign_pdf,
 };
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -280,6 +283,9 @@ struct SignArgs {
     /// Certify with this DocMDP level (1-3) instead of approving.
     #[serde(default)]
     certify: Option<u8>,
+    /// Folder for the signed copy; next to the original when none.
+    #[serde(default)]
+    out_dir: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -338,8 +344,7 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             ..Default::default()
         };
         let signed = sign_pdf(&data, &req, &mut signer)?;
-        let out = signed_path(&input);
-        std::fs::write(&out, signed)?;
+        let out = output::write_signed(&input, args.out_dir.as_deref(), &signed)?;
         Ok(SignedDto {
             name: out
                 .file_name()
@@ -419,6 +424,8 @@ struct BatchArgs {
     password: Option<String>,
     #[serde(default)]
     certify: Option<u8>,
+    #[serde(default)]
+    out_dir: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -493,9 +500,7 @@ fn sign_one(
         ..Default::default()
     };
     let signed = sign_pdf(&data, &req, signer)?;
-    let out = signed_path(path);
-    std::fs::write(&out, signed)?;
-    Ok(out)
+    output::write_signed(path, args.out_dir.as_deref(), &signed)
 }
 
 /// Signs every file with one login. Fails as a whole only when the token or
@@ -659,10 +664,7 @@ fn hand_over(app: &AppHandle, files: Vec<String>) {
     } else {
         opened.pending.extend(files);
     }
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.unminimize();
-        let _ = w.set_focus();
-    }
+    background::show(app);
 }
 
 /// Files opened before the window was ready to receive them.
@@ -708,6 +710,7 @@ fn open_website() -> CmdResult<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let cwd = std::env::current_dir().unwrap_or_default();
+    let hidden = background::launched_hidden(std::env::args());
     let opened = Opened {
         ready: false,
         pending: pdf_args(std::env::args().skip(1), &cwd),
@@ -716,25 +719,42 @@ pub fn run() {
     // Must be the first plugin: a second launch hands its files to this one and exits.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        // Launching again shows the window, also when it is in the tray.
+        if !background::launched_hidden(&args) {
+            background::show(app);
+        }
         hand_over(app, pdf_args(args.into_iter().skip(1), Path::new(&cwd)));
     }));
     // In-app updates; the front end decides when to check (settings).
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init());
+        .plugin(tauri_plugin_process::init())
+        // Sign-in entry, named after the product (Run value / LaunchAgent).
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .arg(background::ARG)
+                .build(),
+        );
     builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(opened))
         .manage(portal::PortalState::default())
-        .setup(|app| {
+        .manage(background::BackgroundState::default())
+        .on_window_event(background::on_window_event)
+        .setup(move |app| {
+            background::start(app.handle(), hidden);
             portal::start_if_enabled(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             list_certificates,
             known::known_certificates,
+            recent::recent_files,
+            recent::recent_add,
+            recent::recent_signed,
+            recent::recent_clear,
             pdf_info,
             read_pdf,
             sign,
@@ -758,7 +778,10 @@ pub fn run() {
             portal::portal_pending,
             portal::portal_certificates,
             portal::portal_sign,
-            portal::portal_cancel
+            portal::portal_cancel,
+            background::background_status,
+            background::background_set,
+            background::background_set_autostart
         ])
         .build(tauri::generate_context!())
         .expect("error while running TrackMySign")
@@ -766,16 +789,22 @@ pub fn run() {
 }
 
 /// Finder: "Open With", drag onto the Dock icon, double-click when default.
+/// Opening the app again (Finder, Launchpad) shows the window.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 fn on_run_event(app: &AppHandle, event: tauri::RunEvent) {
-    if let tauri::RunEvent::Opened { urls } = event {
-        let files = urls
-            .iter()
-            .filter_map(|u| u.to_file_path().ok())
-            .map(|p| p.to_string_lossy().into_owned())
-            .filter(|p| p.to_lowercase().ends_with(".pdf"))
-            .collect();
-        hand_over(app, files);
+    match event {
+        tauri::RunEvent::Opened { urls } => {
+            let files = urls
+                .iter()
+                .filter_map(|u| u.to_file_path().ok())
+                .map(|p| p.to_string_lossy().into_owned())
+                .filter(|p| p.to_lowercase().ends_with(".pdf"))
+                .collect();
+            hand_over(app, files);
+        }
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen { .. } => background::show(app),
+        _ => {}
     }
 }
 

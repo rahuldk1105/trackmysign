@@ -41,14 +41,30 @@ was deleted right after use, to your user's trusted certificates; *Disable and
 remove* deletes both. A short log of recent portal connections (time, site,
 outcome) is kept in memory while the app runs, never on disk.
 
+**Running in the background (off by default, on with GST portal signing).**
+With *Settings → Background → Keep running in the background* on, closing the
+window leaves the app running in the system tray or menu bar, so the portal
+listener keeps answering; *Quit* there stops it. *Start TrackMySign when I sign
+in* adds a sign-in entry for the app (Windows: the `Run` key of your user
+account; macOS: a LaunchAgent in `~/Library/LaunchAgents`) and nothing else; it
+is removed when you turn either option off. Neither sends anything anywhere.
+
 Clicking a link in the app (for example to this project's website) opens it in
 your browser; the app itself does not load web pages.
 
 **What is saved locally.** Your preferences (default reason and location, saved
-presets, the last signature-box position, theme, timestamp and LTV choices) are
+presets, the last signature-box position, theme, timestamp and LTV choices, the folder for signed copies) are
 kept in the app's own storage on your computer. If you add a handwritten
 signature image, a copy is kept in the app's data folder so it can be reused.
 None of it is sent anywhere.
+
+**Recent files.** The app keeps a list of the last 10 PDFs you opened in its
+data folder (`recent-files.json`): for each, the file's path and name, when you
+opened it, its page count and, if you signed it in the app, where the signed
+copy was saved. It never holds a PIN, a password or anything from inside a
+document, and it stays on your computer. *Settings → Recent files* clears the
+list; turning the setting off clears it and stops recording (the Open dialog
+then remembers the last folder only until you close the app).
 
 ## The website (sign.rahuldk.in)
 

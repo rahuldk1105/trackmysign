@@ -243,7 +243,7 @@ export function PortalSettings(props: { status: PortalStatus | null; onStatus: (
           <p className="muted small">
             Turning it on adds a certificate made for this computer to your user's trusted certificates, so the browser accepts the connection.
             {/mac/i.test(navigator.platform) ? " macOS asks for your password." : " Windows asks you to confirm."} The certificate can
-            only vouch for 127.0.0.1, and the key that made it is deleted at once. Works while TrackMySign is open.
+            only vouch for 127.0.0.1, and the key that made it is deleted at once. Works while TrackMySign is running, also in the background (see Background below).
           </p>
           {status?.certificateLeft ? (
             <div className="setting-row">
