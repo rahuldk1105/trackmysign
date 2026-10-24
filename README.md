@@ -190,7 +190,7 @@ tests/run.sh               # end-to-end: SoftHSM virtual token + generated PDFs,
                            # validated independently with pyHanko and qpdf
 ```
 
-`tests/run.sh` needs `softhsm2`, `opensc`, `qpdf`, `poppler-utils` (pdftoppm), `openssl`, `curl` and `pip install pyhanko reportlab`.
+`tests/run.sh` needs `softhsm2`, `opensc`, `qpdf`, `poppler-utils` (pdftoppm), `openssl`, `curl`, Node.js and `pip install pyhanko reportlab`.
 The timestamp and LTV tests run a local TSA, OCSP responder and CRL server (`tests/services.py`), so no internet is needed.
 
 Layout:

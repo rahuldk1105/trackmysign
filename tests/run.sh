@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end test: virtual token + generated PDFs + independent validation.
-# Needs: softhsm2, opensc (pkcs11-tool), qpdf, poppler-utils, openssl, python3 with pyhanko + reportlab.
+# Needs: softhsm2, opensc (pkcs11-tool), qpdf, poppler-utils, openssl, node, python3 with pyhanko + reportlab.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=${WORK:-$(mktemp -d)}

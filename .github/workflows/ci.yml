@@ -39,8 +39,9 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - run: cargo build -p trackmysign
+      - run: cargo build -p portal-bridge --example portal-test-server
       - name: End-to-end signing tests
-        run: sudo -E env "PATH=$PATH" tests/run.sh
+        run: sudo -E env "PATH=$PATH" PORTAL_TEST_SERVER="$PWD/target/debug/examples/portal-test-server" tests/run.sh
 
   build:
     name: Build ${{ matrix.name }}
