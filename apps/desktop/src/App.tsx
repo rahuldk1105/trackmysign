@@ -24,6 +24,7 @@ import { BackgroundSettings } from "./Background";
 import { PortalDialog, PortalSettings, PortalStatusItem, usePortal } from "./PortalSigning";
 import { SignaturesPanel } from "./SignaturesPanel";
 import { UpdateBanner } from "./UpdateBanner";
+import { useWatch, WatchSettings, WatchStatusItem } from "./Watch";
 import { useUpdater, type UpdateState } from "./updater";
 import { useTheme, type ThemePref } from "./theme";
 import { activePreset, describePage, fromPresetPlacement, pageChoice, toPresetPlacement, type Preset } from "./presets";
@@ -307,9 +308,19 @@ export default function App() {
   const updater = useUpdater(saved.autoUpdate);
   const portal = usePortal();
   const refreshPortal = portal.refresh;
+  const watch = useWatch();
+  const refreshWatch = watch.refresh;
+  /** Why the last watch session ended was seen (Settings opened since). */
+  const [watchSeen, setWatchSeen] = useState(false);
+  const watchEnded = watch.status?.ended;
+  useEffect(() => setWatchSeen(false), [watchEnded]);
   useEffect(() => {
-    if (settingsOpen) refreshPortal();
-  }, [settingsOpen, refreshPortal]);
+    if (settingsOpen) {
+      refreshPortal();
+      refreshWatch();
+      setWatchSeen(true);
+    }
+  }, [settingsOpen, refreshPortal, refreshWatch]);
 
   const update = (patch: Partial<Saved>) =>
     setSaved((s) => {
@@ -1259,6 +1270,17 @@ export default function App() {
           )
         )}
         <div className="spacer" />
+        {(watch.status?.active || (watch.status?.ended && !watchSeen)) && (
+          <>
+            <WatchStatusItem
+              status={watch.status}
+              dismissed={watchSeen}
+              onOpen={() => setSettingsOpen(true)}
+              onStop={() => api.watchStop().then(watch.setStatus, () => {})}
+            />
+            <i className="sb-sep" />
+          </>
+        )}
         {portal.status?.enabled && (
           <>
             <PortalStatusItem status={portal.status} onClick={() => setSettingsOpen(true)} />
@@ -1298,6 +1320,8 @@ export default function App() {
           onCheckUpdate={updater.check}
           portal={portal.status}
           onPortal={portal.setStatus}
+          watch={watch.status}
+          onWatch={watch.setStatus}
           recentCount={recent.length}
           onClearRecent={clearRecent}
           onClose={() => setSettingsOpen(false)}
@@ -1741,6 +1765,8 @@ function Settings(props: {
   onCheckUpdate: () => void;
   portal: api.PortalStatus | null;
   onPortal: (s: api.PortalStatus) => void;
+  watch: api.WatchStatus | null;
+  onWatch: (s: api.WatchStatus) => void;
   recentCount: number;
   onClearRecent: () => void;
   onClose: () => void;
@@ -2040,6 +2066,14 @@ function Settings(props: {
           </section>
 
           <PortalSettings status={props.portal} onStatus={props.onPortal} />
+
+          <WatchSettings
+            status={props.watch}
+            onStatus={props.onWatch}
+            presets={props.saved.presets}
+            defaults={props.saved}
+            cert={cert?.canSign && !cert.expired ? cert : undefined}
+          />
 
           <BackgroundSettings portalEnabled={props.portal?.enabled} />
 

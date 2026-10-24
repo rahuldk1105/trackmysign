@@ -2,6 +2,8 @@
 
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -10,13 +12,14 @@ use trackmysign_core::certdetails::{
 };
 use trackmysign_core::certinfo::{CertSummary, Validity};
 use trackmysign_core::report::Report;
-use trackmysign_core::token::{Driver, TokenCert, Tokens, driver_name};
+use trackmysign_core::token::{Driver, TokenCert, TokenSigner, Tokens, driver_name};
 use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
 use trackmysign_core::{
     DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, ImagePosition, PdfError, PdfInfo, SignRequest,
     StampImage, check_permitted_with_password, inspect_with_password, parse_pages, sign_pdf,
-    signed_path,
+    signed_path, watch,
 };
+use zeroize::Zeroizing;
 
 #[derive(Parser)]
 #[command(name = "trackmysign", version, about = "Sign PDFs with your DSC token")]
@@ -116,6 +119,51 @@ enum Cmd {
         #[arg(long, value_enum, value_name = "ALLOWED")]
         certify: Option<Certify>,
         /// PIN (for scripted tests only; normally you are prompted).
+        #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
+        pin: Option<String>,
+    },
+    /// Sign every PDF put into FOLDER until Ctrl+C, with one PIN entry.
+    /// Signed copies go to --out (default FOLDER/signed), originals to
+    /// FOLDER/done, files that cannot be signed to FOLDER/failed with a .txt
+    /// saying why. Anyone who can write to FOLDER while this runs can get
+    /// documents signed with your DSC: use a folder only you can write to.
+    Watch {
+        folder: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// A preset saved as JSON: reason, location, placement (page "first",
+        /// "last" or a number; x, y, w, h in mm from the top-left), image
+        /// ("off", "left", "above"), pages, invisible, timestamp, ltv.
+        #[arg(long, value_name = "FILE")]
+        preset_json: Option<PathBuf>,
+        /// Box on more pages: `all` or a list such as `1-3,5` (pages a file
+        /// does not have are left out).
+        #[arg(long)]
+        pages: Option<String>,
+        #[arg(long)]
+        reason: Option<String>,
+        #[arg(long)]
+        location: Option<String>,
+        /// Handwritten signature (PNG or JPEG); needed when the preset shows one.
+        #[arg(long)]
+        image: Option<PathBuf>,
+        #[arg(long)]
+        invisible: bool,
+        /// Leave originals in FOLDER instead of moving them to FOLDER/done.
+        #[arg(long)]
+        keep_originals: bool,
+        /// Stop after this many signed files in a day (0: no limit).
+        #[arg(long, default_value_t = watch::DEFAULT_DAILY_LIMIT)]
+        daily_limit: usize,
+        /// Stop after this many hours.
+        #[arg(long)]
+        hours: Option<f64>,
+        #[arg(long, value_name = "URL", num_args = 0..=1, default_missing_value = DEFAULT_TSA_URL)]
+        timestamp: Option<String>,
+        #[arg(long)]
+        ltv: bool,
+        #[arg(long, default_value_t = 1)]
+        cert: usize,
         #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
         pin: Option<String>,
     },
@@ -532,6 +580,77 @@ fn describe_signature(r: &SignatureReport) -> String {
     out.join("\n")
 }
 
+/// The watch folder's side of the token: one session for the whole run.
+struct WatchHost {
+    signer: TokenSigner,
+    signed: usize,
+}
+
+fn file_name(p: &Path) -> String {
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+impl watch::Host for WatchHost {
+    fn sign(&mut self, data: &[u8], req: &SignRequest) -> Result<Vec<u8>, Error> {
+        sign_pdf(data, req, &mut self.signer)
+    }
+    fn check(&mut self) -> Result<(), Error> {
+        self.signer.check()
+    }
+    fn event(&mut self, event: watch::Event) {
+        match event {
+            watch::Event::Signed {
+                input,
+                output,
+                warning,
+                ..
+            } => {
+                self.signed += 1;
+                println!("Signed: {} -> {}", file_name(&input), output.display());
+                if let Some(w) = warning {
+                    eprintln!("Warning: {}: {w}", file_name(&input));
+                }
+            }
+            watch::Event::Failed {
+                input,
+                moved,
+                reason,
+            } => match moved {
+                Some(m) => println!(
+                    "Failed: {}: {reason} (moved to {})",
+                    file_name(&input),
+                    m.display()
+                ),
+                None => println!("Failed: {}: {reason}", file_name(&input)),
+            },
+            watch::Event::Skipped { input, reason } => {
+                println!("Skipped: {}: {reason}", file_name(&input))
+            }
+        }
+    }
+}
+
+/// Certificate `n` from the list, if it may sign: not encryption-only, not expired.
+fn signing_cert(certs: &[TokenCert], n: usize) -> Result<&TokenCert> {
+    let chosen = certs
+        .get(n.wrapping_sub(1))
+        .with_context(|| format!("no certificate #{n}; run `trackmysign certs`"))?;
+    if !chosen.summary.can_sign {
+        bail!("certificate #{n} is for encryption only; pick the signing certificate");
+    }
+    if let v @ Validity::Expired { .. } = chosen.summary.validity() {
+        bail!(
+            "certificate #{n} {} (valid until {}). A signature made with it is not valid; \
+             renew your DSC.",
+            validity_text(v).to_lowercase(),
+            chosen.summary.not_after.format("%d %b %Y")
+        );
+    }
+    Ok(chosen)
+}
+
 fn main() {
     if let Err(e) = run() {
         eprintln!("Error: {e:#}");
@@ -789,6 +908,112 @@ fn run() -> Result<()> {
             }
             if failed > 0 {
                 bail!("{failed} of {} PDFs could not be signed", pdfs.len());
+            }
+        }
+        Cmd::Watch {
+            folder,
+            out,
+            preset_json,
+            pages,
+            reason,
+            location,
+            image,
+            invisible,
+            keep_originals,
+            daily_limit,
+            hours,
+            timestamp,
+            ltv,
+            cert,
+            pin,
+        } => {
+            let mut preset: watch::Preset = match &preset_json {
+                Some(p) => {
+                    let data =
+                        std::fs::read(p).with_context(|| format!("reading {}", p.display()))?;
+                    serde_json::from_slice(&data)
+                        .with_context(|| format!("{} is not a preset", p.display()))?
+                }
+                None => watch::Preset {
+                    reason: "Approved".into(),
+                    ..Default::default()
+                },
+            };
+            if let Some(v) = pages {
+                preset.pages = v;
+            }
+            if let Some(v) = reason {
+                preset.reason = v;
+            }
+            if let Some(v) = location {
+                preset.location = v;
+            }
+            preset.invisible |= invisible;
+            if timestamp.is_some() {
+                preset.timestamp = timestamp;
+            }
+            preset.ltv |= ltv;
+            preset.validate().map_err(anyhow::Error::msg)?;
+            let image = match &image {
+                Some(p) => {
+                    if preset.image == watch::ImageChoice::Off {
+                        preset.image = watch::ImageChoice::Left;
+                    }
+                    Some(StampImage::open(p).with_context(|| format!("reading {}", p.display()))?)
+                }
+                None if preset.image == watch::ImageChoice::Off => None,
+                None => bail!("the preset shows a signature image; give it with --image"),
+            };
+            let folders = watch::Folders::new(&folder, out.as_deref(), !keep_originals)
+                .map_err(anyhow::Error::msg)?;
+            let opts = watch::Options {
+                daily_limit: (daily_limit > 0).then_some(daily_limit),
+                until: hours.map(|h| SystemTime::now() + Duration::from_secs_f64(h * 3600.0)),
+                ..Default::default()
+            };
+
+            let tokens = open_tokens(&cli.module)?;
+            let certs = tokens.signing_certificates()?;
+            let chosen = signing_cert(&certs, cert)?;
+            println!("Signing as: {}", chosen.summary.subject_cn);
+            let pin = Zeroizing::new(match pin {
+                Some(p) => p,
+                None => rpassword::prompt_password("Token PIN: ")?,
+            });
+            let signer = tokens.signer(chosen, &pin)?;
+            drop(pin);
+
+            let control = Arc::new(watch::Control::default());
+            let stop = control.clone();
+            ctrlc::set_handler(move || stop.stop()).context("setting the Ctrl+C handler")?;
+            println!("Watching: {}", folders.input.display());
+            println!("Signed copies: {}", folders.output.display());
+            match &folders.done {
+                Some(d) => println!("Originals: {}", d.display()),
+                None => println!("Originals: left in place"),
+            }
+            println!("Not signed: {}", folders.failed.display());
+            println!(
+                "Anyone who can write to this folder can now get documents signed with your DSC. \
+                 Press Ctrl+C to stop."
+            );
+            let mut host = WatchHost { signer, signed: 0 };
+            let end = watch::run(
+                &folders,
+                &preset,
+                image.as_ref(),
+                &opts,
+                &control,
+                &mut host,
+            );
+            let signed = host.signed;
+            // Closes the session and wipes a PIN kept for keys that ask on every signature.
+            drop(host);
+            match end {
+                watch::Stop::Token(_) | watch::Stop::Folder(_) => {
+                    bail!("{end} Stopped watching; {signed} file(s) signed.")
+                }
+                _ => println!("{end} {signed} file(s) signed."),
             }
         }
         Cmd::Verify { pdf, report, json } => {

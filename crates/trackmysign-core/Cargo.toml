@@ -16,6 +16,7 @@ der = { version = "0.7", features = ["derive", "oid", "alloc"] }
 flate2 = "1.1.10"
 getrandom = "0.2"
 md-5 = "0.10"
+notify-debouncer-mini = "0.7"
 num-bigint = "0.4"
 p256 = { version = "0.13", default-features = false, features = ["ecdsa", "pkcs8", "std"] }
 p384 = { version = "0.13", default-features = false, features = ["ecdsa", "pkcs8", "std"] }

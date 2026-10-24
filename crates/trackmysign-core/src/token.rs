@@ -6,7 +6,7 @@ use cryptoki::context::{CInitializeArgs, CInitializeFlags, Function, Pkcs11};
 use cryptoki::error::{Error as CkError, Rv, RvError};
 use cryptoki::mechanism::Mechanism;
 use cryptoki::object::{Attribute, AttributeType, ObjectClass, ObjectHandle};
-use cryptoki::session::{Session, UserType};
+use cryptoki::session::{Session, SessionState, UserType};
 use cryptoki::slot::Slot;
 use cryptoki::types::AuthPin;
 use der::Decode;
@@ -646,6 +646,29 @@ pub struct TokenSigner {
 }
 
 impl TokenSigner {
+    /// Whether the session is still open and logged in. Fails once the token
+    /// was pulled out (or the computer slept and the driver reset it), so a
+    /// long-lived signer can stop instead of waiting for the next signature.
+    pub fn check(&self) -> Result<(), Error> {
+        let removed = || Error::Token("The DSC token was removed.".into());
+        match self.session.get_session_info() {
+            Ok(info) => match info.session_state() {
+                SessionState::RoUser | SessionState::RwUser => Ok(()),
+                _ => Err(Error::Token(
+                    "The token is no longer logged in. Enter the PIN again.".into(),
+                )),
+            },
+            Err(CkError::Pkcs11(
+                RvError::SessionHandleInvalid
+                | RvError::SessionClosed
+                | RvError::DeviceRemoved
+                | RvError::TokenNotPresent,
+                _,
+            )) => Err(removed()),
+            Err(e) => Err(ck(e)),
+        }
+    }
+
     fn sign(&mut self, mechanism: &Mechanism, data: &[u8]) -> Result<Vec<u8>, Error> {
         let Some(per) = &mut self.per_signature else {
             return self.session.sign(mechanism, self.key, data).map_err(ck);

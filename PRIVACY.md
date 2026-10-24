@@ -12,7 +12,7 @@ through the driver your token's vendor installed. You can sign with the network
 cable unplugged.
 
 **Your PIN is never stored.** It is passed to the token driver for one signing
-(or one batch) and then dropped. It is not written to settings, logs or disk.
+(or one batch, or one watch-folder session) and then dropped. It is not written to settings, logs or disk.
 
 **No analytics, no telemetry, no crash reports.** The app does not count users,
 does not report errors anywhere and has no tracking code.
@@ -48,6 +48,18 @@ listener keeps answering; *Quit* there stops it. *Start TrackMySign when I sign
 in* adds a sign-in entry for the app (Windows: the `Run` key of your user
 account; macOS: a LaunchAgent in `~/Library/LaunchAgents`) and nothing else; it
 is removed when you turn either option off. Neither sends anything anywhere.
+
+**Watch folder (off until you start it).** *Settings → Watch folder* signs
+the PDFs put into a folder you choose, on your computer; nothing is sent
+anywhere unless you turn on timestamp or LTV there. The PIN is given to the
+token once when you start watching and is never saved; for a key that asks
+for it on every signature it is kept in memory until watching stops, then
+wiped. The settings (folders, limits and a copy of the chosen preset) are kept
+in the app's data folder (`watch.json`), and so is a log of the last 200
+events (`watch-log.json`): the time, the file's path, where the signed copy
+or the file went, and the outcome or the reason it could not be signed. It
+never holds a PIN or anything from inside a document. Files that cannot be
+signed are moved to a `failed` folder next to them, with a `.txt` saying why.
 
 Clicking a link in the app (for example to this project's website) opens it in
 your browser; the app itself does not load web pages.

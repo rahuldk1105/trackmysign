@@ -21,6 +21,7 @@ portal-bridge = { path = "../../../crates/portal-bridge" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 trackmysign-core = { path = "../../../crates/trackmysign-core" }
+zeroize = "1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"

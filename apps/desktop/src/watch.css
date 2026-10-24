@@ -1,0 +1,92 @@
+/* Watch folder (Watch.tsx). */
+
+.watch-sb {
+  gap: 0;
+}
+.watch-sb button {
+  border: 0;
+  background: none;
+  padding: 0 4px;
+  height: 22px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.watch-sb button:hover {
+  background: var(--hover);
+}
+.watch-sb-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.watch-sb-text.ok {
+  color: var(--ok);
+}
+.watch-sb-text.bad {
+  color: var(--bad);
+}
+button.watch-sb-stop {
+  margin-left: 2px;
+  border: 1px solid var(--line-strong);
+  height: 18px;
+  color: var(--text-2);
+}
+.settings p.watch-trust {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 8px 0 12px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--bad);
+  background: var(--bad-soft);
+  color: var(--text);
+}
+.watch-trust .icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--bad);
+}
+input.watch-limit {
+  width: 90px;
+}
+.settings h4.watch-log-head {
+  margin-top: 16px;
+}
+.watch-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  font-size: 12px;
+  user-select: text;
+}
+.watch-log li {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  column-gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.watch-log li:last-child {
+  border-bottom: 0;
+}
+.watch-log .mono {
+  font-size: 11px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.watch-log-kind {
+  color: var(--text-2);
+}
+.watch-log li.signed .watch-log-kind {
+  color: var(--ok);
+}
+.watch-log li.failed .watch-log-kind {
+  color: var(--bad);
+}
+.watch-log-msg {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}

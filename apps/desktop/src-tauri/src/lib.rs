@@ -7,6 +7,7 @@ mod output;
 mod portal;
 mod recent;
 mod verify;
+mod watch;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -743,6 +744,7 @@ pub fn run() {
         .manage(Mutex::new(opened))
         .manage(portal::PortalState::default())
         .manage(background::BackgroundState::default())
+        .manage(watch::WatchState::default())
         .on_window_event(background::on_window_event)
         .setup(move |app| {
             background::start(app.handle(), hidden);
@@ -784,7 +786,11 @@ pub fn run() {
             portal::portal_cancel,
             background::background_status,
             background::background_set,
-            background::background_set_autostart
+            background::background_set_autostart,
+            watch::watch_status,
+            watch::watch_save,
+            watch::watch_start,
+            watch::watch_stop
         ])
         .build(tauri::generate_context!())
         .expect("error while running TrackMySign")
@@ -807,12 +813,18 @@ fn on_run_event(app: &AppHandle, event: tauri::RunEvent) {
         }
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Reopen { .. } => background::show(app),
+        tauri::RunEvent::Exit => watch::quit(app),
         _ => {}
     }
 }
 
+/// Quitting ends a watch-folder session.
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]
-fn on_run_event(_: &AppHandle, _: tauri::RunEvent) {}
+fn on_run_event(app: &AppHandle, event: tauri::RunEvent) {
+    if let tauri::RunEvent::Exit = event {
+        watch::quit(app);
+    }
+}
 
 #[cfg(test)]
 mod tests {

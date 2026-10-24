@@ -347,6 +347,57 @@ report --password=own "$BIN" "$W/signed/enc-aes256.pdf" "$W/reports" "1 signatur
   "Protection Password-protected"
 report "$BIN" "$W/signed/indic.pdf" "$W/reports" "Reason Svikrita (transliterated)" "Location Chennai (transliterated)"
 report "$BIN" "$W/fx/plain.pdf" "$W/reports" "No signatures found."
+# Watch folder: PDFs copied in are signed with one PIN entry; a corrupt one and a
+# certified (no changes) one go to failed/ with a reason, temporary names are left alone.
+WF=$W/watch
+mkdir -p "$WF/in"
+cat >"$WF/preset.json" <<'EOF'
+{"name": "Watch", "reason": "Approved", "location": "Chennai", "image": "off",
+ "placement": {"page": "first", "x": 20, "y": 20, "w": 60, "h": 20}}
+EOF
+"$BIN" watch "$WF/in" --preset-json "$WF/preset.json" >"$WF/out" 2>"$WF/err" &
+WATCH_PID=$!
+trap 'kill $SVC_PID $WATCH_PID 2>/dev/null' EXIT
+for _ in $(seq 100); do grep -q "^Anyone who can write" "$WF/out" && break; sleep 0.1; done
+cp "$W/fx/plain.pdf" "$W/fx/presigned.pdf" "$W/signed/cert-none.pdf" "$WF/in/"
+printf '%%PDF-1.7\nthis is not really a PDF\n' >"$WF/in/scan.pdf"
+cp "$W/fx/objstm.pdf" "$WF/in/upload.pdf.crdownload"
+cp "$W/fx/objstm.pdf" "$WF/in/~\$draft.pdf"
+for _ in $(seq 300); do
+  [ "$(ls "$WF/in/done" 2>/dev/null | wc -l)" = 2 ] && [ "$(ls "$WF/in/failed" 2>/dev/null | wc -l)" = 4 ] && break
+  sleep 0.1
+done
+kill -INT $WATCH_PID
+watch_status=0
+wait $WATCH_PID || watch_status=$?
+trap 'kill $SVC_PID 2>/dev/null' EXIT
+for f in plain presigned; do
+  check "$W/fx/$f.pdf" "$WF/in/signed/${f}_signed.pdf"
+  cmp -s "$W/fx/$f.pdf" "$WF/in/done/$f.pdf" || { echo "FAIL watch: $f.pdf not moved to done"; fail=1; }
+done
+if [ $watch_status = 0 ] && grep -q "^Stopped. 2 file(s) signed." "$WF/out" \
+   && [ "$(grep -c '^Signed:' "$WF/out")" = 2 ] \
+   && grep -q "Not a valid PDF" "$WF/in/failed/scan.txt" && cmp -s "$WF/in/failed/scan.pdf" <(printf '%%PDF-1.7\nthis is not really a PDF\n') \
+   && grep -q "certified with no changes allowed" "$WF/in/failed/cert-none.txt" \
+   && [ -e "$WF/in/upload.pdf.crdownload" ] && [ -e "$WF/in/~\$draft.pdf" ] \
+   && [ "$(ls "$WF/in/signed" | wc -l)" = 2 ] && [ ! -e "$WF/in/plain.pdf" ]; then
+  echo "PASS watch folder signs, moves and explains failures"
+else
+  echo "FAIL watch folder ($watch_status): $(cat "$WF/out" "$WF/err"; ls -R "$WF/in")"; fail=1
+fi
+python3 -W ignore -c 'import sys; from pyhanko.pdf_utils.reader import PdfFileReader
+s = PdfFileReader(open(sys.argv[1], "rb")).embedded_signatures[-1]
+assert s.sig_object["/Reason"] == "Approved" and s.sig_object["/Location"] == "Chennai"
+w = s.sig_field if "/Rect" in s.sig_field else s.sig_field["/Kids"][0]
+x1, _, x2, _ = [float(v) for v in w["/Rect"]]
+assert abs((x2 - x1) - 60 * 72 / 25.4) < 0.5, (x1, x2)' "$WF/in/signed/plain_signed.pdf" \
+  && echo "PASS watch folder applies the preset" || { echo "FAIL watch preset"; fail=1; }
+if "$BIN" watch "$WF/in" --out "$WF/in/other" 2>"$W/err" </dev/null; then
+  echo "FAIL watch accepted an output folder inside the watched one"; fail=1
+else
+  grep -q "can only go to its \"signed\" folder" "$W/err" && echo "PASS watch refuses an output folder inside the watched one" \
+    || { echo "FAIL: $(cat "$W/err")"; fail=1; }
+fi
 # GST portal signing: the listener with a throwaway CA, approving every request
 # (crates/portal-bridge/examples/portal-test-server.rs, never part of the app),
 # a client acting like the portal page, and the portal's own JavaScript run on

@@ -18,6 +18,10 @@ const SENTENCES: Record<string, MessageKey> = {
   "The portal signing certificate has expired. Turn portal signing off and on again to renew it.": "error.portalCertExpired",
   "The version is a number such as 2.8.": "error.portalVersion",
   "Turn on “Keep running in the background” first.": "error.backgroundFirst",
+  "The DSC token was removed.": "error.tokenRemoved",
+  "The token is no longer logged in. Enter the PIN again.": "error.tokenLoggedOut",
+  "Stop watching to change these settings.": "error.watchLocked",
+  "Choose the folder to watch.": "error.watchNoFolder",
 };
 
 /** Sentences that end in a detail from elsewhere (a server, the OS), kept as is. */

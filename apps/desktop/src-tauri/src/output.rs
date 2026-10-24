@@ -1,10 +1,9 @@
 //! Where signed copies are written: next to the original, or in the folder
 //! chosen in Settings. An existing file is never overwritten.
 
-use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
-use trackmysign_core::signed_path_in;
+use trackmysign_core::write_signed_in;
 
 use super::{CmdResult, CommandError};
 
@@ -30,22 +29,7 @@ fn target_dir(input: &Path, folder: Option<&str>) -> CmdResult<PathBuf> {
 /// returns the path used.
 pub fn write_signed(input: &Path, folder: Option<&str>, data: &[u8]) -> CmdResult<PathBuf> {
     let dir = target_dir(input, folder)?;
-    loop {
-        let out = signed_path_in(input, &dir);
-        // Created new, so a file that appeared since the name was picked is kept.
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&out)
-        {
-            Ok(mut f) => {
-                f.write_all(data)?;
-                return Ok(out);
-            }
-            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e.into()),
-        }
-    }
+    Ok(write_signed_in(input, &dir, data)?)
 }
 
 #[cfg(test)]

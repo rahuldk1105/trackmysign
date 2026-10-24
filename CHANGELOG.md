@@ -6,6 +6,24 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Watch folder: *Settings → Watch folder* signs every PDF put into a folder
+  you choose, with a copy of a saved preset, after you press *Start watching*
+  and enter the PIN once. Signed copies go to its `signed` folder (or one you
+  pick outside it) and are never overwritten; originals move to `done`; files
+  that cannot be signed go to `failed` with a `.txt` saying why. A file is
+  picked up once it has stopped changing and opens as a PDF; temporary files
+  are left alone. Watching stops after 1 or 8 hours (or when stopped), when the
+  computer sleeps, on quit, when the token is removed or the PIN refused, and
+  at a daily limit (200 files by default). The status bar and the tray show
+  *Watching <folder> — N signed* with *Stop*, and Settings lists the last 200
+  files. Anyone who can write to the folder while watching can get documents
+  signed with your DSC, so use a private folder (see the README).
+- `trackmysign watch <FOLDER> [--out DIR] [--preset-json FILE] [--pages …]`
+  does the same from the command line, asking for the PIN once and running
+  until Ctrl+C.
+
 ## [0.4.0] - 2026-10-24
 
 ### Added

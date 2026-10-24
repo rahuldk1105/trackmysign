@@ -12,6 +12,7 @@ pub mod report;
 pub mod token;
 pub mod tsa;
 pub mod verify;
+pub mod watch;
 
 use std::path::{Path, PathBuf};
 
@@ -335,6 +336,28 @@ pub fn signed_path_in(input: &Path, dir: &Path) -> PathBuf {
         .map(|n| dir.join(format!("{stem}_signed_{n}.pdf")))
         .find(|p| !p.exists())
         .unwrap()
+}
+
+/// Writes `data` to [`signed_path_in`] `dir` and returns the path used. The
+/// file is created new, so one that appeared since the name was picked is
+/// kept and the next name tried.
+pub fn write_signed_in(input: &Path, dir: &Path, data: &[u8]) -> std::io::Result<PathBuf> {
+    use std::io::Write;
+    loop {
+        let out = signed_path_in(input, dir);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&out)
+        {
+            Ok(mut f) => {
+                f.write_all(data)?;
+                return Ok(out);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 impl From<der::Error> for Error {

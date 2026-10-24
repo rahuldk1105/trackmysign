@@ -3,6 +3,7 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n";
+import type { PresetPlacement } from "./presets";
 
 export interface Cert {
   /** SHA-256 fingerprint of the certificate. */
@@ -626,4 +627,111 @@ export async function backgroundSetAutostart(enabled: boolean): Promise<Backgrou
   if (inTauri) return invoke("background_set_autostart", { enabled });
   mockBackground = { ...mockBackground, autostart: enabled };
   return mockBackground;
+}
+
+// ------------------------------------------------------- Watch folder
+
+/** How each file of a watch folder is signed: a copy of a saved preset (src-tauri/src/watch.rs). */
+export interface WatchPreset {
+  name: string;
+  reason: string;
+  location: string;
+  /** Millimetres from the top-left; bottom-right of the last page when null. */
+  placement: PresetPlacement | null;
+  /** More pages with the box: "all" or e.g. "1-3,5"; empty for one page. */
+  pages: string;
+  image: ImageChoice;
+  invisible: boolean;
+  /** RFC 3161 server, or null for none. */
+  timestamp: string | null;
+  ltv: boolean;
+}
+
+export interface WatchConfig {
+  input: string;
+  /** Empty for `<input>/signed`. */
+  output: string;
+  /** Move originals to `<input>/done` once signed. */
+  moveDone: boolean;
+  /** 0 for no limit. */
+  dailyLimit: number;
+  /** Session length; 0 until stopped. */
+  minutes: number;
+  stopOnSleep: boolean;
+  preset: WatchPreset;
+}
+
+export interface WatchLogEntry {
+  /** Unix seconds. */
+  time: number;
+  kind: "started" | "stopped" | "signed" | "failed" | "skipped";
+  file: string | null;
+  output: string | null;
+  message: string | null;
+}
+
+export interface WatchStatus {
+  config: WatchConfig;
+  /** Set while a session is open. */
+  active: { folder: string; output: string; signed: number; started: number; until: number | null } | null;
+  /** Why the last session ended, unless it was stopped. */
+  ended: { kind: "timeUp" | "slept" | "dailyLimit" | "token" | "folder" | "other"; message: string } | null;
+  signedToday: number;
+  /** Most recent first. */
+  log: WatchLogEntry[];
+}
+
+let mockWatch: WatchStatus = {
+  config: {
+    input: "",
+    output: "",
+    moveDone: true,
+    dailyLimit: 200,
+    minutes: 60,
+    stopOnSleep: true,
+    preset: { name: "", reason: "Approved", location: "", placement: null, pages: "", image: "off", invisible: false, timestamp: null, ltv: false },
+  },
+  active: null,
+  ended: null,
+  signedToday: 0,
+  log: [],
+};
+
+export async function watchStatus(): Promise<WatchStatus> {
+  return inTauri ? invoke("watch_status") : mockWatch;
+}
+
+/** Checks the folders and saves; refused while watching. */
+export async function watchSave(config: WatchConfig): Promise<WatchStatus> {
+  if (inTauri) return invoke("watch_save", { config });
+  mockWatch = { ...mockWatch, config };
+  return mockWatch;
+}
+
+/** Logs in once with `pin` and starts watching. */
+export async function watchStart(certId: string, driverPath: string, pin: string): Promise<WatchStatus> {
+  if (inTauri) return invoke("watch_start", { args: { certId, driverPath, pin } });
+  await new Promise((r) => setTimeout(r, 500));
+  if (pin !== mock.pin) throw { kind: "wrongPin", message: "Wrong PIN. Careful: few attempts left before the token locks." };
+  const now = Date.now() / 1000;
+  const c = mockWatch.config;
+  mockWatch = {
+    ...mockWatch,
+    ended: null,
+    active: { folder: c.input, output: c.output || `${c.input}\\signed`, signed: 0, started: now, until: c.minutes ? now + c.minutes * 60 : null },
+  };
+  return mockWatch;
+}
+
+export async function watchStop(): Promise<WatchStatus> {
+  if (inTauri) return invoke("watch_stop");
+  mockWatch = { ...mockWatch, active: null };
+  return mockWatch;
+}
+
+/** A file was signed or failed, or the session started or ended. */
+export async function onWatchChanged(cb: () => void): Promise<() => void> {
+  if (!inTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen("watch-changed", () => cb());
 }

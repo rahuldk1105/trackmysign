@@ -124,6 +124,7 @@ Other options:
 .\trackmysign.exe sign file.pdf --timestamp=http://timestamp.sectigo.com
 .\trackmysign.exe sign file.pdf --password "secret"  # password-protected PDF
 .\trackmysign.exe sign file.pdf --certify forms       # certify as the author (first signature only)
+.\trackmysign.exe watch C:\Scans                      # sign every PDF put into a folder (see Watch folder)
 ```
 
 Long-term validity is off by default, so signing works fully offline. `--timestamp`
@@ -207,6 +208,66 @@ Each signature:
 | `trust` | `cca_india_2022` or `not_checked` |
 | `chain` | certificates, signer first, same fields as `signer` |
 | `notes` | why the status is not valid first, then other warnings |
+
+## Watch folder
+
+*Settings → Watch folder* signs every PDF put into a folder you choose, one at
+a time, without a click per document: for invoices exported by an accounting
+program, scans from a copier, and the like.
+
+**Trust model: anyone who can write to that folder while watching is on can
+get documents signed with your DSC.** Use a private folder on your own
+computer that only your user account can write to, not a shared, network or
+synced (OneDrive, Google Drive, Dropbox) folder, and watch only while you need
+it. What limits the damage:
+
+- Nothing is signed until you press **Start watching** and enter the PIN. The
+  token then stays logged in (for a key that asks for the PIN on every
+  signature, the PIN is kept in memory to give it each time, and wiped when
+  watching stops); meanwhile, signing in the app goes through without the
+  token checking the PIN again. The PIN is never written anywhere.
+- Watching stops after the time you choose (1 hour, 8 hours or until
+  stopped), when the computer sleeps (unless you turn that off), when you
+  quit TrackMySign, when the token is removed or the PIN is refused, and when
+  the daily limit (200 signed files by default) is reached. The status bar
+  and the tray icon show *Watching <folder> — N signed* while it runs, with
+  **Stop**; when it stops on its own, the window comes up and says why.
+- Each file is signed with a copy of the preset chosen in Settings (reason,
+  location, page and box, signature image), saved without any PIN in the
+  app's data folder (`watch.json`). Trusted timestamp and LTV are off unless
+  you turn them on there; certifying is not offered.
+
+How files are handled:
+
+- A file is picked up once its size has not changed for about 2 seconds and it
+  opens as a PDF. Temporary names (`~$…`, `.tmp`, `.part`, `.crdownload`,
+  hidden files) and links are left alone; only files directly in the folder
+  are looked at, not its subfolders.
+- The signed copy goes to the `signed` folder inside it, or a folder of your
+  choice outside it (not elsewhere inside it), as `name_signed.pdf`; nothing
+  is ever overwritten. The original moves to `done` (turn this off to leave it
+  in place; a file whose signed copy is already in the output folder is then
+  skipped).
+- A file that cannot be signed goes to `failed`, with `name.txt` saying why:
+  not a PDF, a password-protected PDF, security settings that do not allow
+  signing, or a document certified with no changes allowed. PDFs that already
+  carry signatures are signed as usual; their signatures stay valid.
+- *Settings → Watch folder* lists the last 200 events (time, file path,
+  outcome), kept in `watch-log.json` in the app's data folder.
+
+The command-line tool does the same, for a server or a scanner PC:
+
+```powershell
+.\trackmysign.exe watch C:\Scans --out D:\Signed --preset-json preset.json
+.\trackmysign.exe watch C:\Scans --reason Approved --pages all --hours 8
+```
+
+It asks for the PIN once and runs until Ctrl+C. `--preset-json` takes a preset
+as JSON (`{"reason": "Approved", "location": "Chennai", "placement": {"page":
+"last", "x": 120, "y": 250, "w": 60, "h": 20}}`, millimetres from the top-left;
+also `pages`, `image` with `--image`, `invisible`, `timestamp`, `ltv`);
+`--keep-originals`, `--daily-limit N` (0 for none) and `--hours` work as in
+the app.
 
 ## Portal signing (GST)
 

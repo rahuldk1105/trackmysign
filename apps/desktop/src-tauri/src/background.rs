@@ -1,9 +1,10 @@
 //! Running in the background: a tray (menu bar) icon, closing the window
 //! hides it, and an optional start at sign-in, so the GST portal can ask for
-//! signatures without the app being opened first.
+//! signatures without the app being opened first. While a watch folder is
+//! signing, the tray shows that too (also without background mode) and can
+//! stop it.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
@@ -14,7 +15,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
 use tauri::{AppHandle, Manager, Window, WindowEvent, Wry};
 use tauri_plugin_autostart::ManagerExt;
 
-use super::{CmdResult, CommandError, portal};
+use super::{CmdResult, CommandError, portal, watch};
 
 /// Passed by the sign-in entry: start in the tray, without a window.
 pub const ARG: &str = "--background";
@@ -46,8 +47,6 @@ impl Settings {
 pub struct BackgroundState {
     /// Closing the window hides it; read on every close.
     active: AtomicBool,
-    /// The portal line of the tray menu, while there is a tray.
-    portal_item: Mutex<Option<MenuItem<Wry>>>,
 }
 
 /// Started by the sign-in entry.
@@ -93,7 +92,8 @@ fn portal_label(enabled: bool, port: Option<u16>) -> String {
 }
 
 /// Puts the tray and the sign-in entry in line with the settings, and the
-/// portal line with the listener. Call after either changes.
+/// status lines with the portal listener and the watch folder. Call after
+/// any of them changes.
 pub fn sync(app: &AppHandle) {
     let (tx, rx) = std::sync::mpsc::channel();
     let handle = app.clone();
@@ -112,40 +112,64 @@ fn apply(app: &AppHandle) {
     let on = keeps_running(app);
     let state = app.state::<BackgroundState>();
     state.active.store(on, Ordering::SeqCst);
-    let mut item = state.portal_item.lock().unwrap_or_else(|p| p.into_inner());
     if !on {
-        *item = None;
-        let _ = app.remove_tray_by_id(TRAY);
         let _ = app.autolaunch().disable();
         set_dock(app, true);
+    }
+    let watching = watch::tray_line(app);
+    if !on && watching.is_none() {
+        let _ = app.remove_tray_by_id(TRAY);
         return;
     }
     let (enabled, port) = portal::summary(app);
-    let label = portal_label(enabled, port);
-    match item.as_ref() {
-        Some(i) => {
-            let _ = i.set_text(label);
+    let tooltip = match &watching {
+        Some(line) => format!("TrackMySign — {line}"),
+        None => "TrackMySign".into(),
+    };
+    let Ok(menu) = tray_menu(app, &portal_label(enabled, port), watching.as_deref()) else {
+        return;
+    };
+    match app.tray_by_id(TRAY) {
+        Some(tray) => {
+            let _ = tray.set_menu(Some(menu));
+            let _ = tray.set_tooltip(Some(tooltip));
         }
-        None => *item = add_tray(app, &label).ok(),
+        None => {
+            let _ = add_tray(app, menu, &tooltip);
+        }
     }
 }
 
-fn add_tray(app: &AppHandle, label: &str) -> tauri::Result<MenuItem<Wry>> {
-    let portal_item = MenuItem::with_id(app, "portal", label, false, None::<&str>)?;
+fn tray_menu(app: &AppHandle, portal: &str, watching: Option<&str>) -> tauri::Result<Menu<Wry>> {
     let menu = Menu::with_items(
         app,
         &[
             &MenuItem::with_id(app, "open", "Open TrackMySign", true, None::<&str>)?,
-            &portal_item,
-            &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?,
+            &MenuItem::with_id(app, "portal", portal, false, None::<&str>)?,
         ],
     )?;
+    if let Some(line) = watching {
+        menu.append(&MenuItem::with_id(app, "watch", line, false, None::<&str>)?)?;
+        menu.append(&MenuItem::with_id(
+            app,
+            "stop-watch",
+            "Stop watching",
+            true,
+            None::<&str>,
+        )?)?;
+    }
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?)?;
+    Ok(menu)
+}
+
+fn add_tray(app: &AppHandle, menu: Menu<Wry>, tooltip: &str) -> tauri::Result<()> {
     let builder = TrayIconBuilder::with_id(TRAY)
-        .tooltip("TrackMySign")
+        .tooltip(tooltip)
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => show(app),
+            "stop-watch" => watch::stop(app),
             "quit" => app.exit(0),
             _ => {}
         });
@@ -177,7 +201,7 @@ fn add_tray(app: &AppHandle, label: &str) -> tauri::Result<MenuItem<Wry>> {
         }
     };
     builder.build(app)?;
-    Ok(portal_item)
+    Ok(())
 }
 
 /// macOS: a Dock icon only while the window is shown.

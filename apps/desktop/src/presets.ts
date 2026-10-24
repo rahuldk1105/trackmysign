@@ -1,6 +1,6 @@
 // Saved presets: reason, location and where the box goes, applied in one pick.
 
-import type { ImageChoice } from "./api";
+import type { ImageChoice, WatchPreset } from "./api";
 import { t } from "./i18n";
 import type { PageSize, Placement } from "./PdfView";
 
@@ -73,6 +73,28 @@ export function fromPresetPlacement(pp: PresetPlacement, sizes: PageSize[]): Pla
 function samePlacement(a: PresetPlacement | null, b: PresetPlacement | null): boolean {
   if (!a || !b) return a === b;
   return a.page === b.page && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+}
+
+/**
+ * The copy of a preset a watch folder signs with (the backend applies it, see
+ * `trackmysign_core::watch::Preset`). `preset` null: the default reason and
+ * location, bottom-right of the last page. Pages, timestamp and LTV are the
+ * watch folder's own.
+ */
+export function toWatchPreset(
+  preset: Preset | null,
+  defaults: { reason: string; location: string; image: ImageChoice },
+  own: Pick<WatchPreset, "pages" | "timestamp" | "ltv">,
+): WatchPreset {
+  return {
+    name: preset?.name ?? "",
+    reason: preset?.reason ?? defaults.reason,
+    location: preset?.location ?? defaults.location,
+    placement: preset?.placement ?? null,
+    image: preset?.image ?? defaults.image,
+    invisible: false,
+    ...own,
+  };
 }
 
 /** The preset that matches the current settings exactly, if any. */
