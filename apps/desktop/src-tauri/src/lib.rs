@@ -19,9 +19,10 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
 use trackmysign_core::certinfo::{Validity, days_until};
+use trackmysign_core::stamp;
 use trackmysign_core::token::{Token, TokenCert, Tokens, installed_drivers};
 use trackmysign_core::{
-    DisplayRect, DocMdp, Error, ImagePosition, PdfError, SignRequest, StampImage,
+    DisplayRect, DocMdp, Error, ImagePosition, PdfError, SignRequest, StampImage, StampStyle,
     inspect_with_password, sign_pdf,
 };
 
@@ -279,6 +280,10 @@ struct SignArgs {
     /// Show the saved signature image, and where.
     #[serde(default)]
     image: Option<ImageArg>,
+    /// How the box looks; the usual box when unset. Shows the saved seal
+    /// when it has `seal` settings.
+    #[serde(default)]
+    style: Option<StampStyle>,
     /// Sign into this empty signature field instead of placing a box.
     #[serde(default)]
     field: Option<String>,
@@ -316,6 +321,7 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             Some(_) => Some(saved_image(&app)?),
             None => None,
         };
+        let seal = style_seal(&app, &args.style)?;
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let token = Token::open(Path::new(&args.driver_path))?;
         let certs = token.signing_certificates()?;
@@ -342,6 +348,8 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             location: args.location.filter(|s| !s.trim().is_empty()),
             image,
             image_position: image_position(args.image),
+            seal,
+            style: args.style.unwrap_or_default(),
             timestamp: trimmed_url(args.timestamp),
             ltv: args.ltv,
             field: args.field,
@@ -425,6 +433,8 @@ struct BatchArgs {
     ltv: bool,
     #[serde(default)]
     image: Option<ImageArg>,
+    #[serde(default)]
+    style: Option<StampStyle>,
     /// Password entered for the first file; tried on each file that has one.
     #[serde(default)]
     password: Option<String>,
@@ -455,6 +465,7 @@ fn sign_one(
     path: &Path,
     args: &BatchArgs,
     image: &Option<StampImage>,
+    seal: &Option<StampImage>,
     signer: &mut dyn trackmysign_core::Signer,
 ) -> CmdResult<PathBuf> {
     let data = std::fs::read(path)?;
@@ -499,6 +510,8 @@ fn sign_one(
         location: args.location.clone().filter(|s| !s.trim().is_empty()),
         image: image.clone(),
         image_position: image_position(args.image),
+        seal: seal.clone(),
+        style: args.style.clone().unwrap_or_default(),
         timestamp: trimmed_url(args.timestamp.clone()),
         ltv: args.ltv,
         password,
@@ -523,6 +536,7 @@ async fn sign_batch(
             Some(_) => Some(saved_image(&app)?),
             None => None,
         };
+        let seal = style_seal(&app, &args.style)?;
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let token = Token::open(Path::new(&args.driver_path))?;
         let certs = token.signing_certificates()?;
@@ -539,7 +553,7 @@ async fn sign_batch(
         for (index, path) in args.paths.iter().enumerate() {
             let _ = progress.send(BatchProgress::Signing { index });
             let _ = progress.send(
-                match sign_one(Path::new(path), &args, &image, &mut signer) {
+                match sign_one(Path::new(path), &args, &image, &seal, &mut signer) {
                     // Another attempt with the same PIN could lock the token.
                     Err(e) if matches!(e.kind, "wrongPin" | "pinLocked") => return Err(e),
                     Ok(out) => BatchProgress::Done {
@@ -566,30 +580,76 @@ async fn sign_batch(
     })?
 }
 
-/// The handwritten signature image, copied into the app's data folder.
-fn image_path(app: &AppHandle) -> CmdResult<PathBuf> {
+/// The handwritten signature image and the company seal, copied into the
+/// app's data folder.
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+enum Picture {
+    Signature,
+    Seal,
+}
+
+fn picture_path(app: &AppHandle, which: Picture) -> CmdResult<PathBuf> {
     let dir = app.path().app_data_dir().map_err(|e| CommandError {
         kind: "io",
         message: e.to_string(),
     })?;
-    Ok(dir.join("signature-image"))
+    Ok(dir.join(match which {
+        Picture::Signature => "signature-image",
+        Picture::Seal => "seal-image",
+    }))
 }
 
-fn saved_image(app: &AppHandle) -> CmdResult<StampImage> {
-    let path = image_path(app)?;
+fn saved_picture(app: &AppHandle, which: Picture) -> CmdResult<StampImage> {
+    let path = picture_path(app, which)?;
     if !path.is_file() {
         return Err(CommandError {
             kind: "other",
-            message: "The signature image is missing. Choose it again in Settings.".into(),
+            message: match which {
+                Picture::Signature => {
+                    "The signature image is missing. Choose it again in Settings."
+                }
+                Picture::Seal => "The company seal is missing. Choose it again in the designer.",
+            }
+            .into(),
         });
     }
     Ok(StampImage::open(&path)?)
 }
 
+fn saved_image(app: &AppHandle) -> CmdResult<StampImage> {
+    saved_picture(app, Picture::Signature)
+}
+
+/// The saved seal, when `style` shows one.
+fn style_seal(app: &AppHandle, style: &Option<StampStyle>) -> CmdResult<Option<StampImage>> {
+    match style {
+        Some(s) if s.seal.is_some() => Ok(Some(saved_picture(app, Picture::Seal)?)),
+        _ => Ok(None),
+    }
+}
+
 /// Bytes of the saved signature image for the preview; empty when there is none.
 #[tauri::command]
 fn signature_image(app: AppHandle) -> CmdResult<Response> {
-    let path = image_path(&app)?;
+    picture(app, Picture::Signature)
+}
+
+/// Checks that `path` is a usable PNG or JPEG and keeps a copy.
+#[tauri::command]
+fn set_signature_image(app: AppHandle, path: String) -> CmdResult<()> {
+    set_picture(app, Picture::Signature, path)
+}
+
+#[tauri::command]
+fn clear_signature_image(app: AppHandle) -> CmdResult<()> {
+    clear_picture(app, Picture::Signature)
+}
+
+/// Bytes of a saved picture; empty when there is none.
+#[tauri::command]
+fn picture(app: AppHandle, which: Picture) -> CmdResult<Response> {
+    let path = picture_path(&app, which)?;
     let data = if path.is_file() {
         std::fs::read(path)?
     } else {
@@ -598,12 +658,11 @@ fn signature_image(app: AppHandle) -> CmdResult<Response> {
     Ok(Response::new(data))
 }
 
-/// Checks that `path` is a usable PNG or JPEG and keeps a copy.
 #[tauri::command]
-fn set_signature_image(app: AppHandle, path: String) -> CmdResult<()> {
+fn set_picture(app: AppHandle, which: Picture, path: String) -> CmdResult<()> {
     let data = std::fs::read(&path)?;
     StampImage::from_bytes(&data)?;
-    let dest = image_path(&app)?;
+    let dest = picture_path(&app, which)?;
     if let Some(dir) = dest.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -612,12 +671,60 @@ fn set_signature_image(app: AppHandle, path: String) -> CmdResult<()> {
 }
 
 #[tauri::command]
-fn clear_signature_image(app: AppHandle) -> CmdResult<()> {
-    let path = image_path(&app)?;
+fn clear_picture(app: AppHandle, which: Picture) -> CmdResult<()> {
+    let path = picture_path(&app, which)?;
     if path.is_file() {
         std::fs::remove_file(path)?;
     }
     Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StampPreviewArgs {
+    style: Option<StampStyle>,
+    w: f64,
+    h: f64,
+    name: String,
+    organisation: Option<String>,
+    reason: Option<String>,
+    location: Option<String>,
+    /// Width / height of the signature image shown, and where.
+    image: Option<(f64, ImageArg)>,
+    /// Width / height of the seal, when the style shows it.
+    seal: Option<f64>,
+}
+
+/// The box laid out exactly as signing draws it (now, in local time), for
+/// the preview to draw.
+#[tauri::command]
+fn stamp_preview(args: StampPreviewArgs) -> CmdResult<stamp::Drawing> {
+    let style = args.style.unwrap_or_default();
+    style.validate().map_err(|message| CommandError {
+        kind: "other",
+        message,
+    })?;
+    let images = stamp::Images {
+        signature: args.image.map(|(aspect, side)| stamp::ImageSlot {
+            aspect,
+            position: image_position(Some(side)),
+        }),
+        seal: args.seal.zip(style.seal),
+    };
+    let values = stamp::StampValues {
+        name: args.name,
+        organisation: args.organisation,
+        reason: args.reason,
+        location: args.location,
+        time: chrono::Local::now().fixed_offset(),
+    };
+    Ok(stamp::drawing(&style, &values, images, args.w, args.h))
+}
+
+/// Typed text as the box prints it (Indian scripts transliterated).
+#[tauri::command]
+fn stamp_text(text: String) -> String {
+    stamp::printed(&text)
 }
 
 #[derive(Serialize)]
@@ -778,6 +885,11 @@ pub fn run() {
             signature_image,
             set_signature_image,
             clear_signature_image,
+            picture,
+            set_picture,
+            clear_picture,
+            stamp_preview,
+            stamp_text,
             token_drivers,
             open_file,
             reveal_file,

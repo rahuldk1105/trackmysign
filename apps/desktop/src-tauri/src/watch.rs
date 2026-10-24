@@ -20,7 +20,9 @@ use trackmysign_core::watch::{self, Control, Event, Folders, ImageChoice, PinChe
 use trackmysign_core::{Error, SignRequest, sign_pdf};
 use zeroize::Zeroize;
 
-use super::{CmdResult, CommandError, TOKEN_LOCK, background, not_expired, saved_image};
+use super::{
+    CmdResult, CommandError, TOKEN_LOCK, background, not_expired, saved_image, style_seal,
+};
 
 /// Log entries kept; older ones drop off.
 const LOG_CAP: usize = 200;
@@ -487,6 +489,10 @@ fn start(app: &AppHandle, args: &StartArgs, mut pin: String) -> CmdResult<()> {
         _ if config.preset.invisible => None,
         _ => Some(saved_image(app)?),
     };
+    let seal = match config.preset.shows_seal() {
+        true => style_seal(app, &config.preset.style)?,
+        false => None,
+    };
     let now = SystemTime::now();
     let until = (config.minutes > 0).then(|| now + Duration::from_secs(config.minutes * 60));
     let opts = watch::Options {
@@ -538,6 +544,7 @@ fn start(app: &AppHandle, args: &StartArgs, mut pin: String) -> CmdResult<()> {
             &folders,
             &config.preset,
             image.as_ref(),
+            seal.as_ref(),
             &opts,
             &control,
             &mut host,

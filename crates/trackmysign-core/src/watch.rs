@@ -22,7 +22,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::pdf::reader::PdfError;
 use crate::{
-    DisplayRect, Error, ImagePosition, PdfInfo, SignRequest, StampImage, check_permitted, inspect,
+    DisplayRect, Error, ImagePosition, PdfInfo, SignRequest, StampImage, StampStyle,
+    check_permitted, inspect,
     parse_pages, write_signed_in,
 };
 
@@ -265,6 +266,8 @@ pub struct Preset {
     /// RFC 3161 server; off by default (needs the internet).
     pub timestamp: Option<String>,
     pub ltv: bool,
+    /// How the box looks; the usual box when unset.
+    pub style: Option<StampStyle>,
 }
 
 impl Preset {
@@ -287,11 +290,25 @@ impl Preset {
                 "The timestamp server must be an http:// or https:// address, not {url:?}."
             ));
         }
+        if let Some(style) = &self.style {
+            style.validate()?;
+        }
         Ok(())
     }
 
-    /// The request for one document; `image` is used when the preset shows it.
-    pub fn request(&self, info: &PdfInfo, image: Option<&StampImage>) -> SignRequest {
+    /// Whether the style shows a company seal, which must then be given.
+    pub fn shows_seal(&self) -> bool {
+        !self.invisible && self.style.as_ref().is_some_and(|s| s.seal.is_some())
+    }
+
+    /// The request for one document; `image` is used when the preset shows
+    /// it, `seal` when its style does.
+    pub fn request(
+        &self,
+        info: &PdfInfo,
+        image: Option<&StampImage>,
+        seal: Option<&StampImage>,
+    ) -> SignRequest {
         let count = info.pages.len().max(1);
         let text = |s: &str| Some(s.trim().to_string()).filter(|s| !s.is_empty());
         let (page, rect) = match &self.placement {
@@ -360,6 +377,8 @@ impl Preset {
                 ImageChoice::Above => ImagePosition::Above,
                 _ => ImagePosition::Left,
             },
+            seal: seal.filter(|_| self.shows_seal()).cloned(),
+            style: self.style.clone().unwrap_or_default(),
             timestamp: self.timestamp.as_deref().and_then(text),
             ltv: self.ltv,
             ..Default::default()
@@ -590,6 +609,7 @@ fn sign_file(
     folders: &Folders,
     preset: &Preset,
     image: Option<&StampImage>,
+    seal: Option<&StampImage>,
     host: &mut dyn Host,
 ) -> Outcome {
     let Ok(data) = std::fs::read(path) else {
@@ -627,7 +647,7 @@ fn sign_file(
     if let Err(e) = check_permitted(&data, None) {
         return Outcome::Failed(e.to_string());
     }
-    let req = preset.request(&info, image);
+    let req = preset.request(&info, image, seal);
     let signed = match host.sign(&data, &req) {
         Ok(s) => s,
         Err(e @ (Error::WrongPin { .. } | Error::PinLocked | Error::Token(_))) => {
@@ -672,6 +692,7 @@ pub fn run(
     folders: &Folders,
     preset: &Preset,
     image: Option<&StampImage>,
+    seal: Option<&StampImage>,
     opts: &Options,
     control: &Arc<Control>,
     host: &mut dyn Host,
@@ -766,7 +787,7 @@ pub fn run(
                     reason,
                 });
             };
-            match sign_file(&path, len, folders, preset, image, host) {
+            match sign_file(&path, len, folders, preset, image, seal, host) {
                 Outcome::Signed(output) => {
                     ready.forget(&path);
                     let (moved, warning) = match &folders.done {
@@ -1011,7 +1032,7 @@ mod tests {
             p.placement.unwrap().page,
             PageChoice::Named(NamedPage::First)
         );
-        let req = p.request(&info(3), None);
+        let req = p.request(&info(3), None, None);
         assert_eq!(req.page, 0);
         let r = req.rect.unwrap();
         assert!((r.x - 28.35).abs() < 0.01 && (r.w - 170.08).abs() < 0.01);
@@ -1021,14 +1042,41 @@ mod tests {
         // A page number the file does not have falls back to its last page.
         let p: Preset =
             serde_json::from_str(r#"{"placement":{"page":5,"x":0,"y":0,"w":60,"h":20}}"#).unwrap();
-        assert_eq!(p.request(&info(2), None).page, 1);
+        assert_eq!(p.request(&info(2), None, None).page, 1);
         assert!(p.validate().is_ok());
+        assert_eq!(req.style, StampStyle::default());
+    }
+
+    #[test]
+    fn preset_with_style() {
+        let p: Preset = serde_json::from_str(
+            r#"{"name":"Seal","style":{"font":"courier","align":"center",
+                "seal":{"position":"behind","opacity":0.25}}}"#,
+        )
+        .unwrap();
+        assert!(p.validate().is_ok() && p.shows_seal());
+        let seal = StampImage::from_bytes(&[
+            0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 10, 0, 10, 1, 1, 0x11, 0, 0xff, 0xd9,
+        ])
+        .unwrap();
+        let req = p.request(&info(1), None, Some(&seal));
+        assert_eq!(req.style.font, crate::stamp::FontFamily::Courier);
+        assert!(req.seal.is_some());
+        // No seal in the style: none is shown even when one is at hand.
+        assert!(
+            Preset::default()
+                .request(&info(1), None, Some(&seal))
+                .seal
+                .is_none()
+        );
+        let bad: Preset = serde_json::from_str(r#"{"style":{"text_color":"blue"}}"#).unwrap();
+        assert!(bad.validate().is_err());
     }
 
     #[test]
     fn preset_defaults_and_pages() {
         let p = Preset::default();
-        let req = p.request(&info(2), None);
+        let req = p.request(&info(2), None, None);
         assert_eq!(req.page, 1);
         let r = req.rect.unwrap();
         assert_eq!(
@@ -1040,18 +1088,18 @@ mod tests {
             pages: "1-3,5".into(),
             ..Default::default()
         };
-        assert_eq!(p.request(&info(4), None).pages, vec![0, 1, 2]);
+        assert_eq!(p.request(&info(4), None, None).pages, vec![0, 1, 2]);
         let p = Preset {
             pages: "all".into(),
             ..Default::default()
         };
-        assert_eq!(p.request(&info(3), None).pages, vec![0, 1, 2]);
+        assert_eq!(p.request(&info(3), None, None).pages, vec![0, 1, 2]);
         let p = Preset {
             invisible: true,
             pages: "all".into(),
             ..Default::default()
         };
-        let req = p.request(&info(3), None);
+        let req = p.request(&info(3), None, None);
         assert!(req.rect.is_none() && req.pages.is_empty());
         assert!(
             Preset {

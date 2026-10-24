@@ -10,6 +10,7 @@ pub mod ltv;
 pub mod pdf;
 pub mod portal;
 pub mod report;
+pub mod stamp;
 pub mod token;
 pub mod tsa;
 pub mod verify;
@@ -24,6 +25,7 @@ pub use image::{ImagePosition, StampImage};
 pub use pdf::docmdp::DocMdp;
 pub use pdf::reader::PdfError;
 pub use pdf::sign::{DisplayRect, Placement};
+pub use stamp::StampStyle;
 pub use tsa::DEFAULT_TSA_URL;
 pub use verify::{SignatureReport, verify, verify_with_password};
 
@@ -67,6 +69,8 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("Signature image: {0}")]
     Image(String),
+    #[error("Signature style: {0}")]
+    Style(String),
     #[error("Timestamp failed: {0}")]
     Timestamp(String),
     #[error("Could not embed revocation info (LTV): {0}")]
@@ -90,6 +94,11 @@ pub struct SignRequest {
     /// Handwritten signature shown in the box (visible signatures only).
     pub image: Option<StampImage>,
     pub image_position: ImagePosition,
+    /// Company seal or logo (visible signatures only), placed as
+    /// `style.seal` says.
+    pub seal: Option<StampImage>,
+    /// How the box looks; the default is the usual box.
+    pub style: StampStyle,
     /// RFC 3161 timestamp authority to countersign with (needs the internet).
     pub timestamp: Option<String>,
     /// Append OCSP/CRL data for the certificates in a `/DSS` (needs the internet).
@@ -147,15 +156,19 @@ pub fn sign_pdf(
 ) -> Result<Vec<u8>, Error> {
     let password = req.password.as_deref();
     check_permitted_with_password(input, password, req.certify)?;
+    req.style.validate().map_err(Error::Style)?;
     let summary = certinfo::CertSummary::from_der(signer.certificate())?;
     let time = req.time.unwrap_or_else(|| Local::now().fixed_offset());
     let fields = pdf::sign::SignatureFields {
         signer_name: summary.subject_cn.clone(),
+        organisation: summary.organization.clone(),
         reason: req.reason.clone(),
         location: req.location.clone(),
         time,
         image: req.image.clone(),
         image_position: req.image_position,
+        seal: req.seal.clone(),
+        style: req.style.clone(),
         timestamp: req.timestamp.is_some(),
         certify: req.certify,
     };

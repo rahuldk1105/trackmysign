@@ -8,11 +8,12 @@ use std::collections::BTreeMap;
 
 use chrono::{DateTime, FixedOffset};
 
-use super::appearance::{self, Face, ImageSlot, Line};
+use super::appearance::{self, ImageKind, ImageSlot, Images};
 use super::docmdp::DocMdp;
 use super::object::{Dict, Obj, write_obj};
 use super::reader::{Document, PageInfo, PdfError, Result, XrefEntry};
 use crate::image::{ImagePosition, StampImage};
+use crate::stamp::{StampLine, StampStyle, StampValues, stamp_lines};
 
 /// Rectangle on the page as the user sees it: points, origin at the top-left
 /// of the displayed (cropped and rotated) page — the same space as a PDF.js
@@ -28,11 +29,17 @@ pub struct DisplayRect {
 #[derive(Debug, Clone)]
 pub struct SignatureFields {
     pub signer_name: String,
+    /// The certificate's O=, for a style that shows the organisation.
+    pub organisation: Option<String>,
     pub reason: Option<String>,
     pub location: Option<String>,
     pub time: DateTime<FixedOffset>,
     pub image: Option<StampImage>,
     pub image_position: ImagePosition,
+    /// Company seal or logo, placed as `style.seal` says (right of the text
+    /// when it does not say).
+    pub seal: Option<StampImage>,
+    pub style: StampStyle,
     /// A timestamp will be added (some fields require one).
     pub timestamp: bool,
     /// Make this the certification signature, allowing only these changes.
@@ -164,54 +171,42 @@ fn take(next: &mut u32) -> u32 {
     id
 }
 
-/// What every appearance of one signature shares: the text, the image
-/// slot and resources (fonts and image written once to `objs`).
+/// What every appearance of one signature shares: the style, the text,
+/// the image slots and resources (fonts and images written once to `objs`).
 struct Stamp {
-    lines: Vec<Line>,
-    slot: Option<ImageSlot>,
+    style: StampStyle,
+    lines: Vec<StampLine>,
+    images: Images,
     resources: Dict,
 }
 
 fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp {
     let f1 = take(next);
     let f2 = take(next);
-    // English whatever the app's language: Helvetica (WinAnsi) has no
-    // Devanagari or Tamil glyphs. The desktop preview mirrors these lines.
-    let mut lines = vec![
-        Line {
-            text: "Digitally signed by".into(),
-            face: Face::Regular,
-            scale: 1.0,
+    // English whatever the app's language: the standard fonts (WinAnsi)
+    // have no Devanagari or Tamil glyphs, so such text is transliterated.
+    let lines = stamp_lines(
+        &fields.style,
+        &StampValues {
+            name: fields.signer_name.clone(),
+            organisation: fields.organisation.clone(),
+            reason: fields.reason.clone(),
+            location: fields.location.clone(),
+            time: fields.time,
         },
-        Line {
-            text: fields.signer_name.clone(),
-            face: Face::Bold,
-            scale: 1.15,
-        },
-        Line {
-            text: format!("Date: {}", fields.time.format("%Y.%m.%d %H:%M:%S %:z")),
-            face: Face::Regular,
-            scale: 1.0,
-        },
-    ];
-    if let Some(reason) = fields.reason.as_ref().filter(|s| !s.is_empty()) {
-        lines.push(Line {
-            text: format!("Reason: {reason}"),
-            face: Face::Regular,
-            scale: 1.0,
-        });
-    }
-    if let Some(loc) = fields.location.as_ref().filter(|s| !s.is_empty()) {
-        lines.push(Line {
-            text: format!("Location: {loc}"),
-            face: Face::Regular,
-            scale: 1.0,
-        });
-    }
-    let slot = fields.image.as_ref().map(|img| ImageSlot {
-        aspect: img.aspect(),
-        position: fields.image_position,
-    });
+    );
+    let images = Images {
+        signature: fields.image.as_ref().map(|img| ImageSlot {
+            aspect: img.aspect(),
+            position: fields.image_position,
+        }),
+        seal: fields
+            .seal
+            .as_ref()
+            .map(|img| (img.aspect(), fields.style.seal.unwrap_or_default())),
+    };
+    // Which images the style shows does not depend on the size of the box.
+    let probe = appearance::draw(&fields.style, &lines, images, 170.0, 55.0);
     let font = |base: &str| {
         Obj::Dict(
             Dict::new()
@@ -221,8 +216,9 @@ fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp 
                 .with("Encoding", Obj::name("WinAnsiEncoding")),
         )
     };
-    objs.insert(f1, (0, font("Helvetica")));
-    objs.insert(f2, (0, font("Helvetica-Bold")));
+    let [regular, bold] = appearance::base_fonts(fields.style.font);
+    objs.insert(f1, (0, font(regular)));
+    objs.insert(f2, (0, font(bold)));
     let mut resources = Dict::new().with(
         "Font",
         Obj::Dict(
@@ -231,8 +227,15 @@ fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp 
                 .with("F2", Obj::Ref(f2, 0)),
         ),
     );
-    // One image object, shared by the appearances on every page.
-    if let Some(img) = &fields.image {
+    // One object per image, shared by the appearances on every page.
+    let mut xobjects = Dict::new();
+    for (name, kind, img) in [
+        ("Im1", ImageKind::Signature, &fields.image),
+        ("Im2", ImageKind::Seal, &fields.seal),
+    ] {
+        let Some(img) = img.as_ref().filter(|_| probe.uses(kind)) else {
+            continue;
+        };
         let im = take(next);
         let smask = img.mask_obj().map(|m| {
             let id = take(next);
@@ -240,14 +243,25 @@ fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp 
             Obj::Ref(id, 0)
         });
         objs.insert(im, (0, img.image_obj(smask)));
+        xobjects.set(name, Obj::Ref(im, 0));
+    }
+    if !xobjects.0.is_empty() {
+        resources.set("XObject", Obj::Dict(xobjects));
+    }
+    if let Some(alpha) = probe.opacity() {
+        let gs = Dict::new()
+            .with("Type", Obj::name("ExtGState"))
+            .with("ca", Obj::real(alpha))
+            .with("CA", Obj::real(alpha));
         resources.set(
-            "XObject",
-            Obj::Dict(Dict::new().with("Im1", Obj::Ref(im, 0))),
+            "ExtGState",
+            Obj::Dict(Dict::new().with("GS1", Obj::Dict(gs))),
         );
     }
     Stamp {
+        style: fields.style.clone(),
         lines,
-        slot,
+        images,
         resources,
     }
 }
@@ -255,7 +269,8 @@ fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp 
 /// Appearance stream for a `w`×`h` box (upright as the reader sees it),
 /// turned `rotate` degrees counterclockwise onto the page.
 fn appearance_obj(stamp: &Stamp, w: f64, h: f64, rotate: i32) -> Obj {
-    let content = appearance::content_stream_with_image(w, h, &stamp.lines, stamp.slot);
+    let content =
+        appearance::draw(&stamp.style, &stamp.lines, stamp.images, w, h).content_stream();
     let m = appearance::rotation_matrix(rotate, w, h);
     let ap = Dict::new()
         .with("Type", Obj::name("XObject"))
@@ -1020,11 +1035,14 @@ mod tests {
         let pdf = two_page_pdf();
         let base = SignatureFields {
             signer_name: "RAMESH KUMAR".into(),
+            organisation: Some("ACME LTD".into()),
             reason: Some("Approved".into()),
             location: Some("Chennai".into()),
             time: DateTime::parse_from_rfc3339("2026-10-20T14:32:10+05:30").unwrap(),
             image: None,
             image_position: ImagePosition::Left,
+            seal: None,
+            style: StampStyle::default(),
             timestamp: false,
             certify: None,
         };
@@ -1078,5 +1096,55 @@ mod tests {
                 "cac8b234a4c1650cb72677c20ec17a956242fbae0639ab8ad54caf1c22419ff6",
             ]
         );
+    }
+
+    #[test]
+    fn styled_stamp_resources() {
+        use crate::stamp::{FontFamily, Layout, SealPosition, SealStyle};
+        let style = StampStyle {
+            font: FontFamily::Times,
+            layout: Layout::TextOnly,
+            seal: Some(SealStyle {
+                position: SealPosition::Behind,
+                opacity: 0.3,
+            }),
+            ..Default::default()
+        };
+        let fields = SignatureFields {
+            signer_name: "RAMESH KUMAR".into(),
+            organisation: None,
+            reason: None,
+            location: None,
+            time: DateTime::parse_from_rfc3339("2026-10-20T14:32:10+05:30").unwrap(),
+            // Not shown: the layout is text only.
+            image: Some(png(60, 20)),
+            image_position: ImagePosition::Left,
+            seal: Some(png(40, 40)),
+            style,
+            timestamp: false,
+            certify: None,
+        };
+        let placement = Placement {
+            page: 1,
+            rect: Some(DisplayRect {
+                x: 20.0,
+                y: 20.0,
+                w: 170.0,
+                h: 55.0,
+            }),
+            pages: vec![],
+            field: None,
+        };
+        let p = prepare(&two_page_pdf(), &placement, &fields, 4000).unwrap();
+        let doc = Document::parse(&p.data).unwrap();
+        for (id, font) in [(8, "Times-Roman"), (9, "Times-Bold")] {
+            let Obj::Dict(d) = doc.get(id).unwrap() else {
+                panic!()
+            };
+            assert!(d.get("BaseFont").unwrap().is_name(font));
+        }
+        let text = String::from_utf8_lossy(&p.data);
+        assert!(text.contains("/Im2") && !text.contains("/Im1"));
+        assert!(text.contains("/ExtGState") && text.contains("/ca 0.3"));
     }
 }

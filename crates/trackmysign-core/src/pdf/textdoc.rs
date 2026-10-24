@@ -42,7 +42,7 @@ const FOOTER: Style = Style::new(Face::Regular, FOOTER_SIZE, [0.35, 0.35, 0.35])
 /// Widths of WinAnsi 0x80..=0xFF (from the standard 14 font metrics);
 /// unused codes are never written.
 #[rustfmt::skip]
-const HELVETICA_HIGH: [u16; 128] = [
+pub(super) const HELVETICA_HIGH: [u16; 128] = [
     556,350,222,556,333,1000,556,556,333,1000,667,333,1000,350,611,350,
     350,222,222,333,333,350,556,1000,333,1000,500,333,944,350,500,667,
     278,333,556,556,556,556,260,556,333,737,370,556,584,333,737,333,
@@ -54,7 +54,7 @@ const HELVETICA_HIGH: [u16; 128] = [
 ];
 
 #[rustfmt::skip]
-const HELVETICA_BOLD_HIGH: [u16; 128] = [
+pub(super) const HELVETICA_BOLD_HIGH: [u16; 128] = [
     556,350,278,556,500,1000,556,556,333,1000,667,333,1000,350,611,350,
     350,278,278,500,500,350,556,1000,333,1000,556,333,944,350,500,667,
     278,333,556,556,556,556,280,556,333,737,370,556,584,333,737,333,

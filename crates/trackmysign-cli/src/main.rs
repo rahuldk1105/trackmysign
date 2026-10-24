@@ -17,7 +17,7 @@ use trackmysign_core::token::{Driver, TokenCert, TokenSigner, Tokens, driver_nam
 use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
 use trackmysign_core::{
     DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, ImagePosition, PdfError, PdfInfo, SignRequest,
-    StampImage, check_permitted_with_password, inspect_with_password, parse_pages, sign_pdf,
+    StampImage, StampStyle, check_permitted_with_password, inspect_with_password, parse_pages, sign_pdf,
     signed_path, watch,
 };
 use zeroize::Zeroizing;
@@ -102,6 +102,13 @@ enum Cmd {
         /// Where the image goes, relative to the text.
         #[arg(long, value_enum, default_value_t = ImageSide::Left)]
         image_position: ImageSide,
+        /// How the box looks: a style saved as JSON (see the README).
+        #[arg(long, value_name = "FILE")]
+        style: Option<PathBuf>,
+        /// Company seal or logo (PNG or JPEG) to show in the box, placed as
+        /// the style says (right of the text by default).
+        #[arg(long, value_name = "FILE")]
+        seal: Option<PathBuf>,
         /// Which certificate to use (number from `trackmysign certs`).
         #[arg(long, default_value_t = 1)]
         cert: usize,
@@ -134,7 +141,7 @@ enum Cmd {
         out: Option<PathBuf>,
         /// A preset saved as JSON: reason, location, placement (page "first",
         /// "last" or a number; x, y, w, h in mm from the top-left), image
-        /// ("off", "left", "above"), pages, invisible, timestamp, ltv.
+        /// ("off", "left", "above"), pages, invisible, timestamp, ltv, style.
         #[arg(long, value_name = "FILE")]
         preset_json: Option<PathBuf>,
         /// Box on more pages: `all` or a list such as `1-3,5` (pages a file
@@ -148,6 +155,12 @@ enum Cmd {
         /// Handwritten signature (PNG or JPEG); needed when the preset shows one.
         #[arg(long)]
         image: Option<PathBuf>,
+        /// How the box looks, instead of the preset's style.
+        #[arg(long, value_name = "FILE")]
+        style: Option<PathBuf>,
+        /// Company seal or logo (PNG or JPEG); needed when the style shows one.
+        #[arg(long, value_name = "FILE")]
+        seal: Option<PathBuf>,
         #[arg(long)]
         invisible: bool,
         /// Leave originals in FOLDER instead of moving them to FOLDER/done.
@@ -240,6 +253,14 @@ fn describe_certification(p: DocMdp) -> &'static str {
 enum ImageSide {
     Left,
     Above,
+}
+
+/// A signature style saved as JSON, checked.
+fn read_style(path: &Path) -> Result<StampStyle> {
+    let data = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    StampStyle::from_json(&data)
+        .map_err(anyhow::Error::msg)
+        .with_context(|| format!("{} is not a signature style", path.display()))
 }
 
 fn parse_rect(s: &str) -> Result<DisplayRect, String> {
@@ -803,6 +824,8 @@ fn run() -> Result<()> {
             location,
             image,
             image_position,
+            style,
+            seal,
             cert,
             timestamp,
             ltv,
@@ -823,6 +846,15 @@ fn run() -> Result<()> {
             let image = image
                 .map(|p| StampImage::open(&p).with_context(|| format!("reading {}", p.display())))
                 .transpose()?;
+            let mut style = style.as_deref().map(read_style).transpose()?.unwrap_or_default();
+            let seal = seal
+                .map(|p| StampImage::open(&p).with_context(|| format!("reading {}", p.display())))
+                .transpose()?;
+            match (&seal, style.seal) {
+                (Some(_), None) => style.seal = Some(Default::default()),
+                (None, Some(_)) => bail!("the style shows a company seal; give it with --seal"),
+                _ => {}
+            }
             let single = pdfs.len() == 1;
             let mut failed = 0;
             // A bad file is reported and skipped; a single PDF fails as before.
@@ -901,6 +933,8 @@ fn run() -> Result<()> {
                         ImageSide::Left => ImagePosition::Left,
                         ImageSide::Above => ImagePosition::Above,
                     },
+                    seal: seal.clone(),
+                    style: style.clone(),
                     timestamp: timestamp.clone(),
                     ltv,
                     field: field.clone(),
@@ -941,6 +975,8 @@ fn run() -> Result<()> {
             reason,
             location,
             image,
+            style,
+            seal,
             invisible,
             keep_originals,
             daily_limit,
@@ -987,6 +1023,20 @@ fn run() -> Result<()> {
                 None if preset.image == watch::ImageChoice::Off => None,
                 None => bail!("the preset shows a signature image; give it with --image"),
             };
+            if let Some(p) = &style {
+                preset.style = Some(read_style(p)?);
+            }
+            let seal = match &seal {
+                Some(p) => {
+                    let style = preset.style.get_or_insert_with(Default::default);
+                    style.seal.get_or_insert_with(Default::default);
+                    Some(StampImage::open(p).with_context(|| format!("reading {}", p.display()))?)
+                }
+                None if preset.shows_seal() => {
+                    bail!("the style shows a company seal; give it with --seal")
+                }
+                None => None,
+            };
             let folders = watch::Folders::new(&folder, out.as_deref(), !keep_originals)
                 .map_err(anyhow::Error::msg)?;
             let opts = watch::Options {
@@ -1025,6 +1075,7 @@ fn run() -> Result<()> {
                 &folders,
                 &preset,
                 image.as_ref(),
+                seal.as_ref(),
                 &opts,
                 &control,
                 &mut host,
