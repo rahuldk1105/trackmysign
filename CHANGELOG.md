@@ -6,6 +6,12 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The desktop app in Hindi and Tamil. It follows the system language; choose
+  System, English, हिन्दी or தமிழ் under *Settings → Appearance → Language*.
+  The signature box in the PDF stays in English.
+
 ## [0.3.0] - 2026-10-24
 
 ### Added

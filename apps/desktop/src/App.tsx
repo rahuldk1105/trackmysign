@@ -14,7 +14,9 @@ import type {
   PinStatus,
   Signed,
 } from "./api";
-import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, remindAbout, today, type ReminderDays } from "./expiry";
+import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, reminderLabel, remindAbout, today, type ReminderDays } from "./expiry";
+import { isLangPref, LANGUAGE_NAMES, t, tx, useLanguage, type LangPref, type MessageKey } from "./i18n";
+import { errorText, translateMessage } from "./i18n/errors";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
 import { PortalDialog, PortalSettings, PortalStatusItem, usePortal } from "./PortalSigning";
 import { SignaturesPanel } from "./SignaturesPanel";
@@ -59,6 +61,8 @@ interface Saved {
   reminderDismissed: string;
   /** Look for a new version on launch. */
   autoUpdate: boolean;
+  /** UI language; "system" follows the OS. */
+  language: LangPref;
 }
 
 const KEY = "trackmysign.settings.v1";
@@ -83,13 +87,15 @@ const defaults: Saved = {
   expiryReminder: 30,
   reminderDismissed: "",
   autoUpdate: true,
+  language: "system",
 };
 
 function loadSaved(): Saved {
   try {
     const s: Saved = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
     if (!Array.isArray(s.presets)) s.presets = [];
-    if (!REMINDER_CHOICES.some((c) => c.value === s.expiryReminder)) s.expiryReminder = defaults.expiryReminder;
+    if (!REMINDER_CHOICES.includes(s.expiryReminder)) s.expiryReminder = defaults.expiryReminder;
+    if (!isLangPref(s.language)) s.language = defaults.language;
     return s;
   } catch {
     return defaults;
@@ -140,44 +146,44 @@ const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.
 
 type PagesMode = "this" | "all" | "custom";
 
-const CERTIFY_LEVELS: { value: CertifyLevel; label: string; help: string }[] = [
-  { value: 1, label: "No changes", help: "Any later change, even another signature, invalidates the certification." },
-  { value: 2, label: "Form fill & sign", help: "Others can still fill in forms and sign." },
-  { value: 3, label: "+ Comments", help: "Others can still fill in forms, sign and add comments." },
+const CERTIFY_LEVELS: { value: CertifyLevel; label: MessageKey; help: MessageKey }[] = [
+  { value: 1, label: "type.level1", help: "type.level1Help" },
+  { value: 2, label: "type.level2", help: "type.level2Help" },
+  { value: 3, label: "type.level3", help: "type.level3Help" },
 ];
 
-const PAGE_MODES: { value: PagesMode; label: string }[] = [
-  { value: "this", label: "This page" },
-  { value: "all", label: "All pages" },
-  { value: "custom", label: "Custom" },
+const PAGE_MODES: { value: PagesMode; label: MessageKey }[] = [
+  { value: "this", label: "placement.thisPage" },
+  { value: "all", label: "placement.allPages" },
+  { value: "custom", label: "common.custom" },
 ];
 
 /** `1-3, 5` (numbered from 1) → sorted zero-based pages, or an error message. */
 function parsePages(spec: string, count: number): number[] | string {
   const out = new Set<number>();
   const num = (s: string) => {
-    const t = s.trim();
-    if (!/^\d+$/.test(t)) throw `"${t}" is not a page number`;
-    const n = Number(t);
-    if (n < 1) throw "Pages are numbered from 1";
-    if (n > count) throw `The PDF has only ${count} page${count > 1 ? "s" : ""}`;
+    const text = s.trim();
+    if (!/^\d+$/.test(text)) throw t("pagesError.notNumber", { text });
+    const n = Number(text);
+    if (n < 1) throw t("pagesError.fromOne");
+    if (n > count) throw t("pagesError.only", { n: count });
     return n - 1;
   };
   try {
     for (const part of spec.split(",").filter((p) => p.trim())) {
       const [a, b, ...rest] = part.split("-");
-      if (rest.length) throw `"${part.trim()}" is not a range`;
+      if (rest.length) throw t("pagesError.notRange", { text: part.trim() });
       if (b === undefined) out.add(num(a));
       else {
         const [from, to] = [num(a), num(b)];
-        if (from > to) throw `"${part.trim()}" runs backwards`;
+        if (from > to) throw t("pagesError.backwards", { text: part.trim() });
         for (let i = from; i <= to; i++) out.add(i);
       }
     }
   } catch (e) {
     return String(e);
   }
-  return out.size ? [...out].sort((x, y) => x - y) : "Enter pages, e.g. 1-3, 5";
+  return out.size ? [...out].sort((x, y) => x - y) : t("pagesError.empty");
 }
 
 /** Zero-based pages → `1-3, 5`. */
@@ -193,8 +199,8 @@ function formatPages(list: number[]): string {
 }
 
 function pagesLabel(list: number[], count: number): string {
-  if (list.length === count && count > 1) return `all ${count} pages`;
-  return `page${list.length > 1 ? "s" : ""} ${formatPages(list)}`;
+  if (list.length === count && count > 1) return t("placement.allN", { n: count });
+  return t("placement.list", { n: list.length, list: formatPages(list) });
 }
 
 function baseName(path: string) {
@@ -241,6 +247,8 @@ type Step =
 
 export default function App() {
   const [saved, setSaved] = useState<Saved>(loadSaved);
+  // First, so that everything rendered below uses the chosen language.
+  const lang = useLanguage(saved.language);
   const [certs, setCerts] = useState<Cert[] | null>(null);
   const [certError, setCertError] = useState<string | null>(null);
   const [certIndex, setCertIndex] = useState(0);
@@ -293,14 +301,14 @@ export default function App() {
     try {
       const list = (await api.listCertificates()).filter((c) => c.canSign);
       setCerts(list);
-      setCertError(list.length ? null : "No signing certificate found on the token.");
+      setCertError(list.length ? null : t("error.noCertOnToken"));
       setCertIndex((i) => {
         const byName = list.findIndex((c) => c.name === loadSaved().certName);
         return byName >= 0 ? byName : Math.min(i, Math.max(0, list.length - 1));
       });
     } catch (e) {
       setCerts([]);
-      setCertError(api.errorOf(e).message);
+      setCertError(errorText(api.errorOf(e)));
     }
     api
       .knownCertificates()
@@ -339,7 +347,7 @@ export default function App() {
       await loadImage();
       if (saved.image === "off") update({ image: "left" });
     } catch (e) {
-      setImageError(api.errorOf(e).message);
+      setImageError(errorText(api.errorOf(e)));
     }
   };
 
@@ -382,10 +390,10 @@ export default function App() {
       const err = api.errorOf(e);
       setDoc(null);
       if (err.kind === "password") {
-        setUnlock({ path, name: baseName(path), owner: false, error: password === undefined ? undefined : err.message });
+        setUnlock({ path, name: baseName(path), owner: false, error: password === undefined ? undefined : errorText(err) });
       } else {
         setUnlock(null);
-        setDocError(err.message);
+        setDocError(errorText(err));
       }
     } finally {
       setLoading(false);
@@ -398,14 +406,14 @@ export default function App() {
     try {
       const info = await api.pdfInfo(doc.info.path, password);
       if (!info.signingAllowed) {
-        setUnlock((u) => u && { ...u, error: "This password opens the PDF but does not allow signing. Enter the owner password." });
+        setUnlock((u) => u && { ...u, error: t("password.opensOnly") });
         return;
       }
       setDoc({ ...doc, info: { ...info, pages: doc.info.pages }, password });
       setUnlock(null);
     } catch (e) {
       const err = api.errorOf(e);
-      setUnlock((u) => u && { ...u, error: err.message });
+      setUnlock((u) => u && { ...u, error: errorText(err) });
     }
   };
 
@@ -602,7 +610,7 @@ export default function App() {
           }
           if (p.state === "signing") setItem(p.index, { state: "signing" });
           else if (p.state === "done") setItem(p.index, { state: "done", output: p.output, signedName: p.name });
-          else setItem(p.index, { state: "failed", message: p.message });
+          else setItem(p.index, { state: "failed", message: translateMessage(p.message) });
           if (p.state !== "signing") finished++;
         },
       );
@@ -613,7 +621,7 @@ export default function App() {
       // A key that wants the PIN for every signature only checks it at the first file.
       const pinRefused = err.kind === "wrongPin" || err.kind === "pinLocked";
       if (started && !(pinRefused && finished === 0)) {
-        setStep((s) => (s.kind === "batch" ? { ...s, running: false, error: err.message } : s));
+        setStep((s) => (s.kind === "batch" ? { ...s, running: false, error: errorText(err) } : s));
         return;
       }
       setStep({ kind: "pin", error: err });
@@ -654,6 +662,8 @@ export default function App() {
     }
   };
 
+  // What the PDF stamp will say. It stays English in every UI language: the
+  // stamp is drawn with Helvetica, which has no Devanagari or Tamil glyphs.
   const preview = [
     "Digitally signed by",
     cert?.name ?? "YOUR NAME",
@@ -679,45 +689,45 @@ export default function App() {
             <div className="doc-name" title={doc.info.path}>
               <FileIcon />
               <span>{doc.info.name}</span>
-              {batch && <em className="muted">+{batch.length - 1} more</em>}
+              {batch && <em className="muted">{t("toolbar.more", { n: batch.length - 1 })}</em>}
             </div>
             <i className="tb-sep" />
-            <div className="tb-group" role="group" aria-label="Pages">
-              <button className="tb-btn" onClick={() => goPage(page - 1)} disabled={page <= 0} title="Previous page">
+            <div className="tb-group" role="group" aria-label={t("common.pages")}>
+              <button className="tb-btn" onClick={() => goPage(page - 1)} disabled={page <= 0} title={t("toolbar.prevPage")}>
                 <ChevronUpIcon />
               </button>
               <span className="tb-value mono" aria-live="polite">
                 {page + 1} / {pages}
               </span>
-              <button className="tb-btn" onClick={() => goPage(page + 1)} disabled={page >= pages - 1} title="Next page">
+              <button className="tb-btn" onClick={() => goPage(page + 1)} disabled={page >= pages - 1} title={t("toolbar.nextPage")}>
                 <ChevronDownIcon />
               </button>
             </div>
             <i className="tb-sep" />
-            <div className="tb-group" role="group" aria-label="Zoom">
-              <button className="tb-btn" onClick={() => zoomBy(-1)} disabled={view.scale <= ZOOM_STEPS[0]} title={`Zoom out (${MOD}−)`}>
+            <div className="tb-group" role="group" aria-label={t("toolbar.zoom")}>
+              <button className="tb-btn" onClick={() => zoomBy(-1)} disabled={view.scale <= ZOOM_STEPS[0]} title={t("toolbar.zoomOut", { key: `${MOD}−` })}>
                 <MinusIcon />
               </button>
               <span className="tb-value mono zoom-val">{zoomPct}</span>
-              <button className="tb-btn" onClick={() => zoomBy(1)} disabled={view.scale >= ZOOM_STEPS[ZOOM_STEPS.length - 1]} title={`Zoom in (${MOD}+)`}>
+              <button className="tb-btn" onClick={() => zoomBy(1)} disabled={view.scale >= ZOOM_STEPS[ZOOM_STEPS.length - 1]} title={t("toolbar.zoomIn", { key: `${MOD}+` })}>
                 <PlusIcon />
               </button>
-              <button className={`tb-btn text ${zoom === 1 ? "on" : ""}`} onClick={() => setZoom(1)} title={`Fit width (${MOD}0)`}>
+              <button className={`tb-btn text ${zoom === 1 ? "on" : ""}`} onClick={() => setZoom(1)} title={t("toolbar.fitWidthKey", { key: `${MOD}0` })}>
                 <FitWidthIcon />
-                <span>Fit width</span>
+                <span>{t("toolbar.fitWidth")}</span>
               </button>
             </div>
           </>
         ) : (
-          <span className="muted doc-none">No document</span>
+          <span className="muted doc-none">{t("toolbar.noDocument")}</span>
         )}
         <div className="spacer" />
-        <button className="btn" onClick={pick} disabled={loading} title={`Open a PDF (${MOD}O)`}>
+        <button className="btn" onClick={pick} disabled={loading} title={t("toolbar.openTitle", { key: `${MOD}O` })}>
           <FolderIcon />
-          Open…
+          {t("toolbar.open")}
           <kbd>{MOD}O</kbd>
         </button>
-        <button className="tb-btn" onClick={() => setSettingsOpen(true)} title="Settings" aria-label="Settings">
+        <button className="tb-btn" onClick={() => setSettingsOpen(true)} title={t("common.settings")} aria-label={t("common.settings")}>
           <GearIcon />
         </button>
       </header>
@@ -744,17 +754,17 @@ export default function App() {
                 onPickField={pickField}
                 field={field?.name}
               />
-              {hover && <div className="drop-overlay">Drop to open this PDF</div>}
+              {hover && <div className="drop-overlay">{t("empty.dropToOpen")}</div>}
             </>
           ) : (
             <div className="empty">
               <div className="drop-region">
                 <div className="empty-block">
-                  <h1>Open a PDF to sign</h1>
-                  <p className="muted">Drop one or more PDFs here or press {isMac ? "⌘O" : "Ctrl+O"}</p>
+                  <h1>{t("empty.title")}</h1>
+                  <p className="muted">{t("empty.hint", { key: isMac ? "⌘O" : "Ctrl+O" })}</p>
                   <button className="btn primary" onClick={pick} disabled={loading}>
                     <FolderIcon />
-                    {loading ? "Opening…" : "Open PDF…"}
+                    {loading ? t("empty.opening") : t("empty.openPdf")}
                   </button>
                   {docError && (
                     <p className="inline-error">
@@ -770,13 +780,13 @@ export default function App() {
                   )}
                   <ul className="facts">
                     <li>
-                      <CheckIcon size={13} /> Original file is never modified
+                      <CheckIcon size={13} /> {t("empty.factOriginal")}
                     </li>
                     <li>
-                      <CheckIcon size={13} /> Existing signatures stay valid
+                      <CheckIcon size={13} /> {t("empty.factSignatures")}
                     </li>
                     <li>
-                      <CheckIcon size={13} /> Your PIN is never stored
+                      <CheckIcon size={13} /> {t("empty.factPin")}
                     </li>
                   </ul>
                 </div>
@@ -790,46 +800,46 @@ export default function App() {
             <div className="insp-scroll">
               {batch && (
                 <section>
-                  <h3>Documents · {batch.length}</h3>
+                  <h3>{t("batch.documents", { n: batch.length })}</h3>
                   <ul className="batch-files">
                     {batch.map((p, i) => (
                       <li key={p} title={p}>
                         <FileIcon size={13} />
                         <span className={i === 0 ? "strong" : undefined}>{baseName(p)}</span>
-                        <button className="tb-btn" onClick={() => removeFromBatch(p)} title="Leave out" aria-label={`Leave out ${baseName(p)}`}>
+                        <button className="tb-btn" onClick={() => removeFromBatch(p)} title={t("batch.leaveOut")} aria-label={t("batch.leaveOutFile", { name: baseName(p) })}>
                           <CloseIcon size={12} />
                         </button>
                       </li>
                     ))}
                   </ul>
-                  <p className="muted small">The first document is shown. The box goes on the same page and spot of each.</p>
+                  <p className="muted small">{t("batch.firstShown")}</p>
                 </section>
               )}
 
               <section>
-                <h3>Preset</h3>
+                <h3>{t("preset.title")}</h3>
                 <PresetPicker presets={saved.presets} active={active?.name} onApply={applyPreset} onSave={savePreset} />
               </section>
 
               <section>
-                <h3>Signer</h3>
+                <h3>{t("common.signer")}</h3>
                 {certs === null ? (
-                  <p className="muted small">Looking for the DSC token…</p>
+                  <p className="muted small">{t("signer.looking")}</p>
                 ) : !cert ? (
                   <div className="warn-row">
                     <AlertIcon size={14} />
                     <div>
-                      <strong>No signing certificate</strong>
-                      <span>Plug in your DSC token.</span>
+                      <strong>{t("signer.noCert")}</strong>
+                      <span>{t("signer.plugIn")}</span>
                       <button className="link" onClick={refreshCerts}>
-                        Check again
+                        {t("common.checkAgain")}
                       </button>
                     </div>
                   </div>
                 ) : (
                   <>
                     {certs.length > 1 && (
-                      <select value={certIndex} onChange={(e) => setCertIndex(Number(e.target.value))} aria-label="Certificate">
+                      <select value={certIndex} onChange={(e) => setCertIndex(Number(e.target.value))} aria-label={t("common.certificate")}>
                         {certs.map((c, i) => (
                           <option key={i} value={i}>
                             {c.name} — {c.issuer}
@@ -839,26 +849,23 @@ export default function App() {
                       </select>
                     )}
                     <dl className="kv">
-                      <dt>Name</dt>
+                      <dt>{t("common.name")}</dt>
                       <dd className="strong">{cert.name}</dd>
-                      <dt>Issuer</dt>
+                      <dt>{t("common.issuer")}</dt>
                       <dd>{cert.issuer}</dd>
-                      <dt>Valid until</dt>
+                      <dt>{t("common.validUntil")}</dt>
                       <dd className={certTone === "expired" || certTone === "urgent" ? "bad" : undefined}>
                         {cert.validUntil} <span className="muted">· {daysLeftText(cert.daysLeft)}</span>
                       </dd>
-                      <dt>Driver</dt>
+                      <dt>{t("common.driver")}</dt>
                       <dd title={cert.driverPath}>{cert.driver}</dd>
                     </dl>
                     {cert.expired ? (
                       <div className="warn-row">
                         <AlertIcon size={14} />
                         <div>
-                          <strong>Certificate expired</strong>
-                          <span>
-                            It expired on {cert.validUntil}. A signature made with an expired DSC is not valid, so signing is off. Renew your DSC with
-                            your provider.
-                          </span>
+                          <strong>{t("signer.expiredTitle")}</strong>
+                          <span>{t("signer.expiredBody", { date: cert.validUntil })}</span>
                         </div>
                       </div>
                     ) : certTone ? (
@@ -866,7 +873,7 @@ export default function App() {
                         <AlertIcon size={14} />
                         <div>
                           <strong>{expiryText(cert.daysLeft)}</strong>
-                          <span>Renew your DSC with your provider before {cert.validUntil} to keep signing without a break.</span>
+                          <span>{t("signer.renewBefore", { date: cert.validUntil })}</span>
                         </div>
                       </div>
                     ) : null}
@@ -874,10 +881,8 @@ export default function App() {
                       <div className="warn-row calm">
                         <AlertIcon size={14} />
                         <div>
-                          <strong>Certificate not yet valid</strong>
-                          <span>
-                            It becomes valid on {cert.validFrom}. Check this computer's date and time; a signature made before then may not be accepted.
-                          </span>
+                          <strong>{t("signer.notYetTitle")}</strong>
+                          <span>{t("signer.notYetBody", { date: cert.validFrom })}</span>
                         </div>
                       </div>
                     )}
@@ -888,14 +893,20 @@ export default function App() {
               </section>
 
               <section>
-                <h3>Appearance</h3>
-                <label htmlFor="reason">Reason</label>
-                <input id="reason" value={saved.reason} onChange={(e) => update({ reason: e.target.value })} placeholder="e.g. Approved" />
-                <label htmlFor="location">Location</label>
-                <input id="location" value={saved.location} onChange={(e) => update({ location: e.target.value })} placeholder="e.g. Chennai" />
-                <label>Signature image</label>
+                <h3>{t("common.appearance")}</h3>
+                <label htmlFor="reason">{t("common.reason")}</label>
+                <input id="reason" value={saved.reason} onChange={(e) => update({ reason: e.target.value })} placeholder={t("common.reasonPlaceholder")} />
+                <label htmlFor="location">{t("common.location")}</label>
+                <input
+                  id="location"
+                  value={saved.location}
+                  onChange={(e) => update({ location: e.target.value })}
+                  placeholder={t("common.locationPlaceholder")}
+                />
+                {lang !== "en" && <p className="muted small">{t("appearance.latinOnly")}</p>}
+                <label>{t("common.signatureImage")}</label>
                 {sigImage ? (
-                  <div className="segmented" role="radiogroup" aria-label="Signature image">
+                  <div className="segmented" role="radiogroup" aria-label={t("common.signatureImage")}>
                     {IMAGE_CHOICES.map((c) => (
                       <button
                         key={c.value}
@@ -904,13 +915,13 @@ export default function App() {
                         className={saved.image === c.value ? "on" : ""}
                         onClick={() => update({ image: c.value })}
                       >
-                        {c.label}
+                        {t(c.label)}
                       </button>
                     ))}
                   </div>
                 ) : (
                   <button className="link" onClick={chooseImage}>
-                    Add a handwritten signature…
+                    {t("appearance.addImage")}
                   </button>
                 )}
                 {imageError && (
@@ -918,7 +929,7 @@ export default function App() {
                     <AlertIcon size={14} /> {imageError}
                   </p>
                 )}
-                <div className={`stamp-preview ${stampImage ? `img-${stampImage.position}` : ""}`} aria-label="Signature preview">
+                <div className={`stamp-preview ${stampImage ? `img-${stampImage.position}` : ""}`} aria-label={t("appearance.preview")}>
                   {stampImage && <img src={stampImage.url} alt="" />}
                   <div>
                     {preview.map((l, i) => (
@@ -932,8 +943,8 @@ export default function App() {
 
               {emptyFields.length > 0 && (
                 <section>
-                  <h3>Signature fields · {emptyFields.length}</h3>
-                  <ul className="field-list" role="listbox" aria-label="Empty signature fields">
+                  <h3>{t("fields.title", { n: emptyFields.length })}</h3>
+                  <ul className="field-list" role="listbox" aria-label={t("fields.list")}>
                     {emptyFields.map((f) => (
                       <li key={f.name}>
                         <button
@@ -944,25 +955,25 @@ export default function App() {
                             pickField(f);
                             if (f.page !== null) goPage(f.page);
                           }}
-                          title={`Sign into the field "${f.name}"`}
+                          title={t("fields.signInto", { name: f.name })}
                         >
                           <span className="field-name">{f.name}</span>
-                          <span className="muted">{f.rect && f.page !== null ? `Page ${f.page + 1}` : "Invisible"}</span>
+                          <span className="muted">{f.rect && f.page !== null ? t("common.pageN", { n: f.page + 1 }) : t("fields.invisible")}</span>
                         </button>
                       </li>
                     ))}
                   </ul>
                   <p className="muted small">
-                    {field ? "The signature fills the chosen field." : "This PDF has empty signature fields. Click one, here or on the page, to sign into it."}
+                    {field ? t("fields.chosen") : t("fields.hint")}
                   </p>
                 </section>
               )}
 
               <section>
-                <h3>Signature type</h3>
-                <div className="segmented" role="radiogroup" aria-label="Signature type">
+                <h3>{t("type.title")}</h3>
+                <div className="segmented" role="radiogroup" aria-label={t("type.title")}>
                   <button role="radio" aria-checked={!certify} className={!certify ? "on" : ""} onClick={() => setCertify(null)}>
-                    Approval
+                    {t("type.approval")}
                   </button>
                   <button
                     role="radio"
@@ -971,12 +982,12 @@ export default function App() {
                     onClick={() => setCertify(certify ?? 2)}
                     disabled={!canCertify}
                   >
-                    Certify
+                    {t("type.certify")}
                   </button>
                 </div>
                 {certify && canCertify && (
                   <>
-                    <label id="certify-label">Allowed after certifying</label>
+                    <label id="certify-label">{t("type.allowedAfter")}</label>
                     <div className="segmented" role="radiogroup" aria-labelledby="certify-label">
                       {CERTIFY_LEVELS.map((l) => (
                         <button
@@ -986,13 +997,13 @@ export default function App() {
                           className={certify === l.value ? "on" : ""}
                           onClick={() => setCertify(l.value)}
                         >
-                          {l.label}
+                          {t(l.label)}
                         </button>
                       ))}
                     </div>
                     <p className="muted small">
-                      {CERTIFY_LEVELS.find((l) => l.value === certify)?.help}
-                      {batch && " Already signed documents in the batch are skipped."}
+                      {t(CERTIFY_LEVELS.find((l) => l.value === certify)!.help)}
+                      {batch && ` ${t("type.batchSkipped")}`}
                     </p>
                   </>
                 )}
@@ -1000,38 +1011,33 @@ export default function App() {
                   <div className="warn-row">
                     <AlertIcon size={14} />
                     <div>
-                      <strong>Certified, no changes allowed</strong>
-                      <span>Another signature would invalidate the author's certification.</span>
+                      <strong>{t("type.lockedTitle")}</strong>
+                      <span>{t("type.lockedBody")}</span>
                     </div>
                   </div>
                 ) : doc.info.certified ? (
-                  <p className="muted small">
-                    Certified by its author; {doc.info.certified === 3 ? "form filling, signing and comments" : "form filling and signing"}{" "}
-                    still allowed.
-                  </p>
+                  <p className="muted small">{doc.info.certified === 3 ? t("type.certified3") : t("type.certified2")}</p>
                 ) : (
-                  !canCertify && <p className="muted small">Only the first signature can certify a document, and this one is already signed.</p>
+                  !canCertify && <p className="muted small">{t("type.onlyFirst")}</p>
                 )}
               </section>
 
               <section>
-                <h3>Placement</h3>
+                <h3>{t("placement.title")}</h3>
                 {field && (
                   <div className="place-row">
-                    <span>In field “{field.name}”</span>
+                    <span>{t("placement.inField", { name: field.name })}</span>
                     <button className="link" onClick={leaveField}>
-                      Use a box instead
+                      {t("placement.useBox")}
                     </button>
                   </div>
                 )}
                 {placement && (!field || field.rect) && (
                   <>
                     <div className="place-row">
-                      <span>
-                        Page {placement.page + 1} of {pages}
-                      </span>
+                      <span>{t("common.pageOf", { page: placement.page + 1, pages })}</span>
                       <button className="link" onClick={() => goPage(placement.page)}>
-                        Show
+                        {t("common.show")}
                       </button>
                     </div>
                     <div className="mono coords">
@@ -1044,7 +1050,7 @@ export default function App() {
                     </div>
                   </>
                 )}
-                <label id="pages-label">Pages</label>
+                <label id="pages-label">{t("common.pages")}</label>
                 <div className="segmented" role="radiogroup" aria-labelledby="pages-label">
                   {PAGE_MODES.map((m) => (
                     <button
@@ -1058,7 +1064,7 @@ export default function App() {
                         if (m.value === "custom" && !pagesSpec) setPagesSpec(pages > 1 ? `1-${pages}` : "1");
                       }}
                     >
-                      {m.label}
+                      {t(m.label)}
                     </button>
                   ))}
                 </div>
@@ -1067,8 +1073,8 @@ export default function App() {
                     className={`pages-spec mono ${pagesError ? "invalid" : ""}`}
                     value={pagesSpec}
                     onChange={(e) => setPagesSpec(e.target.value)}
-                    placeholder="e.g. 1-3, 5"
-                    aria-label="Page list"
+                    placeholder={t("placement.pagesPlaceholder")}
+                    aria-label={t("placement.pageList")}
                     aria-invalid={!!pagesError}
                     spellCheck={false}
                   />
@@ -1079,33 +1085,32 @@ export default function App() {
                   </p>
                 ) : (
                   targetPages && (
-                    <p className="muted small">
-                      One signature, shown on {pagesLabel(targetPages, pages)}. The box keeps its distance from the nearest corner of each page.
-                    </p>
+                    <p className="muted small">{t("placement.oneSignature", { pages: pagesLabel(targetPages, pages) })}</p>
                   )
                 )}
                 {batch && placement && (
                   <p className="muted small">
-                    Every document:{" "}
-                    {pagesMode === "all"
-                      ? "all pages"
-                      : targetPages
-                        ? `pages ${formatPages(targetPages)} where it has them`
-                        : describePage(pageChoice(placement.page, pages)).toLowerCase()}
-                    , same position.
+                    {t("placement.every", {
+                      pages:
+                        pagesMode === "all"
+                          ? t("placement.everyAll")
+                          : targetPages
+                            ? t("placement.everyWhereHas", { list: formatPages(targetPages) })
+                            : describePage(pageChoice(placement.page, pages)).toLowerCase(),
+                    })}
                   </p>
                 )}
                 {field ? (
-                  <p className="muted small">The box takes the field’s place and size. Click elsewhere on a page to place a box of your own.</p>
+                  <p className="muted small">{t("placement.fieldHint")}</p>
                 ) : (
                   <>
-                    <p className="muted small">Click a page to place the signature. Drag to move; drag the corner to resize.</p>
+                    <p className="muted small">{t("placement.hint")}</p>
                     <button
                       className="link"
                       onClick={() => placement && place(bottomRight(placement.page, doc.sizes[placement.page]))}
                       disabled={!placement}
                     >
-                      Reset to bottom-right
+                      {t("placement.reset")}
                     </button>
                   </>
                 )}
@@ -1113,17 +1118,17 @@ export default function App() {
 
               {doc.info.encrypted && (
                 <section>
-                  <h3>Protection</h3>
+                  <h3>{t("protection.title")}</h3>
                   {doc.info.signingAllowed ? (
-                    <p className="muted small">Password-protected. The signed copy keeps the same password and restrictions.</p>
+                    <p className="muted small">{t("protection.keeps")}</p>
                   ) : (
                     <div className="warn-row">
                       <LockIcon size={14} />
                       <div>
-                        <strong>Signing not allowed</strong>
-                        <span>The PDF's security settings do not allow signing without the owner password.</span>
+                        <strong>{t("protection.notAllowedTitle")}</strong>
+                        <span>{t("protection.notAllowedBody")}</span>
                         <button className="link" onClick={() => setUnlock({ path: doc.info.path, name: doc.info.name, owner: true })}>
-                          Enter owner password…
+                          {t("protection.enterOwner")}
                         </button>
                       </div>
                     </div>
@@ -1136,18 +1141,12 @@ export default function App() {
 
             <div className="insp-foot">
               <button className="btn primary block" disabled={!canSign} onClick={() => setStep({ kind: "pin" })}>
-                {batch ? `Sign ${batch.length} documents` : "Sign document"}
+                {batch ? t("foot.signN", { n: batch.length }) : t("foot.signDoc")}
               </button>
               <p className="muted small">
-                {batch ? (
-                  <>
-                    Saves <span className="mono">name_signed.pdf</span> next to each original
-                  </>
-                ) : (
-                  <>
-                    Saves <span className="mono">{signedName(doc.info.name)}</span> next to the original
-                  </>
-                )}
+                {batch
+                  ? tx("foot.savesEach", { file: <span className="mono">name_signed.pdf</span> })
+                  : tx("foot.savesOne", { file: <span className="mono">{signedName(doc.info.name)}</span> })}
               </p>
             </div>
           </aside>
@@ -1159,15 +1158,15 @@ export default function App() {
         {cert && (certTone || cert.startsIn !== null) ? (
           <span
             className={`sb-item expiry ${certTone === "urgent" || certTone === "expired" ? "bad" : "calm"}`}
-            title={`${cert.name} · valid until ${cert.validUntil}`}
+            title={t("status.validUntil", { name: cert.name, date: cert.validUntil })}
           >
-            {certTone ? expiryText(cert.daysLeft) : "Certificate not yet valid"}
+            {certTone ? expiryText(cert.daysLeft) : t("signer.notYetTitle")}
           </span>
         ) : (
           reminders.length > 0 && (
             <span
               className={`sb-item expiry ${reminders.some((k) => expiryTone(k.daysLeft, saved.expiryReminder) !== "soon") ? "bad" : "calm"}`}
-              title={reminders.map((k) => `${k.name} · valid until ${k.validUntil}`).join("\n")}
+              title={reminders.map((k) => t("status.validUntil", { name: k.name, date: k.validUntil })).join("\n")}
             >
               {reminders[0].name}: {expiryText(reminders[0].daysLeft).toLowerCase()}
               {reminders.length > 1 ? ` (+${reminders.length - 1})` : ""}
@@ -1182,13 +1181,13 @@ export default function App() {
           </>
         )}
         <span className="mono sb-item" title={driverPath}>
-          {drivers === undefined ? "" : driverPath ? baseName(driverPath) : "No PKCS#11 driver found"}
+          {drivers === undefined ? "" : driverPath ? baseName(driverPath) : t("status.noDriver")}
         </span>
         {doc && (
           <>
             <i className="sb-sep" />
             <span className="sb-item mono">
-              Page {page + 1} of {pages} · {zoomPct}
+              {t("common.pageOf", { page: page + 1, pages })} · {zoomPct}
             </span>
           </>
         )}
@@ -1219,7 +1218,7 @@ export default function App() {
       {(step.kind === "pin" || step.kind === "signing") && cert && doc && (
         <PinDialog
           cert={cert}
-          docName={batch ? `${batch.length} documents` : doc.info.name}
+          docName={batch ? t("pin.documents", { n: batch.length }) : doc.info.name}
           pages={targetPages && targetPages.length > 1 ? pagesLabel(targetPages, pages) : undefined}
           field={field?.name}
           busy={step.kind === "signing"}
@@ -1242,8 +1241,8 @@ export default function App() {
       {step.kind === "batch" && <BatchDialog files={step.files} running={step.running} error={step.error} onClose={() => setStep({ kind: "idle" })} />}
 
       {step.kind === "done" && (
-        <Modal title="Document signed" icon={<CheckIcon size={16} />} tone="ok" onClose={() => setStep({ kind: "idle" })}>
-          <p>The signed copy was saved next to the original.</p>
+        <Modal title={t("done.title")} icon={<CheckIcon size={16} />} tone="ok" onClose={() => setStep({ kind: "idle" })}>
+          <p>{t("done.body")}</p>
           <div className="file-row mono" title={step.result.output}>
             <FileIcon size={14} />
             <span>{step.result.name}</span>
@@ -1256,14 +1255,14 @@ export default function App() {
                 setDoc(null);
               }}
             >
-              Sign another
+              {t("done.another")}
             </button>
             <div className="spacer" />
             <button className="btn" onClick={() => api.revealFile(step.result.output)}>
-              Show in folder
+              {t("common.showInFolder")}
             </button>
             <button className="btn primary" autoFocus onClick={() => api.openFile(step.result.output)}>
-              Open
+              {t("common.open")}
             </button>
           </div>
         </Modal>
@@ -1288,12 +1287,10 @@ function ReminderRow({ cert, remind, onDismiss }: { cert: KnownCert; remind: Rem
           {cert.name}: {expiryText(cert.daysLeft).toLowerCase()}
         </strong>
         <span>
-          {tone === "expired"
-            ? `Your DSC from ${cert.issuer} expired on ${cert.validUntil}. Signatures made with it are not valid; renew it with your provider.`
-            : `Your DSC from ${cert.issuer} is valid until ${cert.validUntil}. Renew it with your provider to keep signing without a break.`}
+          {t(tone === "expired" ? "reminder.expired" : "reminder.soon", { issuer: cert.issuer, date: cert.validUntil })}
         </span>
         <button className="link" onClick={onDismiss}>
-          Dismiss for today
+          {t("reminder.dismiss")}
         </button>
       </div>
     </div>
@@ -1304,13 +1301,13 @@ function TokenStatus({ certs, error, onRetry }: { certs: Cert[] | null; error: s
   if (certs === null)
     return (
       <span className="sb-item token">
-        <i className="sq" /> Looking for token…
+        <i className="sq" /> {t("status.lookingToken")}
       </span>
     );
   if (certs.length === 0)
     return (
       <button className="sb-item token bad" onClick={onRetry} title={error ?? ""}>
-        <i className="sq" /> No token detected — <u>Check again</u>
+        <i className="sq" /> {tx("status.noToken", { action: <u>{t("common.checkAgain")}</u> })}
       </button>
     );
   return (
@@ -1346,31 +1343,31 @@ function PinDialog(props: {
   }, [props.error, online]);
   const locked = props.error?.kind === "pinLocked" || (!props.error && !!status?.locked);
   const warning = status?.locked
-    ? "The token PIN is locked. Contact your DSC provider to unlock it."
+    ? t("pin.locked")
     : status?.finalTry
-      ? "One attempt left before the token locks!"
+      ? t("pin.finalTry")
       : status?.countLow
-        ? "Careful: few attempts left before the token locks."
+        ? t("pin.countLow")
         : null;
   const pinError = props.error && (props.error.kind === "wrongPin" || props.error.kind === "pinLocked");
   return (
-    <Modal title="Enter token PIN" onClose={props.busy ? undefined : props.onCancel}>
+    <Modal title={t("pin.title")} onClose={props.busy ? undefined : props.onCancel}>
       <dl className="kv compact">
-        <dt>Signer</dt>
+        <dt>{t("common.signer")}</dt>
         <dd className="strong">{props.cert.name}</dd>
-        <dt>Token</dt>
+        <dt>{t("common.token")}</dt>
         <dd>{props.cert.tokenLabel}</dd>
-        <dt>Document</dt>
+        <dt>{t("common.document")}</dt>
         <dd className="mono ellipsis">{props.docName}</dd>
         {props.pages && (
           <>
-            <dt>Pages</dt>
+            <dt>{t("common.pages")}</dt>
             <dd>{props.pages[0].toUpperCase() + props.pages.slice(1)}</dd>
           </>
         )}
         {props.field && (
           <>
-            <dt>Field</dt>
+            <dt>{t("common.field")}</dt>
             <dd className="mono ellipsis">{props.field}</dd>
           </>
         )}
@@ -1381,7 +1378,7 @@ function PinDialog(props: {
           if (pin && !props.busy) props.onSubmit(pin);
         }}
       >
-        <label htmlFor="pin">PIN</label>
+        <label htmlFor="pin">{t("common.pin")}</label>
         <input
           id="pin"
           ref={input}
@@ -1395,27 +1392,27 @@ function PinDialog(props: {
         />
         {props.error ? (
           <p className="inline-error">
-            <AlertIcon size={14} /> {props.error.message}
+            <AlertIcon size={14} /> {errorText(props.error)}
           </p>
         ) : warning ? (
           <p className="inline-error">
             <AlertIcon size={14} /> {warning}
           </p>
         ) : (
-          <p className="muted small">The token locks after several wrong attempts. The PIN is never saved.</p>
+          <p className="muted small">{t("pin.hint")}</p>
         )}
         <div className="dialog-actions">
           {online && (
             <button type="button" className="btn ghost" onClick={() => props.onSubmit(pin, online)} disabled={!pin || props.busy}>
-              {online === "timestamp" ? "Sign without timestamp" : "Sign without revocation info"}
+              {online === "timestamp" ? t("pin.withoutTimestamp") : t("pin.withoutLtv")}
             </button>
           )}
           <div className="spacer" />
           <button type="button" className="btn" onClick={props.onCancel} disabled={props.busy}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button type="submit" className="btn primary" disabled={!pin || props.busy || locked}>
-            {props.busy ? "Signing…" : online ? "Try again" : "Sign"}
+            {props.busy ? t("common.signing") : online ? t("common.tryAgain") : t("common.sign")}
           </button>
         </div>
       </form>
@@ -1432,9 +1429,13 @@ function PasswordDialog(props: { unlock: Unlock; busy: boolean; onCancel: () => 
     input.current?.focus();
   }, [unlock.error]);
   return (
-    <Modal title={unlock.owner ? "Enter owner password" : "Password required"} icon={<LockIcon size={16} />} onClose={props.busy ? undefined : props.onCancel}>
+    <Modal
+      title={unlock.owner ? t("password.ownerTitle") : t("password.requiredTitle")}
+      icon={<LockIcon size={16} />}
+      onClose={props.busy ? undefined : props.onCancel}
+    >
       <dl className="kv compact">
-        <dt>Document</dt>
+        <dt>{t("common.document")}</dt>
         <dd className="mono ellipsis">{unlock.name}</dd>
       </dl>
       <form
@@ -1443,7 +1444,7 @@ function PasswordDialog(props: { unlock: Unlock; busy: boolean; onCancel: () => 
           if (password && !props.busy) props.onSubmit(password);
         }}
       >
-        <label htmlFor="pdf-password">{unlock.owner ? "Owner (permissions) password" : "Password"}</label>
+        <label htmlFor="pdf-password">{unlock.owner ? t("password.ownerLabel") : t("password.label")}</label>
         <input
           id="pdf-password"
           ref={input}
@@ -1461,18 +1462,16 @@ function PasswordDialog(props: { unlock: Unlock; busy: boolean; onCancel: () => 
           </p>
         ) : (
           <p className="muted small">
-            {unlock.owner
-              ? "The document's author set restrictions that prevent signing. The password is not saved."
-              : "This PDF is password-protected. The password is not saved."}
+            {unlock.owner ? t("password.ownerHint") : t("password.hint")}
           </p>
         )}
         <div className="dialog-actions">
           <div className="spacer" />
           <button type="button" className="btn" onClick={props.onCancel} disabled={props.busy}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button type="submit" className="btn primary" disabled={!password || props.busy}>
-            {unlock.owner ? "Unlock" : "Open"}
+            {unlock.owner ? t("password.unlock") : t("common.open")}
           </button>
         </div>
       </form>
@@ -1480,40 +1479,44 @@ function PasswordDialog(props: { unlock: Unlock; busy: boolean; onCancel: () => 
   );
 }
 
-const IMAGE_CHOICES: { value: ImageChoice; label: string }[] = [
-  { value: "off", label: "Off" },
-  { value: "left", label: "Left of text" },
-  { value: "above", label: "Above text" },
+const IMAGE_CHOICES: { value: ImageChoice; label: MessageKey }[] = [
+  { value: "off", label: "common.off" },
+  { value: "left", label: "image.left" },
+  { value: "above", label: "image.above" },
 ];
 
-const THEMES: { value: ThemePref; label: string }[] = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-  { value: "system", label: "System" },
+const THEMES: { value: ThemePref; label: MessageKey }[] = [
+  { value: "light", label: "settings.themeLight" },
+  { value: "dark", label: "settings.themeDark" },
+  { value: "system", label: "settings.system" },
 ];
+
+const LANGUAGES: LangPref[] = ["system", "en", "hi", "ta"];
 
 function updateStatus(s: UpdateState): string {
   switch (s.kind) {
     case "checking":
-      return "Checking…";
+      return t("common.checking");
     case "latest":
-      return `You have the latest version (${__APP_VERSION__}).`;
+      return t("update.latest", { version: __APP_VERSION__ });
     case "available":
-      return `TrackMySign ${s.update.version} is available.`;
+      return t("update.available", { version: s.update.version });
     case "installing":
-      return `Downloading ${s.update.version}…`;
-    case "error":
-      return s.update ? `Could not install ${s.update.version}: ${s.message}` : `Could not check for updates: ${s.message}`;
+      return t("update.downloading", { version: s.update.version });
+    case "error": {
+      const message = translateMessage(s.message);
+      return s.update ? t("update.installFailed", { version: s.update.version, message }) : t("update.checkFailed", { message });
+    }
     default:
-      return `Version ${__APP_VERSION__}`;
+      return t("update.version", { version: __APP_VERSION__ });
   }
 }
 
 function onlineNote(signing: boolean, updates: boolean): string {
-  if (signing && updates) return "Only timestamp, revocation and update requests go online.";
-  if (signing) return "Only timestamp and revocation requests go online.";
-  if (updates) return "Only the update check goes online.";
-  return "Nothing leaves this computer.";
+  if (signing && updates) return t("settings.onlineAll");
+  if (signing) return t("settings.onlineSigning");
+  if (updates) return t("settings.onlineUpdates");
+  return t("settings.onlineNone");
 }
 
 function Settings(props: {
@@ -1548,62 +1551,82 @@ function Settings(props: {
   const cert = props.certs?.[0];
   return (
     <div className="panel-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="settings" role="dialog" aria-label="Settings" ref={panel}>
+      <div className="settings" role="dialog" aria-label={t("common.settings")} ref={panel}>
         <div className="settings-head">
-          <h2>Settings</h2>
-          <button className="tb-btn" onClick={onClose} title="Close (Esc)" aria-label="Close">
+          <h2>{t("common.settings")}</h2>
+          <button className="tb-btn" onClick={onClose} title={t("settings.closeEsc")} aria-label={t("common.close")}>
             <CloseIcon />
           </button>
         </div>
 
         <div className="settings-body">
           <section>
-            <h3>Appearance</h3>
-            <div className="segmented" role="radiogroup" aria-label="Theme">
-              {THEMES.map((t) => (
+            <h3>{t("common.appearance")}</h3>
+            <div className="segmented" role="radiogroup" aria-label={t("settings.theme")}>
+              {THEMES.map((th) => (
                 <button
-                  key={t.value}
+                  key={th.value}
                   role="radio"
-                  aria-checked={props.theme === t.value}
-                  className={props.theme === t.value ? "on" : ""}
-                  onClick={() => props.setTheme(t.value)}
+                  aria-checked={props.theme === th.value}
+                  className={props.theme === th.value ? "on" : ""}
+                  onClick={() => props.setTheme(th.value)}
                 >
-                  {t.label}
+                  {t(th.label)}
+                </button>
+              ))}
+            </div>
+            <label id="s-language">{t("settings.language")}</label>
+            <div className="segmented" role="radiogroup" aria-labelledby="s-language">
+              {LANGUAGES.map((l) => (
+                <button
+                  key={l}
+                  role="radio"
+                  aria-checked={props.saved.language === l}
+                  className={props.saved.language === l ? "on" : ""}
+                  onClick={() => props.update({ language: l })}
+                  lang={l === "system" ? undefined : l}
+                >
+                  {l === "system" ? t("settings.system") : LANGUAGE_NAMES[l]}
                 </button>
               ))}
             </div>
           </section>
 
           <section>
-            <h3>Signature defaults</h3>
-            <label htmlFor="s-reason">Reason</label>
-            <input id="s-reason" value={props.saved.reason} onChange={(e) => props.update({ reason: e.target.value })} placeholder="e.g. Approved" />
-            <label htmlFor="s-location">Location</label>
+            <h3>{t("settings.signatureDefaults")}</h3>
+            <label htmlFor="s-reason">{t("common.reason")}</label>
+            <input
+              id="s-reason"
+              value={props.saved.reason}
+              onChange={(e) => props.update({ reason: e.target.value })}
+              placeholder={t("common.reasonPlaceholder")}
+            />
+            <label htmlFor="s-location">{t("common.location")}</label>
             <input
               id="s-location"
               value={props.saved.location}
               onChange={(e) => props.update({ location: e.target.value })}
-              placeholder="e.g. Chennai"
+              placeholder={t("common.locationPlaceholder")}
             />
           </section>
 
           <section>
-            <h3>Signature image</h3>
+            <h3>{t("common.signatureImage")}</h3>
             {props.image ? (
               <div className="setting-row">
-                <img className="image-thumb" src={props.image} alt="Signature image" />
+                <img className="image-thumb" src={props.image} alt={t("common.signatureImage")} />
                 <button className="btn" onClick={props.onChooseImage}>
-                  Replace…
+                  {t("settings.replaceImage")}
                 </button>
                 <button className="btn ghost" onClick={props.onRemoveImage}>
-                  Remove
+                  {t("settings.remove")}
                 </button>
               </div>
             ) : (
               <div className="setting-row">
-                <span className="muted small">A scan or photo of your signature (PNG or JPEG), shown in the box next to the text.</span>
+                <span className="muted small">{t("settings.imageHint")}</span>
                 <button className="btn" onClick={props.onChooseImage}>
-                  Choose…
+                  {t("settings.choose")}
                 </button>
               </div>
             )}
@@ -1615,9 +1638,9 @@ function Settings(props: {
           </section>
 
           <section>
-            <h3>Presets</h3>
+            <h3>{t("settings.presets")}</h3>
             {props.saved.presets.length === 0 ? (
-              <p className="muted small">No presets yet. Set up the signature, then use “Save current as preset” in the side panel.</p>
+              <p className="muted small">{t("settings.noPresets")}</p>
             ) : (
               <ul className="preset-list">
                 {props.saved.presets.map((p) => (
@@ -1634,27 +1657,25 @@ function Settings(props: {
           </section>
 
           <section>
-            <h3>Remembered position</h3>
+            <h3>{t("settings.position")}</h3>
             <div className="setting-row">
-              <span className="muted small">
-                {props.saved.box ? "New PDFs open with the box where you last placed it." : "New PDFs open with the box at the bottom-right of the last page."}
-              </span>
+              <span className="muted small">{props.saved.box ? t("settings.positionLast") : t("settings.positionDefault")}</span>
               <button className="btn" onClick={() => props.update({ box: null })} disabled={!props.saved.box}>
-                Reset
+                {t("common.reset")}
               </button>
             </div>
           </section>
 
           <section>
-            <h3>Long-term validity</h3>
+            <h3>{t("settings.ltv")}</h3>
             <label className="check-row">
               <input type="checkbox" checked={props.saved.timestamp} onChange={(e) => props.update({ timestamp: e.target.checked })} />
-              Add trusted timestamp
+              {t("settings.addTimestamp")}
             </label>
-            <p className="muted small">Proves when you signed, independent of this PC's clock. Sends only a hash of the signature.</p>
+            <p className="muted small">{t("settings.timestampHint")}</p>
             {props.saved.timestamp && (
               <>
-                <label htmlFor="s-tsa">Timestamp server</label>
+                <label htmlFor="s-tsa">{t("settings.tsa")}</label>
                 <input
                   id="s-tsa"
                   list="tsa-urls"
@@ -1673,46 +1694,44 @@ function Settings(props: {
             )}
             <label className="check-row">
               <input type="checkbox" checked={props.saved.ltv} onChange={(e) => props.update({ ltv: e.target.checked })} />
-              Embed revocation info (LTV)
+              {t("settings.embedLtv")}
             </label>
-            <p className="muted small">Stores your CA's OCSP/CRL answers in the PDF so the signature can still be checked after the certificate expires.</p>
-            {(props.saved.timestamp || props.saved.ltv) && <p className="muted small">Needs an internet connection while signing.</p>}
+            <p className="muted small">{t("settings.ltvHint")}</p>
+            {(props.saved.timestamp || props.saved.ltv) && <p className="muted small">{t("settings.needsInternet")}</p>}
           </section>
 
           <section>
-            <h3>Expiry reminder</h3>
-            <div className="segmented" role="radiogroup" aria-label="Expiry reminder">
-              {REMINDER_CHOICES.map((c) => (
+            <h3>{t("settings.expiry")}</h3>
+            <div className="segmented" role="radiogroup" aria-label={t("settings.expiry")}>
+              {REMINDER_CHOICES.map((d) => (
                 <button
-                  key={c.value}
+                  key={d}
                   role="radio"
-                  aria-checked={props.saved.expiryReminder === c.value}
-                  className={props.saved.expiryReminder === c.value ? "on" : ""}
-                  onClick={() => props.update({ expiryReminder: c.value, reminderDismissed: "" })}
+                  aria-checked={props.saved.expiryReminder === d}
+                  className={props.saved.expiryReminder === d ? "on" : ""}
+                  onClick={() => props.update({ expiryReminder: d, reminderDismissed: "" })}
                 >
-                  {c.label}
+                  {reminderLabel(d)}
                 </button>
               ))}
             </div>
             <p className="muted small">
-              {props.saved.expiryReminder
-                ? `Reminds you to renew your DSC ${props.saved.expiryReminder} days before it expires, also when the token is not plugged in.`
-                : "No reminder. An expired certificate still cannot be used to sign."}
+              {props.saved.expiryReminder ? t("settings.expiryOn", { n: props.saved.expiryReminder }) : t("settings.expiryOff")}
             </p>
           </section>
 
           <section>
-            <h3>DSC token</h3>
+            <h3>{t("settings.token")}</h3>
             <dl className="kv">
-              <dt>Status</dt>
+              <dt>{t("common.status")}</dt>
               <dd className={cert ? "ok" : props.certs ? "bad" : undefined}>
-                {cert ? `${cert.tokenLabel} · ${cert.name}` : props.certs ? "Not connected" : "Checking…"}
+                {cert ? `${cert.tokenLabel} · ${cert.name}` : props.certs ? t("settings.notConnected") : t("common.checking")}
               </dd>
               {cert && (
                 <>
-                  <dt>Issuer</dt>
+                  <dt>{t("common.issuer")}</dt>
                   <dd>{cert.issuer}</dd>
-                  <dt>Valid until</dt>
+                  <dt>{t("common.validUntil")}</dt>
                   <dd className={cert.expired ? "bad" : undefined}>
                     {cert.validUntil} · {daysLeftText(cert.daysLeft)}
                   </dd>
@@ -1720,17 +1739,17 @@ function Settings(props: {
               )}
               {cert && (
                 <>
-                  <dt>Driver</dt>
+                  <dt>{t("common.driver")}</dt>
                   <dd>{cert.driver}</dd>
                 </>
               )}
             </dl>
             {!cert && props.certError && <p className="muted small">{props.certError}</p>}
-            <h4>Detected drivers</h4>
+            <h4>{t("settings.drivers")}</h4>
             {props.drivers === undefined ? (
-              <p className="muted small">Checking…</p>
+              <p className="muted small">{t("common.checking")}</p>
             ) : props.drivers.length === 0 ? (
-              <p className="muted small">None found. Install the software that came with your token.</p>
+              <p className="muted small">{t("settings.noDrivers")}</p>
             ) : (
               <ul className="driver-list">
                 {props.drivers.map((d) => {
@@ -1739,11 +1758,7 @@ function Settings(props: {
                     <li key={d.path}>
                       <div className="driver-head">
                         <span>{d.name}</span>
-                        {n > 0 && (
-                          <span className="ok">
-                            {n} certificate{n > 1 ? "s" : ""}
-                          </span>
-                        )}
+                        {n > 0 && <span className="ok">{t("settings.certCount", { n })}</span>}
                       </div>
                       <span className="mono wrap">{d.path}</span>
                     </li>
@@ -1752,29 +1767,29 @@ function Settings(props: {
               </ul>
             )}
             <button className="btn" onClick={props.onRefresh}>
-              <RefreshIcon size={14} /> Check again
+              <RefreshIcon size={14} /> {t("common.checkAgain")}
             </button>
           </section>
 
           <PortalSettings status={props.portal} onStatus={props.onPortal} />
 
           <section>
-            <h3>Updates</h3>
+            <h3>{t("settings.updates")}</h3>
             <label className="check-row">
               <input type="checkbox" checked={props.saved.autoUpdate} onChange={(e) => props.update({ autoUpdate: e.target.checked })} />
-              Check for updates on launch
+              {t("settings.autoUpdate")}
             </label>
-            <p className="muted small">Asks GitHub whether a newer version is out. Nothing is installed without your click.</p>
+            <p className="muted small">{t("settings.updateHint")}</p>
             <div className="setting-row">
               <span className={`small ${props.updateState.kind === "error" ? "bad" : "muted"}`}>{updateStatus(props.updateState)}</span>
               <button className="btn" onClick={props.onCheckUpdate} disabled={props.updateState.kind === "checking" || props.updateState.kind === "installing"}>
-                <RefreshIcon size={14} /> Check for updates
+                <RefreshIcon size={14} /> {t("settings.checkUpdates")}
               </button>
             </div>
           </section>
 
           <section>
-            <h3>About</h3>
+            <h3>{t("settings.about")}</h3>
             <div className="about">
               <Logo size={28} />
               <div>
@@ -1782,7 +1797,7 @@ function Settings(props: {
                   <strong>TrackMySign</strong> <span className="mono muted">{__APP_VERSION__}</span>
                 </div>
                 <span className="muted small">
-                  Signs PDFs with your DSC.{" "}
+                  {t("settings.aboutText")}{" "}
                   {onlineNote(props.saved.timestamp || props.saved.ltv, props.saved.autoUpdate)}
                 </span>
                 <button className="link" onClick={() => api.openWebsite()}>
@@ -1800,7 +1815,7 @@ function Settings(props: {
 function BatchDialog(props: { files: BatchItem[]; running: boolean; error?: string; onClose: () => void }) {
   const done = props.files.filter((f) => f.state === "done");
   const failed = props.files.filter((f) => f.state === "failed").length;
-  const title = props.running ? "Signing documents" : failed || props.error ? "Batch finished with errors" : "Documents signed";
+  const title = props.running ? t("batchDialog.running") : failed || props.error ? t("batchDialog.errors") : t("batchDialog.done");
   return (
     <Modal
       title={title}
@@ -1808,9 +1823,7 @@ function BatchDialog(props: { files: BatchItem[]; running: boolean; error?: stri
       tone="ok"
       onClose={props.running ? undefined : props.onClose}
     >
-      <p>
-        {done.length} of {props.files.length} signed{failed ? `, ${failed} failed` : ""}. Each signed copy is saved next to its original.
-      </p>
+      <p>{t(failed ? "batchDialog.summaryFailed" : "batchDialog.summary", { done: done.length, total: props.files.length, failed })}</p>
       <ul className="batch-list">
         {props.files.map((f) => (
           <li key={f.path} className={f.state} title={f.path}>
@@ -1819,12 +1832,12 @@ function BatchDialog(props: { files: BatchItem[]; running: boolean; error?: stri
             </span>
             <div>
               <span className="mono">{f.state === "done" ? f.signedName : f.name}</span>
-              {f.state === "signing" && <span className="muted small">Signing…</span>}
+              {f.state === "signing" && <span className="muted small">{t("common.signing")}</span>}
               {f.state === "failed" && <span className="small">{f.message}</span>}
             </div>
             {f.state === "done" && f.output && (
               <button className="link" onClick={() => api.revealFile(f.output!)}>
-                Show
+                {t("common.show")}
               </button>
             )}
           </li>
@@ -1839,11 +1852,11 @@ function BatchDialog(props: { files: BatchItem[]; running: boolean; error?: stri
         <div className="spacer" />
         {done[0]?.output && (
           <button className="btn" onClick={() => api.revealFile(done[0].output!)} disabled={props.running}>
-            Show in folder
+            {t("common.showInFolder")}
           </button>
         )}
         <button className="btn primary" onClick={props.onClose} disabled={props.running}>
-          {props.running ? "Signing…" : "Close"}
+          {props.running ? t("common.signing") : t("common.close")}
         </button>
       </div>
     </Modal>
@@ -1863,10 +1876,10 @@ function PresetPicker(props: { presets: Preset[]; active?: string; onApply: (p: 
             const p = props.presets.find((x) => x.name === e.target.value);
             if (p) props.onApply(p);
           }}
-          aria-label="Preset"
+          aria-label={t("preset.title")}
         >
           <option value="" disabled>
-            Custom
+            {t("common.custom")}
           </option>
           {props.presets.map((p) => (
             <option key={p.name} value={p.name}>
@@ -1875,11 +1888,11 @@ function PresetPicker(props: { presets: Preset[]; active?: string; onApply: (p: 
           ))}
         </select>
       ) : (
-        <p className="muted small">Save the reason, location and position to reuse them.</p>
+        <p className="muted small">{t("preset.hint")}</p>
       )}
       {name === null ? (
         <button className="link" onClick={() => setName(props.active ?? "")}>
-          Save current as preset…
+          {t("preset.saveCurrent")}
         </button>
       ) : (
         <form
@@ -1896,13 +1909,13 @@ function PresetPicker(props: { presets: Preset[]; active?: string; onApply: (p: 
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === "Escape" && setName(null)}
-            placeholder="Preset name"
-            aria-label="Preset name"
+            placeholder={t("preset.namePlaceholder")}
+            aria-label={t("preset.namePlaceholder")}
           />
           <button type="submit" className="btn" disabled={!trimmed}>
-            {replaces ? "Replace" : "Save"}
+            {replaces ? t("common.replace") : t("common.save")}
           </button>
-          <button type="button" className="tb-btn" onClick={() => setName(null)} title="Cancel" aria-label="Cancel">
+          <button type="button" className="tb-btn" onClick={() => setName(null)} title={t("common.cancel")} aria-label={t("common.cancel")}>
             <CloseIcon />
           </button>
         </form>
@@ -1921,7 +1934,7 @@ function PresetRow(props: { preset: Preset; taken: (name: string) => boolean; on
   };
   const pl = preset.placement;
   const summary = [
-    preset.reason.trim() || "No reason",
+    preset.reason.trim() || t("preset.noReason"),
     preset.location.trim(),
     pl && `${describePage(pl.page)}, ${pl.w.toFixed(1)} × ${pl.h.toFixed(1)} mm`,
   ].filter(Boolean);
@@ -1939,12 +1952,12 @@ function PresetRow(props: { preset: Preset; taken: (name: string) => boolean; on
               setName(preset.name);
             }
           }}
-          aria-label="Preset name"
+          aria-label={t("preset.namePlaceholder")}
         />
         <span className="muted small">{summary.join(" · ")}</span>
       </div>
-      <button className="btn ghost" onClick={props.onDelete} title={`Delete “${preset.name}”`}>
-        Delete
+      <button className="btn ghost" onClick={props.onDelete} title={t("preset.deleteTitle", { name: preset.name })}>
+        {t("common.delete")}
       </button>
     </li>
   );

@@ -4,6 +4,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 // Legacy build: polyfills newer JS so it also runs in older system web views.
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import type { EmptyField, ImageChoice, Rect } from "./api";
+import { t } from "./i18n";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -349,7 +350,7 @@ function Page({ doc, index, size, scale, placement, ghost, preview, image, onPla
                   e.stopPropagation();
                   onPickField?.(f);
                 }}
-                title={`Sign into the field "${f.name}"`}
+                title={t("fields.signInto", { name: f.name })}
               >
                 <span>{f.name}</span>
               </div>
@@ -385,7 +386,7 @@ function Page({ doc, index, size, scale, placement, ghost, preview, image, onPla
                 {l}
               </div>
             ))}
-            {!field && <div className="sig-resize" onPointerDown={drag("resize")} title="Drag to resize" />}
+            {!field && <div className="sig-resize" onPointerDown={drag("resize")} title={t("view.dragResize")} />}
           </div>
         )}
       </div>
@@ -395,8 +396,8 @@ function Page({ doc, index, size, scale, placement, ghost, preview, image, onPla
 }
 
 function boxTitle(ghost: boolean, field: string | null) {
-  if (field) return `Signature field "${field}". Click elsewhere on the page to place a box of your own instead`;
-  return ghost ? "Not signed on this page (not in the selection). Drag to move" : "Drag to move";
+  if (field) return t("view.fieldBox", { name: field });
+  return ghost ? t("view.ghost") : t("view.dragMove");
 }
 
 function ImageBox(props: {
@@ -428,7 +429,7 @@ function ImageBox(props: {
           </div>
         ))}
       </div>
-      {!props.field && <div className="sig-resize" onPointerDown={props.onResize} title="Drag to resize" />}
+      {!props.field && <div className="sig-resize" onPointerDown={props.onResize} title={t("view.dragResize")} />}
     </div>
   );
 }

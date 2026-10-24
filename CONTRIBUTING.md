@@ -114,6 +114,29 @@ Mention in the pull request which token, driver version and operating system you
 tested with. If you can't build, open a "Token not detected" issue with the
 driver's path instead and it will be added for you.
 
+## Adding a language
+
+The desktop app's text lives in `apps/desktop/src/i18n/`: `en.ts` is the
+reference catalog, `hi.ts` and `ta.ts` translate it. Components call
+`t("key", { name: value })`; `tx` does the same when a placeholder is an element.
+
+1. Copy `hi.ts` to a file named after the language code (`mr.ts` for Marathi)
+   and translate every message. Keep each `{placeholder}` exactly as in English;
+   messages with `one` and `other` forms are chosen by `{n}` through the
+   language's plural rules. Keep terms Indian users know in English (PDF, PIN,
+   DSC, PAN, GST) in English, and keep labels short: the side panel is narrow.
+2. Add the code to `Lang`, `catalogs`, `LANGUAGE_NAMES` and `systemLang` in
+   `i18n/index.ts`, to `isLangPref`, and to `LANGUAGES` in `App.tsx`.
+3. If the script needs it, add its common system fonts to `--indic` in
+   `styles.css` (no bundled fonts), and to the `:lang()` rule for `.kv`.
+4. Add the catalog to `scripts/i18n.test.mjs`. `npx tsc --noEmit` fails on a
+   missing or extra key, and `npm test` on a mismatched placeholder.
+
+Sentences from the Rust side are English; `i18n/errors.ts` maps the ones whose
+wording is fixed to catalog messages. Add new fixed error sentences there when
+you add them in Rust. The text in the PDF signature box stays English: it is
+drawn with Helvetica, which has no Indic glyphs.
+
 ## Pull requests
 
 - Keep each pull request to one change, with a short description of what and why.

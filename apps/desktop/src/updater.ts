@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { inTauri } from "./api";
+import { t } from "./i18n";
 
 export interface AvailableUpdate {
   version: string;
@@ -42,7 +43,7 @@ async function install(progress: (p: number | null) => void): Promise<void> {
     }
     throw new Error("Updates can only be installed in the desktop app.");
   }
-  if (!pending) throw new Error("No update downloaded. Check for updates again.");
+  if (!pending) throw new Error(t("update.noneDownloaded"));
   let total: number | null = null;
   let done = 0;
   // Windows: the installer closes the app itself and starts it again afterwards.
@@ -57,7 +58,7 @@ async function install(progress: (p: number | null) => void): Promise<void> {
 
 function message(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e);
-  return m || "Unknown error";
+  return m || t("update.unknownError");
 }
 
 /** Checks once on launch when `auto` is set; `check` is the manual button. */

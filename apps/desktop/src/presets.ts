@@ -1,6 +1,7 @@
 // Saved presets: reason, location and where the box goes, applied in one pick.
 
 import type { ImageChoice } from "./api";
+import { t } from "./i18n";
 import type { PageSize, Placement } from "./PdfView";
 
 /** Which page the box goes on: first, last, or a page number (1 = first). */
@@ -41,7 +42,7 @@ export function resolvePage(choice: PageChoice, pages: number): number {
 }
 
 export function describePage(choice: PageChoice): string {
-  return choice === "first" ? "First page" : choice === "last" ? "Last page" : `Page ${choice}`;
+  return choice === "first" ? t("preset.firstPage") : choice === "last" ? t("preset.lastPage") : t("common.pageN", { n: choice });
 }
 
 export function toPresetPlacement(p: Placement, pages: number): PresetPlacement {

@@ -25,6 +25,8 @@ highlighted on the page and listed in the side panel: click one and the signatur
 
 You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows and macOS). Your default PDF viewer stays as it is.
 
+The app speaks English, Hindi (हिन्दी) and Tamil (தமிழ்); it follows your system language, or choose one under *Settings → Appearance → Language*. The text printed in the signature box stays in English.
+
 ### Updates
 
 On launch the app asks GitHub whether a newer release is out (it fetches

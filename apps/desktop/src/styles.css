@@ -71,8 +71,11 @@ body,
   height: 100%;
 }
 html {
-  --ui: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
-  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  /* Hindi and Tamil fall through to the system's Indic fonts: Nirmala UI on
+     Windows, Kohinoor Devanagari / Tamil Sangam MN on macOS, Noto on Linux. */
+  --indic: "Nirmala UI", "Kohinoor Devanagari", "Tamil Sangam MN", "Tamil MN", "Noto Sans Devanagari", "Noto Sans Tamil";
+  --ui: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", var(--indic), system-ui, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", var(--indic), monospace;
   font-family: var(--ui);
   font-size: 13px;
   line-height: 1.4;
@@ -715,6 +718,12 @@ section > label:first-of-type {
 .kv dt {
   color: var(--muted);
 }
+/* Hindi and Tamil words can be longer than the English column: widen it to
+   the longest word, and let labels of several words wrap. */
+:lang(hi) .kv,
+:lang(ta) .kv {
+  grid-template-columns: minmax(78px, min-content) 1fr;
+}
 .kv dd {
   margin: 0;
   color: var(--text-2);
@@ -1172,6 +1181,7 @@ section > label:first-of-type {
 }
 .dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin: 18px -18px -16px;
@@ -1293,7 +1303,10 @@ section > label:first-of-type {
 }
 .segmented button {
   flex: 1;
-  height: 28px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 2px 4px;
+  line-height: 1.25;
   border: 0;
   border-right: 1px solid var(--line-strong);
   background: var(--surface);

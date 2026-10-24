@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import type { AvailableUpdate, UpdateState } from "./updater";
+import { t, tx } from "./i18n";
+import { translateMessage } from "./i18n/errors";
 import { AlertIcon, CloseIcon } from "./icons";
 
 /** GitHub's generated notes, readable as plain text. */
@@ -32,18 +34,16 @@ export function UpdateBanner(props: {
         {s.kind === "error" && <AlertIcon size={14} />}
         <span className="update-text">
           {s.kind === "error" ? (
-            <>Could not install TrackMySign {update.version}: {s.message}</>
+            t("update.bannerFailed", { version: update.version, message: translateMessage(s.message) })
           ) : s.kind === "installing" ? (
-            <>Downloading TrackMySign {update.version}…</>
+            t("update.bannerDownloading", { version: update.version })
           ) : (
-            <>
-              <strong>TrackMySign {update.version}</strong> is available
-            </>
+            tx("update.bannerAvailable", { name: <strong>TrackMySign {update.version}</strong> })
           )}
         </span>
         {notes && s.kind !== "installing" && (
           <button className="link" onClick={() => setNotesOpen((o) => !o)} aria-expanded={notesOpen}>
-            {notesOpen ? "Hide notes" : "What's new"}
+            {notesOpen ? t("update.hideNotes") : t("update.whatsNew")}
           </button>
         )}
         <div className="spacer" />
@@ -60,11 +60,11 @@ export function UpdateBanner(props: {
               className="btn primary"
               onClick={() => props.onInstall(update)}
               disabled={props.busy}
-              title={props.busy ? "Wait until signing has finished" : "The app closes and opens again"}
+              title={props.busy ? t("update.waitSigning") : t("update.restartHint")}
             >
-              {s.kind === "error" ? "Try again" : "Install and restart"}
+              {s.kind === "error" ? t("common.tryAgain") : t("update.install")}
             </button>
-            <button className="tb-btn" onClick={props.onDismiss} title="Later" aria-label="Later">
+            <button className="tb-btn" onClick={props.onDismiss} title={t("update.later")} aria-label={t("update.later")}>
               <CloseIcon />
             </button>
           </>

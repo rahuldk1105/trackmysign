@@ -4,37 +4,39 @@
 import { useEffect, useState } from "react";
 import * as api from "./api";
 import type { SignatureCheck } from "./api";
+import { t, type MessageKey } from "./i18n";
+import { errorText } from "./i18n/errors";
 import { AlertIcon, ChevronDownIcon, ChevronUpIcon, ShieldIcon } from "./icons";
 import "./signatures.css";
 
 type Tone = "ok" | "bad" | "neutral";
 
 function verdict(s: SignatureCheck): { tone: Tone; label: string } {
-  if (s.status === "invalid") return { tone: "bad", label: "Invalid signature" };
-  if (s.status === "unknown") return { tone: "neutral", label: "Could not be verified" };
-  if (s.changes === "content") return { tone: "bad", label: "Document changed after signing" };
-  return { tone: "ok", label: s.certification ? "Valid certification" : "Valid signature" };
+  if (s.status === "invalid") return { tone: "bad", label: t("sig.invalid") };
+  if (s.status === "unknown") return { tone: "neutral", label: t("sig.unknown") };
+  if (s.changes === "content") return { tone: "bad", label: t("sig.changed") };
+  return { tone: "ok", label: s.certification ? t("sig.validCertification") : t("sig.valid") };
 }
 
-const ALLOWED: Record<NonNullable<SignatureCheck["certification"]>, string> = {
-  1: "no changes allowed",
-  2: "form filling and signing allowed",
-  3: "form filling, signing and comments allowed",
+const ALLOWED: Record<NonNullable<SignatureCheck["certification"]>, MessageKey> = {
+  1: "sig.allowed1",
+  2: "sig.allowed2",
+  3: "sig.allowed3",
 };
 
 function coverage(s: SignatureCheck): string {
-  const later = `${s.laterRevisions} later revision${s.laterRevisions === 1 ? "" : "s"}`;
+  const later = t("sig.later", { n: s.laterRevisions });
   switch (s.changes) {
     case "none":
-      return "Whole document, unchanged";
+      return t("sig.whole");
     case "signatures":
-      return `${later}: only signatures added`;
+      return t("sig.onlySignatures", { later });
     case "form":
-      return `${later}: form filled in or comments added`;
+      return t("sig.form", { later });
     case "content":
-      return `${later}: content changed`;
+      return t("sig.content", { later });
     default:
-      return `${later} (${s.bytesAfter.toLocaleString()} bytes), not analysed`;
+      return t("sig.notAnalysed", { later, bytes: s.bytesAfter.toLocaleString() });
   }
 }
 
@@ -48,48 +50,46 @@ function SignatureItem({ s }: { s: SignatureCheck }) {
         <strong>{label}</strong>
       </div>
       <dl className="kv">
-        <dt>Signed by</dt>
+        <dt>{t("sig.signedBy")}</dt>
         <dd className="strong">
-          {s.signer ?? "Unknown"}
+          {s.signer ?? t("sig.unknownSigner")}
           {s.organization && <span className="sig-org"> · {s.organization}</span>}
         </dd>
         {s.certification && (
           <>
-            <dt>Certifies</dt>
-            <dd>
-              Level {s.certification}, {ALLOWED[s.certification]}
-            </dd>
+            <dt>{t("sig.certifies")}</dt>
+            <dd>{t("sig.level", { n: s.certification, allowed: t(ALLOWED[s.certification]) })}</dd>
           </>
         )}
         {s.issuer && (
           <>
-            <dt>Issuer</dt>
+            <dt>{t("common.issuer")}</dt>
             <dd>{s.issuer}</dd>
           </>
         )}
         {s.signingTime && (
           <>
-            <dt>Signed at</dt>
+            <dt>{t("sig.signedAt")}</dt>
             <dd className={s.timeInValidity === false ? "bad" : undefined}>{s.signingTime}</dd>
           </>
         )}
         {s.reason && (
           <>
-            <dt>Reason</dt>
+            <dt>{t("common.reason")}</dt>
             <dd>{s.reason}</dd>
           </>
         )}
         {s.location && (
           <>
-            <dt>Location</dt>
+            <dt>{t("common.location")}</dt>
             <dd>{s.location}</dd>
           </>
         )}
-        <dt>Coverage</dt>
+        <dt>{t("sig.coverage")}</dt>
         <dd className={s.changes === "content" ? "bad" : undefined}>{coverage(s)}</dd>
-        <dt>Trust</dt>
+        <dt>{t("sig.trust")}</dt>
         <dd className={s.trust === "cca" ? "ok" : undefined}>
-          {s.trust === "cca" ? "Chains to CCA India 2022" : "Not checked"}
+          {s.trust === "cca" ? t("sig.cca") : t("sig.notChecked")}
         </dd>
       </dl>
       {s.notes.length > 0 && (
@@ -101,37 +101,37 @@ function SignatureItem({ s }: { s: SignatureCheck }) {
       )}
       <button className="link sig-more" onClick={() => setOpen(!open)} aria-expanded={open}>
         {open ? <ChevronUpIcon size={13} /> : <ChevronDownIcon size={13} />}
-        {open ? "Fewer details" : "More details"}
+        {open ? t("sig.fewer") : t("sig.more")}
       </button>
       {open && (
         <dl className="kv sig-details">
-          <dt>Field</dt>
+          <dt>{t("common.field")}</dt>
           <dd className="mono">{s.field}</dd>
           {s.certValidFrom && (
             <>
-              <dt>Certificate</dt>
+              <dt>{t("common.certificate")}</dt>
               <dd className={s.timeInValidity === false ? "bad" : undefined}>
                 {s.certValidFrom} – {s.certValidUntil}
               </dd>
             </>
           )}
-          <dt>Format</dt>
+          <dt>{t("sig.format")}</dt>
           <dd className="mono">{[s.subFilter, s.digest].filter(Boolean).join(", ") || "—"}</dd>
           {s.timestamped && (
             <>
-              <dt>Timestamp</dt>
-              <dd>Attached (not verified)</dd>
+              <dt>{t("sig.timestamp")}</dt>
+              <dd>{t("sig.attached")}</dd>
             </>
           )}
           {s.bytesAfter > 0 && (
             <>
-              <dt>Added later</dt>
-              <dd className="mono">{s.bytesAfter.toLocaleString()} bytes</dd>
+              <dt>{t("sig.addedLater")}</dt>
+              <dd className="mono">{t("sig.bytes", { n: s.bytesAfter.toLocaleString() })}</dd>
             </>
           )}
           {s.chain.length > 0 && (
             <>
-              <dt>Chain</dt>
+              <dt>{t("sig.chain")}</dt>
               <dd>
                 <ol className="sig-chain">
                   {s.chain.map((c, i) => (
@@ -158,7 +158,7 @@ export function SignaturesPanel({ path, password, count }: { path: string; passw
     api
       .verifyPdf(path, password)
       .then((c) => live && setChecks(c))
-      .catch((e) => live && setError(api.errorOf(e).message));
+      .catch((e) => live && setError(errorText(api.errorOf(e))));
     return () => {
       live = false;
     };
@@ -167,17 +167,17 @@ export function SignaturesPanel({ path, password, count }: { path: string; passw
   if (count === 0 && (checks === null || checks.length === 0)) return null;
   return (
     <section className="signatures">
-      <h3>Signatures{checks ? ` (${checks.length})` : ""}</h3>
+      <h3>{checks ? t("sig.titleN", { n: checks.length }) : t("sig.title")}</h3>
       {error ? (
         <div className="warn-row">
           <AlertIcon size={14} />
           <div>
-            <strong>Could not check signatures</strong>
+            <strong>{t("sig.checkFailed")}</strong>
             <span>{error}</span>
           </div>
         </div>
       ) : checks === null ? (
-        <p className="muted small">Checking {count} signature{count === 1 ? "" : "s"}…</p>
+        <p className="muted small">{t("sig.checking", { n: count })}</p>
       ) : (
         <ul className="sig-list">
           {checks.map((s) => (
@@ -187,8 +187,8 @@ export function SignaturesPanel({ path, password, count }: { path: string; passw
       )}
       <p className="muted small">
         {checks?.some((c) => c.certification === 1)
-          ? "The author allowed no changes: signing again would invalidate the certification."
-          : "Signing again keeps existing signatures valid."}
+          ? t("sig.noChangesAllowed")
+          : t("sig.keepsValid")}
       </p>
     </section>
   );

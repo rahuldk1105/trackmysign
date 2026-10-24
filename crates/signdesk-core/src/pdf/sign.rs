@@ -175,6 +175,8 @@ struct Stamp {
 fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp {
     let f1 = take(next);
     let f2 = take(next);
+    // English whatever the app's language: Helvetica (WinAnsi) has no
+    // Devanagari or Tamil glyphs. The desktop preview mirrors these lines.
     let mut lines = vec![
         Line {
             text: "Digitally signed by".into(),

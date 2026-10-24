@@ -2,6 +2,7 @@
 // development) a mock backend is used so the screens can be exercised.
 
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { t } from "./i18n";
 
 export interface Cert {
   /** SHA-256 fingerprint of the certificate. */
@@ -254,7 +255,7 @@ export async function clearSignatureImage(): Promise<void> {
 export async function pickImage(): Promise<string | null> {
   if (!inTauri) return null;
   const { open } = await import("@tauri-apps/plugin-dialog");
-  const r = await open({ multiple: false, filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg"] }] });
+  const r = await open({ multiple: false, filters: [{ name: t("dialog.images"), extensions: ["png", "jpg", "jpeg"] }] });
   return typeof r === "string" ? r : null;
 }
 
@@ -284,7 +285,7 @@ export async function openWebsite(): Promise<void> {
 export async function pickPdfs(): Promise<string[]> {
   if (!inTauri) return ["C:\\Users\\rahul\\Downloads\\sample.pdf"];
   const { open } = await import("@tauri-apps/plugin-dialog");
-  const r = await open({ multiple: true, filters: [{ name: "PDF documents", extensions: ["pdf"] }] });
+  const r = await open({ multiple: true, filters: [{ name: t("dialog.pdfs"), extensions: ["pdf"] }] });
   return r ?? [];
 }
 

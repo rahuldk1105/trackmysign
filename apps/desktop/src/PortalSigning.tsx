@@ -7,6 +7,8 @@ import * as api from "./api";
 import type { ApiError, PinStatus, PortalCert, PortalRequest, PortalStatus } from "./api";
 import { Modal } from "./App";
 import { daysLeftText } from "./expiry";
+import { t, type MessageKey } from "./i18n";
+import { errorText, translateMessage } from "./i18n/errors";
 import { AlertIcon, RefreshIcon, ShieldIcon } from "./icons";
 import "./portal.css";
 
@@ -39,18 +41,18 @@ export function PortalStatusItem({ status, onClick }: { status: PortalStatus | n
   if (!status?.enabled) return null;
   const on = status.port !== null;
   return (
-    <button className={`sb-item portal-sb ${on ? "ok" : "bad"}`} onClick={onClick} title={status.error ?? "GST portal signing (Settings)"}>
-      Portal signing: {on ? `on (port ${status.port})` : "not running"}
+    <button className={`sb-item portal-sb ${on ? "ok" : "bad"}`} onClick={onClick} title={status.error ? translateMessage(status.error) : t("portal.statusTitle")}>
+      {on ? t("portal.statusOn", { port: status.port! }) : t("portal.statusOff")}
     </button>
   );
 }
 
 const host = (origin: string) => origin.replace(/^https:\/\//, "");
 
-const KIND: Record<PortalRequest["kind"], string> = {
-  registration: "DSC registration (your PAN)",
-  digest: "Return or form (its hash)",
-  text: "Text",
+const KIND: Record<PortalRequest["kind"], MessageKey> = {
+  registration: "portal.kindRegistration",
+  digest: "portal.kindDigest",
+  text: "portal.kindText",
 };
 
 export function PortalDialog(props: { request: PortalRequest & { gone?: boolean }; onDone: () => void }) {
@@ -76,7 +78,7 @@ export function PortalDialog(props: { request: PortalRequest & { gone?: boolean 
       },
       (e) => {
         setCerts([]);
-        setCertError(api.errorOf(e).message);
+        setCertError(errorText(api.errorOf(e)));
       },
     );
   }, [request.pan, usable]);
@@ -110,12 +112,12 @@ export function PortalDialog(props: { request: PortalRequest & { gone?: boolean 
 
   if (request.gone && !busy) {
     return (
-      <Modal title="The GST portal stopped waiting" icon={<AlertIcon size={16} />} onClose={props.onDone}>
-        <p>The portal page was closed or waited too long, so nothing was signed. Start again from the portal.</p>
+      <Modal title={t("portal.goneTitle")} icon={<AlertIcon size={16} />} onClose={props.onDone}>
+        <p>{t("portal.goneBody")}</p>
         <div className="dialog-actions">
           <div className="spacer" />
           <button className="btn primary" autoFocus onClick={props.onDone}>
-            Close
+            {t("common.close")}
           </button>
         </div>
       </Modal>
@@ -124,23 +126,23 @@ export function PortalDialog(props: { request: PortalRequest & { gone?: boolean 
 
   const locked = error?.kind === "pinLocked" || (!error && !!pinState?.locked);
   const warning = pinState?.locked
-    ? "The token PIN is locked. Contact your DSC provider to unlock it."
+    ? t("pin.locked")
     : pinState?.finalTry
-      ? "One attempt left before the token locks!"
+      ? t("pin.finalTry")
       : pinState?.countLow
-        ? "Careful: few attempts left before the token locks."
+        ? t("pin.countLow")
         : null;
   return (
-    <Modal title={`${host(request.origin)} wants to sign with your DSC`} icon={<ShieldIcon size={16} />} onClose={busy ? undefined : cancel}>
-      <p>Sign only if you started this on the GST portal just now.</p>
+    <Modal title={t("portal.title", { host: host(request.origin) })} icon={<ShieldIcon size={16} />} onClose={busy ? undefined : cancel}>
+      <p>{t("portal.onlyIf")}</p>
       <dl className="kv compact">
-        <dt>Site</dt>
+        <dt>{t("portal.site")}</dt>
         <dd className="strong">{request.origin}</dd>
-        <dt>PAN</dt>
-        <dd className="mono">{request.pan || "not given"}</dd>
-        <dt>Signing</dt>
-        <dd>{KIND[request.kind]}</dd>
-        <dt>Data</dt>
+        <dt>{t("portal.pan")}</dt>
+        <dd className="mono">{request.pan || t("portal.notGiven")}</dd>
+        <dt>{t("portal.signing")}</dt>
+        <dd>{t(KIND[request.kind])}</dd>
+        <dt>{t("portal.data")}</dt>
         <dd className="mono wrap portal-data">{request.toBeSigned}</dd>
       </dl>
       <form
@@ -149,32 +151,30 @@ export function PortalDialog(props: { request: PortalRequest & { gone?: boolean 
           sign();
         }}
       >
-        <label htmlFor="portal-cert">Certificate</label>
+        <label htmlFor="portal-cert">{t("common.certificate")}</label>
         {certs === null ? (
-          <p className="muted small">Reading the token…</p>
+          <p className="muted small">{t("portal.reading")}</p>
         ) : certs.length === 0 ? (
           <div className="setting-row">
-            <span className="small bad">{certError ?? "No certificate found. Plug in your DSC token."}</span>
+            <span className="small bad">{certError ?? t("portal.noCert")}</span>
             <button type="button" className="btn" onClick={loadCerts}>
-              <RefreshIcon size={14} /> Check again
+              <RefreshIcon size={14} /> {t("common.checkAgain")}
             </button>
           </div>
         ) : (
           <select id="portal-cert" value={certId} onChange={(e) => setCertId(e.target.value)} disabled={busy}>
             {certs.map((c) => (
               <option key={c.id} value={c.id} disabled={!usable(c)}>
-                {c.name} · {c.issuer} · {c.expired ? "expired" : daysLeftText(c.daysLeft)}
-                {c.matchesPan ? " · matches PAN" : ""}
+                {c.name} · {c.issuer} · {c.expired ? t("expiry.expired") : daysLeftText(c.daysLeft)}
+                {c.matchesPan ? ` · ${t("portal.matchesPan")}` : ""}
               </option>
             ))}
           </select>
         )}
         {cert && !cert.matchesPan && request.pan && (
-          <p className="muted small">
-            This certificate does not show PAN {request.pan}. Use it only if it is the DSC registered for this PAN on the portal.
-          </p>
+          <p className="muted small">{t("portal.panMismatch", { pan: request.pan })}</p>
         )}
-        <label htmlFor="portal-pin">PIN</label>
+        <label htmlFor="portal-pin">{t("common.pin")}</label>
         <input
           id="portal-pin"
           ref={input}
@@ -188,22 +188,22 @@ export function PortalDialog(props: { request: PortalRequest & { gone?: boolean 
         />
         {error ? (
           <p className="inline-error">
-            <AlertIcon size={14} /> {error.message}
+            <AlertIcon size={14} /> {errorText(error)}
           </p>
         ) : warning ? (
           <p className="inline-error">
             <AlertIcon size={14} /> {warning}
           </p>
         ) : (
-          <p className="muted small">The signature goes back to the portal page only. The PIN is never saved.</p>
+          <p className="muted small">{t("portal.pinHint")}</p>
         )}
         <div className="dialog-actions">
           <div className="spacer" />
           <button type="button" className="btn" onClick={cancel} disabled={busy}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button type="submit" className="btn primary" disabled={!cert || !pin || busy || locked}>
-            {busy ? "Signing…" : "Sign"}
+            {busy ? t("common.signing") : t("common.sign")}
           </button>
         </div>
       </form>
@@ -224,7 +224,7 @@ export function PortalSettings(props: { status: PortalStatus | null; onStatus: (
     try {
       props.onStatus(await f());
     } catch (e) {
-      setError(api.errorOf(e).message);
+      setError(errorText(api.errorOf(e)));
       api.portalStatus().then(props.onStatus, () => {});
     } finally {
       setBusy(false);
@@ -233,52 +233,48 @@ export function PortalSettings(props: { status: PortalStatus | null; onStatus: (
 
   return (
     <section>
-      <h3>GST portal signing</h3>
+      <h3>{t("portal.settings")}</h3>
       {!status?.enabled ? (
         <>
+          <p className="muted small">{t("portal.intro")}</p>
           <p className="muted small">
-            Lets the GST portal (gst.gov.in) ask TrackMySign for DSC signatures, in place of emSigner. TrackMySign then listens on this computer
-            only (127.0.0.1), answers only gst.gov.in pages, and signs each request only after you approve it with your PIN.
-          </p>
-          <p className="muted small">
-            Turning it on adds a certificate made for this computer to your user's trusted certificates, so the browser accepts the connection.
-            {/mac/i.test(navigator.platform) ? " macOS asks for your password." : " Windows asks you to confirm."} The certificate can
-            only vouch for 127.0.0.1, and the key that made it is deleted at once. Works while TrackMySign is open.
+            {t("portal.introTrust", { confirm: /mac/i.test(navigator.platform) ? t("portal.macConfirm") : t("portal.windowsConfirm") })}
           </p>
           {status?.certificateLeft ? (
             <div className="setting-row">
-              <span className="small bad">The certificate from before is still trusted.</span>
+              <span className="small bad">{t("portal.certLeft")}</span>
               <button className="btn" onClick={() => run(api.portalDisable)} disabled={busy}>
-                Remove certificate
+                {t("portal.removeCert")}
               </button>
             </div>
           ) : (
             <button className="btn" onClick={() => run(api.portalEnable)} disabled={busy || !status}>
-              {busy ? "Waiting for confirmation…" : "Enable portal signing"}
+              {busy ? t("portal.waiting") : t("portal.enable")}
             </button>
           )}
         </>
       ) : (
         <>
           <dl className="kv">
-            <dt>Status</dt>
+            <dt>{t("common.status")}</dt>
             <dd className={status.port !== null ? "ok" : "bad"}>
-              {status.port !== null ? `On · wss://127.0.0.1:${status.port}` : (status.error ?? "Not running")}
+              {status.port !== null
+                ? t("portal.on", { port: status.port })
+                : status.error
+                  ? translateMessage(status.error)
+                  : t("portal.notRunning")}
             </dd>
             {status.validUntil && (
               <>
-                <dt>Certificate</dt>
-                <dd>Valid until {status.validUntil}</dd>
+                <dt>{t("common.certificate")}</dt>
+                <dd>{t("portal.validUntil", { date: status.validUntil })}</dd>
               </>
             )}
           </dl>
           {status.taken.length > 0 && status.port !== null && (
-            <p className="muted small">
-              Port {status.taken.join(", ")} is used by another program, probably emSigner. The portal tries it first; if emSigner answers
-              there, the portal uses emSigner. Quit emSigner to sign with TrackMySign.
-            </p>
+            <p className="muted small">{t("portal.taken", { ports: status.taken.join(", ") })}</p>
           )}
-          <label htmlFor="portal-version">emSigner version reported to the portal</label>
+          <label htmlFor="portal-version">{t("portal.version")}</label>
           <div className="setting-row">
             <input
               id="portal-version"
@@ -289,16 +285,13 @@ export function PortalSettings(props: { status: PortalStatus | null; onStatus: (
               spellCheck={false}
             />
             <button className="btn" onClick={() => run(() => api.portalSetVersion(version))} disabled={busy || version.trim() === status.version}>
-              Apply
+              {t("portal.apply")}
             </button>
           </div>
-          <p className="muted small">
-            The portal only talks to the version it expects ({status.defaultVersion} at the time of writing). Change it if the portal says
-            “Please install and use correct version of emSigner”.
-          </p>
+          <p className="muted small">{t("portal.versionHint", { version: status.defaultVersion })}</p>
           {status.log.length > 0 && (
             <>
-              <h4>Recent activity</h4>
+              <h4>{t("portal.recent")}</h4>
               <ul className="portal-log mono">
                 {status.log.slice(-6).map((l, i) => (
                   <li key={i}>{l}</li>
@@ -307,7 +300,7 @@ export function PortalSettings(props: { status: PortalStatus | null; onStatus: (
             </>
           )}
           <button className="btn" onClick={() => run(api.portalDisable)} disabled={busy}>
-            {busy ? "Waiting for confirmation…" : "Disable and remove"}
+            {busy ? t("portal.waiting") : t("portal.disable")}
           </button>
         </>
       )}

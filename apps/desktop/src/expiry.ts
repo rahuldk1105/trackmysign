@@ -1,14 +1,13 @@
 // When to remind about an expiring DSC, and how to say it.
 
+import { t } from "./i18n";
+
 /** Days ahead the reminder starts; 0 turns it off. */
 export type ReminderDays = 0 | 15 | 30 | 60;
 
-export const REMINDER_CHOICES: { value: ReminderDays; label: string }[] = [
-  { value: 0, label: "Off" },
-  { value: 15, label: "15 days" },
-  { value: 30, label: "30 days" },
-  { value: 60, label: "60 days" },
-];
+export const REMINDER_CHOICES: ReminderDays[] = [0, 15, 30, 60];
+
+export const reminderLabel = (d: ReminderDays) => (d === 0 ? t("common.off") : t("expiry.days", { n: d }));
 
 /** From here on the reminder turns red. */
 const URGENT_DAYS = 7;
@@ -29,21 +28,19 @@ export function remindAbout(daysLeft: number, remind: ReminderDays): boolean {
   return remind !== 0 && daysLeft >= -REMIND_EXPIRED_DAYS && daysLeft <= remind;
 }
 
-const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
-
 /** "Expires in 12 days", "Expired 3 days ago". */
 export function expiryText(daysLeft: number): string {
-  if (daysLeft >= 1) return `Expires in ${days(daysLeft)}`;
-  if (daysLeft === 0) return "Expires in less than a day";
-  if (daysLeft === -1) return "Expired today";
-  return `Expired ${days(-daysLeft - 1)} ago`;
+  if (daysLeft >= 1) return t("expiry.in", { n: daysLeft });
+  if (daysLeft === 0) return t("expiry.inLessThanDay");
+  if (daysLeft === -1) return t("expiry.today");
+  return t("expiry.ago", { n: -daysLeft - 1 });
 }
 
 /** Shorter form next to the date: "49 days left", "expired". */
 export function daysLeftText(daysLeft: number): string {
-  if (daysLeft < 0) return "expired";
-  if (daysLeft === 0) return "less than a day left";
-  return `${days(daysLeft)} left`;
+  if (daysLeft < 0) return t("expiry.expired");
+  if (daysLeft === 0) return t("expiry.lessThanDayLeft");
+  return t("expiry.daysLeft", { n: daysLeft });
 }
 
 /** Local calendar day, so "dismiss" lasts until tomorrow. */
