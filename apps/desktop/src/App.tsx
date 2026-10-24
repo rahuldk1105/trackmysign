@@ -16,6 +16,7 @@ import type {
   Signed,
 } from "./api";
 import { CertDetailsDialog } from "./CertDetails";
+import { FileSignDialog } from "./FileSigning";
 import { FolderDialog, type FolderRun } from "./FolderVerify";
 import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, reminderLabel, remindAbout, today, type ReminderDays } from "./expiry";
 import { currentLang, isLangPref, LANGUAGE_NAMES, t, tx, useLanguage, type LangPref, type MessageKey } from "./i18n";
@@ -40,6 +41,7 @@ import {
   ChevronUpIcon,
   CloseIcon,
   FileIcon,
+  FileSignIcon,
   FitWidthIcon,
   FolderIcon,
   GearIcon,
@@ -301,8 +303,8 @@ export default function App() {
   batchNow.current = batch;
   /** PDFs from the file manager while a batch is loaded: add or replace? */
   const [handed, setHanded] = useState<string[] | null>(null);
-  /** Names of handed-over files that are not PDFs. */
-  const [ignored, setIgnored] = useState<string[]>([]);
+  /** Files that are not PDFs (or signatures to check), in the file signing dialog. */
+  const [otherFiles, setOtherFiles] = useState<string[] | null>(null);
   const [pagesMode, setPagesMode] = useState<PagesMode>("this");
   const [pagesSpec, setPagesSpec] = useState("");
   /** Certify (an author signature) instead of approving; per document. */
@@ -552,17 +554,37 @@ export default function App() {
     setLastFolder(dirName(more[0]));
   };
 
+  /** Files other than PDFs go to the file signing dialog, joining those already there. */
+  const addOthers = useCallback((paths: string[]) => {
+    if (!paths.length) return;
+    setOtherFiles((cur) => (cur ? [...cur, ...paths.filter((p) => !cur.includes(p))] : paths));
+  }, []);
+
+  const signOther = async () => {
+    addOthers(await api.pickAnyFiles(startFolder));
+  };
+
+  /** Dropped files: PDFs open, the others go to the file signing dialog. */
+  const dropped = useCallback(
+    (paths: string[]) => {
+      const pdf = (p: string) => p.toLowerCase().endsWith(".pdf");
+      openFiles(paths.filter(pdf));
+      addOthers(paths.filter((p) => !pdf(p)));
+    },
+    [openFiles, addOthers],
+  );
+
   /** Files from the file manager: one opens, several become a batch. A
    * loaded batch is not replaced without asking. */
   const receive = useCallback(
     (h: api.Handed) => {
-      setIgnored(h.ignored);
+      addOthers(h.others);
       const current = batchNow.current;
       if (!h.files.length || (current && h.files.every((p) => current.includes(p)))) return;
       if (current) setHanded(h.files);
       else openFiles(h.files);
     },
-    [openFiles],
+    [openFiles, addOthers],
   );
 
   const addHanded = () => {
@@ -583,7 +605,7 @@ export default function App() {
     let offDrop: (() => void) | undefined;
     let offOpen: (() => void) | undefined;
     let cancelled = false;
-    api.onFileDrop(openFiles, setHover).then((f) => (offDrop = f));
+    api.onFileDrop(dropped, setHover).then((f) => (offDrop = f));
     // Listen first, then collect what arrived before: nothing is missed or
     // opened twice. The startup files are handed out once, so open them even
     // if this effect has been cleaned up in the meantime.
@@ -600,7 +622,7 @@ export default function App() {
       offDrop?.();
       offOpen?.();
     };
-  }, [openFiles, receive]);
+  }, [dropped, receive]);
 
   const place = (p: Placement) => {
     setPlacement(p);
@@ -687,7 +709,8 @@ export default function App() {
       ? (certs.length ? certs : known).filter((k) => remindAbout(k.daysLeft, saved.expiryReminder))
       : [];
   const dismissReminders = () => update({ reminderDismissed: today() });
-  const dialogOpen = step.kind !== "idle" || settingsOpen || detailsOpen || designOpen || pagesOpen || !!folderOpen || !!unlock || !!portal.request;
+  const dialogOpen =
+    step.kind !== "idle" || settingsOpen || detailsOpen || designOpen || pagesOpen || !!folderOpen || !!unlock || !!portal.request || !!otherFiles;
 
   /** Opens the folder check; a finished check of another folder makes way for `folder`. */
   const verifyFolder = (folder?: string) => {
@@ -898,6 +921,9 @@ export default function App() {
         <button className={`tb-btn ${folderRun?.running ? "on" : ""}`} onClick={() => verifyFolder()} title={t("folder.verifyHint")} aria-label={t("folder.verify")}>
           <ShieldIcon />
         </button>
+        <button className={`tb-btn ${otherFiles ? "on" : ""}`} onClick={signOther} title={t("files.signHint")} aria-label={t("files.sign")}>
+          <FileSignIcon />
+        </button>
         <button className="tb-btn" onClick={() => setSettingsOpen(true)} title={t("common.settings")} aria-label={t("common.settings")}>
           <GearIcon />
         </button>
@@ -942,12 +968,15 @@ export default function App() {
                     <ShieldIcon />
                     {t("folder.verify")}
                   </button>
+                  <button className="btn ghost empty-folder" onClick={signOther} title={t("files.signHint")}>
+                    <FileSignIcon />
+                    {t("files.sign")}
+                  </button>
                   {docError && (
                     <p className="inline-error">
                       <AlertIcon size={14} /> {docError}
                     </p>
                   )}
-                  {ignored.length > 0 && <IgnoredNote names={ignored} onDismiss={() => setIgnored([])} />}
                   {saved.recentOn && recent.length > 0 && <RecentList files={recent} disabled={loading} onOpen={(p) => openFiles([p])} />}
                   {reminders.length > 0 && (
                     <div className="reminders">
@@ -976,12 +1005,6 @@ export default function App() {
         {doc && (
           <aside className="inspector">
             <div className="insp-scroll">
-              {ignored.length > 0 && (
-                <section>
-                  <IgnoredNote names={ignored} onDismiss={() => setIgnored([])} />
-                </section>
-              )}
-
               {batch && (
                 <section>
                   <h3>{t("batch.documents", { n: batch.length })}</h3>
@@ -1479,6 +1502,22 @@ export default function App() {
         />
       )}
 
+      {otherFiles && (
+        <FileSignDialog
+          paths={otherFiles}
+          setPaths={setOtherFiles}
+          certs={certs}
+          certIndex={certIndex}
+          setCertIndex={setCertIndex}
+          tsaUrl={saved.tsaUrl.trim() || null}
+          timestamp={saved.timestamp}
+          startFolder={startFolder}
+          onCertUsed={(c) => update({ certName: c.name })}
+          onRefreshCerts={refreshCerts}
+          onClose={() => setOtherFiles(null)}
+        />
+      )}
+
       {(step.kind === "pin" || step.kind === "signing") && cert && doc && (
         <PinDialog
           cert={cert}
@@ -1724,7 +1763,7 @@ function RecentList(props: { files: RecentFile[]; disabled: boolean; onOpen: (pa
   );
 }
 
-function PinDialog(props: {
+export function PinDialog(props: {
   cert: Cert;
   docName: string;
   /** Shown when the box goes on more than one page. */
@@ -2294,18 +2333,6 @@ function Settings(props: {
         </div>
       </div>
     </div>
-  );
-}
-
-function IgnoredNote(props: { names: string[]; onDismiss: () => void }) {
-  return (
-    <p className="inline-note">
-      <AlertIcon size={14} />
-      <span>{t("handed.ignored", { n: props.names.length, names: props.names.join(", ") })}</span>
-      <button className="tb-btn" onClick={props.onDismiss} title={t("common.close")} aria-label={t("common.close")}>
-        <CloseIcon size={12} />
-      </button>
-    </p>
   );
 }
 

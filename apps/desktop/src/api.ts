@@ -313,14 +313,14 @@ export async function signBatch(args: BatchArgs, progress: (p: BatchProgress) =>
   await invoke("sign_batch", { args, progress: channel });
 }
 
-/** Files handed over by the system together; `ignored` names the ones that are not PDFs. */
+/** Files handed over by the system together: PDFs, and others to sign as `.p7s` / `.p7m`. */
 export interface Handed {
   files: string[];
-  ignored: string[];
+  others: string[];
 }
 
 export async function startupFiles(): Promise<Handed> {
-  return inTauri ? invoke("startup_files") : { files: [], ignored: [] };
+  return inTauri ? invoke("startup_files") : { files: [], others: [] };
 }
 
 /** Files handed over while the app is running (Finder, a second launch); a
@@ -458,8 +458,7 @@ export async function onFileDrop(cb: (paths: string[]) => void, hover: (on: bool
     else if (p.type === "leave") hover(false);
     else if (p.type === "drop") {
       hover(false);
-      const pdfs = p.paths.filter((x) => x.toLowerCase().endsWith(".pdf"));
-      if (pdfs.length) cb(pdfs);
+      if (p.paths.length) cb(p.paths);
     }
   });
 }
@@ -518,6 +517,96 @@ export async function verifyPdf(path: string, password?: string): Promise<Signat
       certification: 2,
     },
   ];
+}
+
+// ------------------------------------------------------- other files
+
+/** A signature over a file that is not a PDF (`.p7s` / `.p7m`), checked. */
+export interface FileSignatureCheck extends SignatureCheck {
+  /** The file is inside the signature (`.p7m`). */
+  attached: boolean;
+}
+
+export interface FileInfo {
+  path: string;
+  name: string;
+  size: number;
+  /** "file": to sign; "signature": a `.p7s` / `.p7m` to check. */
+  kind: "file" | "signature";
+  /** Of the file; for a signature, of the content it signs, when known. */
+  sha256: string | null;
+  /** The signature that was checked: next to the file, or the file itself. */
+  signaturePath: string | null;
+  check: FileSignatureCheck | null;
+  /** Why the signature could not be read. */
+  error: string | null;
+  /** For a signature: the signed file found next to it. */
+  signedPath: string | null;
+  hasP7s: boolean;
+  hasP7m: boolean;
+}
+
+export interface FileSignArgs {
+  paths: string[];
+  attached: boolean;
+  certId: string;
+  driverPath: string;
+  pin: string;
+  timestamp: string | null;
+}
+
+export function isSignatureFile(path: string): boolean {
+  return /\.p7[sm]$/i.test(path);
+}
+
+export async function fileInfo(path: string): Promise<FileInfo> {
+  if (inTauri) return invoke("file_info", { path });
+  const name = path.split(/[\\/]/).pop() ?? path;
+  return {
+    path,
+    name,
+    size: 48213,
+    kind: isSignatureFile(path) ? "signature" : "file",
+    sha256: "4C317A2D079D518858F1B3B72EE16EB88A7D82898B7CC3DE7F144098BA0A4EF4",
+    signaturePath: null,
+    check: null,
+    error: null,
+    signedPath: null,
+    hasP7s: false,
+    hasP7m: false,
+  };
+}
+
+/** Signs every file in one token session, writing `<file>.p7s` (or `.p7m`) next to it. */
+export async function signFiles(args: FileSignArgs, progress: (p: BatchProgress) => void): Promise<void> {
+  if (!inTauri) {
+    args.paths.forEach((path, index) => progress({ state: "done", index, output: `${path}.${args.attached ? "p7m" : "p7s"}`, name: "" }));
+    return;
+  }
+  const channel = new Channel<BatchProgress>();
+  channel.onmessage = progress;
+  await invoke("sign_files", { args, progress: channel });
+}
+
+/** Any files, for signing or checking. */
+export async function pickAnyFiles(folder?: string | null): Promise<string[]> {
+  if (!inTauri) return ["C:\\Users\\rahul\\Downloads\\tender-bid.docx"];
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const r = await open({ multiple: true, defaultPath: folder ?? undefined });
+  return r ?? [];
+}
+
+/** Asks where to save the file inside a `.p7m`; null when cancelled. */
+export async function pickOriginalPath(p7m: string): Promise<string | null> {
+  const suggested = inTauri ? await invoke<string>("original_path", { path: p7m }) : p7m.replace(/\.p7m$/i, "");
+  if (!inTauri) return suggested;
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return save({ defaultPath: suggested });
+}
+
+/** Writes the file inside the `.p7m` at `path` to `output`. */
+export async function extractSigned(path: string, output: string): Promise<void> {
+  if (inTauri) await invoke("extract_signed", { path, output });
 }
 
 // ------------------------------------------------------- GST portal signing

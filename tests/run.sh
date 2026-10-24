@@ -563,6 +563,91 @@ done
 field "$A/signed-src.pdf" Director pages-field
 vcheck "$W/signed/pages-field.pdf" valid
 
+# Signing other files (.p7s detached / .p7m attached): checked by OpenSSL and by verify-file.
+F=$W/files
+mkdir -p "$F"
+python3 -c 'import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED) as z:
+    z.writestr("[Content_Types].xml", "<Types/>")
+    z.writestr("word/document.xml", "<w:document>Bid for tender 42</w:document>")' "$F/bid.docx"
+printf '<?xml version="1.0" encoding="UTF-8"?>\n<bid tender="42" amount="1250000"/>\n' >"$F/bid.xml"
+head -c 70000 /dev/urandom >"$F/drawing.bin"
+"$BIN" sign-file "$F/bid.docx" "$F/bid.xml" "$F/drawing.bin" >"$F/out" || fail=1
+[ "$(grep -c '^Signing as' "$F/out")" = 1 ] && [ "$(grep -c '^Signed:' "$F/out")" = 3 ] \
+  && echo "PASS sign-file: three files, one PIN" || { echo "FAIL sign-file: $(cat "$F/out")"; fail=1; }
+ossl_verify() {  # file, signature: OpenSSL checks the detached signature over the file
+  openssl cms -verify -binary -content "$1" -inform DER -in "$2" -CAfile "$TEST_PKI/root.pem" -out /dev/null 2>"$F/ossl.err"
+}
+for f in bid.docx bid.xml drawing.bin; do
+  openssl asn1parse -inform DER -in "$F/$f.p7s" >"$F/asn1.txt"
+  if ossl_verify "$F/$f" "$F/$f.p7s" && "$BIN" verify-file "$F/$f" >"$F/v.out" && grep -q "^$f: VALID" "$F/v.out" \
+     && grep -q "Signature: $f.p7s (detached)" "$F/v.out" && grep -q "Chain: RAHUL TEST DIRECTOR <- Test Sub-CA" "$F/v.out" \
+     && grep -q "SHA-256: $(sha256sum "$F/$f" | cut -d' ' -f1 | tr a-f A-F)" "$F/v.out" \
+     && grep -q ':contentType$' "$F/asn1.txt" && grep -q ':signingTime$' "$F/asn1.txt" && grep -q ':messageDigest$' "$F/asn1.txt" \
+     && grep -q 'id-smime-aa-signingCertificateV2' "$F/asn1.txt" && grep -q ':sha256$' "$F/asn1.txt" \
+     && ! openssl cms -verify -binary -inform DER -in "$F/$f.p7s" -noverify -out /dev/null 2>/dev/null; then
+    echo "PASS $f.p7s verifies (OpenSSL and verify-file)"
+  else
+    echo "FAIL $f.p7s: $(cat "$F/ossl.err" "$F/v.out")"; fail=1
+  fi
+done
+# Tampered file: both refuse it, verify-file exits 2.
+cp "$F/bid.docx" "$F/bid-changed.docx"
+python3 -c 'import sys; p = sys.argv[1]; d = bytearray(open(p, "rb").read()); d[40] ^= 1; open(p, "wb").write(d)' "$F/bid-changed.docx"
+rc=0; "$BIN" verify-file "$F/bid-changed.docx" --sig "$F/bid.docx.p7s" >"$F/v.out" || rc=$?
+if [ $rc = 2 ] && grep -q "bid-changed.docx: INVALID" "$F/v.out" && ! ossl_verify "$F/bid-changed.docx" "$F/bid.docx.p7s"; then
+  echo "PASS changed file rejected"
+else
+  echo "FAIL changed file accepted (rc $rc): $(cat "$F/v.out")"; fail=1
+fi
+"$BIN" verify-file "$F/bid.docx.p7s" >"$F/v.out" && grep -q "bid.docx: VALID" "$F/v.out" \
+  && echo "PASS verify-file finds the file next to its .p7s" || { echo "FAIL verify-file on the .p7s: $(cat "$F/v.out")"; fail=1; }
+if "$BIN" sign-file "$F/bid.xml" >/dev/null 2>"$W/err"; then
+  echo "FAIL existing .p7s replaced without --force"; fail=1
+else
+  grep -q "already exists (--force" "$W/err" && echo "PASS existing .p7s kept" || { echo "FAIL: $(cat "$W/err")"; fail=1; }
+fi
+# Attached (.p7m): OpenSSL gets the file back; verify-file --extract saves it.
+"$BIN" sign-file --attached "$F/bid.xml" >/dev/null || fail=1
+mkdir -p "$F/x"
+if openssl cms -verify -binary -inform DER -in "$F/bid.xml.p7m" -CAfile "$TEST_PKI/root.pem" -out "$F/x/ossl.xml" 2>"$F/ossl.err" \
+   && cmp -s "$F/x/ossl.xml" "$F/bid.xml" \
+   && "$BIN" verify-file "$F/bid.xml.p7m" --extract --out "$F/x/bid.xml" >"$F/v.out" && grep -q "attached: the file is inside" "$F/v.out" \
+   && cmp -s "$F/x/bid.xml" "$F/bid.xml" \
+   && "$BIN" verify-file "$F/bid.xml.p7m" --extract >/dev/null && cmp -s "$F/bid (2).xml" "$F/bid.xml"; then
+  echo "PASS .p7m round trip"
+else
+  echo "FAIL .p7m: $(cat "$F/ossl.err" "$F/v.out")"; fail=1
+fi
+python3 -c 'import sys; p = sys.argv[1]; d = bytearray(open(p, "rb").read()); i = d.find(b"1250000"); d[i] ^= 1; open(p, "wb").write(d)' "$F/bid.xml.p7m"
+rc=0; "$BIN" verify-file "$F/bid.xml.p7m" >"$F/v.out" || rc=$?
+[ $rc = 2 ] && grep -q "INVALID" "$F/v.out" && echo "PASS changed .p7m rejected" || { echo "FAIL changed .p7m (rc $rc): $(cat "$F/v.out")"; fail=1; }
+# A .p7m from another tool (OpenSSL streams BER) is read too.
+openssl cms -sign -nodetach -binary -in "$F/bid.docx" -signer "$TEST_PKI/sub.pem" -inkey "$TEST_PKI/sub.key" -outform DER -out "$F/other.docx.p7m"
+if "$BIN" verify-file "$F/other.docx.p7m" --extract --out "$F/x/other.docx" >"$F/v.out" && grep -q "VALID" "$F/v.out" \
+   && cmp -s "$F/x/other.docx" "$F/bid.docx"; then
+  echo "PASS OpenSSL .p7m verified and extracted"
+else
+  echo "FAIL OpenSSL .p7m: $(cat "$F/v.out")"; fail=1
+fi
+# Timestamp from the local TSA (CAdES-T), and the per-signature PIN key in a batch.
+"$BIN" sign-file --timestamp "$TSA" --out "$F/drawing-ts.p7s" "$F/drawing.bin" >/dev/null || fail=1
+openssl asn1parse -inform DER -in "$F/drawing-ts.p7s" >"$F/asn1.txt"
+if ossl_verify "$F/drawing.bin" "$F/drawing-ts.p7s" && grep -q 'id-smime-aa-timeStampToken' "$F/asn1.txt" \
+   && "$BIN" verify-file "$F/drawing.bin" --sig "$F/drawing-ts.p7s" >"$F/v.out" && grep -q "Timestamp: attached" "$F/v.out"; then
+  echo "PASS timestamped .p7s"
+else
+  echo "FAIL timestamped .p7s: $(cat "$F/ossl.err" "$F/v.out")"; fail=1
+fi
+mkdir -p "$F/aa"
+cp "$F/bid.xml" "$F/drawing.bin" "$F/aa/"
+"${AA[@]}" "$BIN" sign-file --attached "$F/aa/bid.xml" "$F/aa/drawing.bin" >"$F/out" || fail=1
+if [ "$(grep -c '^Signed:' "$F/out")" = 2 ] && "$BIN" verify-file "$F/aa/drawing.bin.p7m" >/dev/null \
+   && "$BIN" verify-file "$F/aa/bid.xml.p7m" >/dev/null; then
+  echo "PASS sign-file with a per-signature PIN"
+else
+  echo "FAIL sign-file with a per-signature PIN: $(cat "$F/out")"; fail=1
+fi
 # GST portal signing: the listener with a throwaway CA, approving every request
 # (crates/portal-bridge/examples/portal-test-server.rs, never part of the app),
 # a client acting like the portal page, and the portal's own JavaScript run on

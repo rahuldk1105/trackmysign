@@ -23,6 +23,7 @@ const SENTENCES: Record<string, MessageKey> = {
   "Stop watching to change these settings.": "error.watchLocked",
   "Choose the folder to watch.": "error.watchNoFolder",
   "Save the new PDF under another name: the original is never changed.": "error.pagesSameFile",
+  "The signature is detached: the file is not inside it.": "error.notAttached",
 };
 
 /** Sentences that end in a detail from elsewhere (a server, the OS), kept as is. */
