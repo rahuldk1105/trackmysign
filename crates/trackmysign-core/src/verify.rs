@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 
-use chrono::{DateTime, FixedOffset, TimeZone, Utc};
+use chrono::{DateTime, FixedOffset, Local, TimeZone, Utc};
 use cms::cert::CertificateChoices;
 use cms::content_info::ContentInfo;
 use cms::signed_data::{SignedData, SignerIdentifier};
@@ -319,6 +319,11 @@ fn check(data: &[u8], doc: &Document, field: String, sig: &Dict) -> SignatureRep
     if r.signed_len > 0 {
         (r.later_revisions, r.changes) = later_changes(data, doc, r.signed_len);
     }
+    note_time_in_validity(&mut r);
+    r
+}
+
+fn note_time_in_validity(r: &mut SignatureReport) {
     if let (Some(t), Some(s)) = (r.signing_time, &r.signer) {
         let inside = s.not_before <= t && t <= s.not_after;
         r.time_in_validity = Some(inside);
@@ -327,6 +332,68 @@ fn check(data: &[u8], doc: &Document, field: String, sig: &Dict) -> SignatureRep
                 .push("The certificate was not valid at the signing time.".into());
         }
     }
+}
+
+/// Checks a CMS signature over a whole file: a detached `.p7s` with the
+/// signed file as `content`, or a `.p7m` that carries the file (`content`
+/// may then be left out). `name` goes into [`SignatureReport::field`]; the
+/// PDF-only fields stay empty.
+pub fn verify_cms(cms_der: &[u8], content: Option<&[u8]>, name: &str) -> SignatureReport {
+    let mut r = SignatureReport {
+        field: name.to_string(),
+        status: Status::Unknown,
+        notes: Vec::new(),
+        sub_filter: None,
+        digest_algorithm: None,
+        signer: None,
+        chain: Vec::new(),
+        trust: Trust::NotChecked,
+        signing_time: None,
+        time_in_validity: None,
+        timestamped: false,
+        name: None,
+        reason: None,
+        location: None,
+        signed_len: 0,
+        file_len: 0,
+        later_revisions: 0,
+        changes: Changes::None,
+        certification: None,
+    };
+    let checked = check_cms(cms_der, &mut r, |hash, econtent, r| {
+        let signed = match (econtent, content) {
+            (Some(e), Some(c)) if e != c => {
+                return Err(invalid(
+                    "The file is not the one inside the signature: it was changed.",
+                ));
+            }
+            (Some(e), _) => e,
+            (None, Some(c)) => c,
+            (None, None) => {
+                return Err(unknown(
+                    "The signature is detached: the signed file is needed to check it.",
+                ));
+            }
+        };
+        r.signed_len = signed.len();
+        r.file_len = signed.len();
+        Ok(hash.digest(&[signed]))
+    });
+    match checked {
+        Ok(()) => r.status = Status::Valid,
+        Err(Failure::Invalid(m)) => {
+            r.status = Status::Invalid;
+            r.notes.insert(0, m);
+        }
+        Err(Failure::Unknown(m)) => {
+            r.status = Status::Unknown;
+            r.notes.insert(0, m);
+        }
+    }
+    if let Some(t) = r.signing_time {
+        r.signing_time = Some(t.with_timezone(Local::now().offset()));
+    }
+    note_time_in_validity(&mut r);
     r
 }
 
@@ -359,6 +426,23 @@ fn check_signature(data: &[u8], sig: &Dict, r: &mut SignatureReport) -> Result<(
     let cms_der = tlv(&gap, 0)
         .map(|(_, _, end)| &gap[..end])
         .ok_or_else(|| unknown("The signature data is not DER encoded."))?;
+    check_cms(cms_der, r, |hash, econtent, r| match econtent {
+        None => Ok(hash.digest(&parts)),
+        Some(e) => {
+            check_encapsulated(e, r, &parts)?;
+            Ok(hash.digest(&[e]))
+        }
+    })
+}
+
+/// Checks a CMS `SignedData`: finds the signer and its chain, then compares
+/// the messageDigest with what `content_digest` works out (given the digest
+/// algorithm and any encapsulated content) and checks the signature value.
+fn check_cms(
+    cms_der: &[u8],
+    r: &mut SignatureReport,
+    content_digest: impl FnOnce(Hash, Option<&[u8]>, &mut SignatureReport) -> Result<Vec<u8>, Failure>,
+) -> Result<(), Failure> {
     let ci = ContentInfo::from_der(cms_der)
         .map_err(|e| unknown(format!("The signature data could not be read: {e}")))?;
     if ci.content_type != rfc5911::ID_SIGNED_DATA {
@@ -404,13 +488,7 @@ fn check_signature(data: &[u8], sig: &Dict, r: &mut SignatureReport) -> Result<(
     r.digest_algorithm = Some(hash.name());
 
     let econtent = sd.encap_content_info.econtent.as_ref().map(|e| e.value());
-    let content_digest = match econtent {
-        None => hash.digest(&parts),
-        Some(e) => {
-            check_encapsulated(e, r, &parts)?;
-            hash.digest(&[e])
-        }
-    };
+    let content_digest = content_digest(hash, econtent, r)?;
 
     if let Some(attrs) = &si.signed_attrs {
         if let Some(t) = attr_der(attrs, rfc5911::ID_SIGNING_TIME)

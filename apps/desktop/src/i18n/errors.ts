@@ -22,6 +22,7 @@ const SENTENCES: Record<string, MessageKey> = {
   "The token is no longer logged in. Enter the PIN again.": "error.tokenLoggedOut",
   "Stop watching to change these settings.": "error.watchLocked",
   "Choose the folder to watch.": "error.watchNoFolder",
+  "The signature is detached: the file is not inside it.": "error.notAttached",
 };
 
 /** Sentences that end in a detail from elsewhere (a server, the OS), kept as is. */

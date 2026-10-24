@@ -6,6 +6,26 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Sign any file with the DSC: **Sign other files…** (toolbar, start screen) or
+  dropping / opening a file that is not a PDF shows a file panel with each
+  file's size, SHA-256 and the `.p7s` already next to it, checked. Signs as a
+  standard CMS / PKCS#7 signature, SHA-256, CAdES-BES (contentType,
+  signingTime, messageDigest, ESS signingCertificateV2, certificate chain):
+  a detached `<file>.p7s` next to the file, or an attached `<file>.p7m` with
+  the file inside; optional RFC 3161 timestamp; one PIN for several files. A
+  `.p7s` / `.p7m` opened is checked like a PDF signature (chain to CCA India),
+  and **Save original…** writes the file inside a `.p7m`. Command line:
+  `sign-file FILE... [--attached] [--out PATH] [--timestamp [URL]] [--force]`
+  and `verify-file FILE [--sig FILE.p7s] [--extract [--out PATH]]` (reads DER,
+  PEM, Base64 and BER signatures, as other tools write them).
+
+### Changed
+
+- Files that are not PDFs, handed over by the system or dropped on the window,
+  go to the file panel instead of being left out with a note.
+
 ## [0.5.0] - 2026-10-24
 
 ### Added

@@ -1,4 +1,5 @@
-//! Builds the detached CMS `SignedData` that goes into `/Contents`.
+//! Builds the detached CMS `SignedData` that goes into `/Contents`, and the
+//! same signature over any file (`.p7s`, or `.p7m` with the file inside).
 //!
 //! Signed attributes: contentType, signingTime, messageDigest and
 //! signingCertificateV2 (ESS, as PAdES and Adobe expect).
@@ -119,6 +120,26 @@ pub fn build_signed_data(
     content_digest: &[u8; 32],
     time: &DateTime<FixedOffset>,
 ) -> Result<Vec<u8>, Error> {
+    build(signer, content_digest, time, None)
+}
+
+/// [`build_signed_data`] with `content` carried inside the signature
+/// (enveloping, as in a `.p7m`).
+pub fn build_signed_data_attached(
+    signer: &mut dyn Signer,
+    content: &[u8],
+    time: &DateTime<FixedOffset>,
+) -> Result<Vec<u8>, Error> {
+    let digest: [u8; 32] = Sha256::digest(content).into();
+    build(signer, &digest, time, Some(content))
+}
+
+fn build(
+    signer: &mut dyn Signer,
+    content_digest: &[u8; 32],
+    time: &DateTime<FixedOffset>,
+    content: Option<&[u8]>,
+) -> Result<Vec<u8>, Error> {
     let cert_der = signer.certificate().to_vec();
     let cert = Certificate::from_der(&cert_der).map_err(der_err)?;
 
@@ -202,7 +223,9 @@ pub fn build_signed_data(
         digest_algorithms,
         encap_content_info: EncapsulatedContentInfo {
             econtent_type: rfc5911::ID_DATA,
-            econtent: None,
+            econtent: content
+                .map(|c| Any::encode_from(&OctetString::new(c).map_err(der_err)?).map_err(der_err))
+                .transpose()?,
         },
         certificates: Some(CertificateSet(certs)),
         crls: None,

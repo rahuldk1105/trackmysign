@@ -2,6 +2,7 @@
 
 mod background;
 mod certs;
+mod filesign;
 mod folder;
 mod incoming;
 mod known;
@@ -895,6 +896,10 @@ pub fn run() {
             reveal_file,
             open_website,
             verify::verify_pdf,
+            filesign::file_info,
+            filesign::sign_files,
+            filesign::original_path,
+            filesign::extract_signed,
             verify::export_report,
             folder::verify_folder,
             folder::stop_folder_verify,
@@ -968,7 +973,10 @@ mod tests {
             found.files,
             vec![dir.join("a.pdf").to_string_lossy().into_owned(), abs]
         );
-        assert_eq!(found.ignored, ["notes.txt"]);
+        assert_eq!(
+            found.others,
+            [dir.join("notes.txt").to_string_lossy().into_owned()]
+        );
     }
 
     /// The shape `scripts/updater-manifest.mjs` writes is what the updater accepts.

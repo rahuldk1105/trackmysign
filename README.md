@@ -6,6 +6,8 @@ Sign PDFs with your USB DSC token (tested design: Hypersecu HyperPKI HYP2003) �
   signatures already on the document (auditor, CA, co-director) stay valid.
 - Standard `adbe.pkcs7.detached` / SHA-256 signatures that Adobe Reader validates.
 - Visible "Digitally signed by …" box, or invisible.
+- Other files (Word, Excel, ZIP, XML, …) are signed as standard `.p7s` / `.p7m`
+  (CMS / PKCS#7) signatures, see [Signing other files](#signing-other-files-p7s--p7m).
 - Your PIN is never stored. Tokens whose key asks for the PIN on every
   signature work too, batches included, with the PIN entered once.
 
@@ -112,6 +114,8 @@ Other options:
 .\trackmysign.exe verify file.pdf --report report.pdf # ... and save a PDF report for auditors
 .\trackmysign.exe verify file.pdf --json              # ... as JSON, for scripts
 .\trackmysign.exe verify-folder C:\Invoices --recursive --report invoices.pdf --csv invoices.csv
+.\trackmysign.exe sign-file bid.docx prices.xlsx      # bid.docx.p7s, prices.xlsx.p7s (see Signing other files)
+.\trackmysign.exe verify-file bid.docx               # check bid.docx.p7s
 .\trackmysign.exe sign file.pdf --page 1 --position top-right
 .\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
 .\trackmysign.exe sign file.pdf --pages all            # one signature, box on every page
@@ -317,6 +321,73 @@ or changes meaning):
 `some_invalid` means a signature is invalid or could not be checked;
 `content_changed` means the content changed after a signature, or anything
 changed after a certification that allowed no changes.
+
+## Signing other files (.p7s / .p7m)
+
+Word, Excel, ZIP, XML, images or any other file can be signed with the DSC as a
+standard CMS / PKCS#7 signature (RFC 5652), the format OpenSSL, Java and
+Windows tools read:
+
+- **Separate file (`.p7s`, detached, the default)**: `bid.docx.p7s` is saved
+  next to `bid.docx`, which stays as it is. Send or upload both.
+- **File inside (`.p7m`, attached / enveloping)**: `bid.docx.p7m` contains the
+  file and its signature. Send or upload the `.p7m`; the recipient gets the
+  file back with *Save original…* (or `openssl cms -verify`).
+
+Both are DER, SHA-256 (RSA PKCS#1 v1.5 or ECDSA, as the key is), with the
+signed attributes contentType, signingTime, messageDigest and ESS
+signingCertificateV2 and the certificate chain included, which is CAdES-BES;
+with a trusted timestamp (RFC 3161, the server from Settings or `--timestamp`)
+it is CAdES-T. This is the same signature TrackMySign puts into a PDF, built
+by the same code.
+
+Where these are accepted: there is no single published format for "signed
+documents" on Indian e-procurement portals. GePNIC portals (CPPP
+eprocure.gov.in and the state portals built on it) sign bid documents inside
+the browser with their own DSC signer component while you upload them, so they
+do not need a `.p7s` from you. Detached `.p7s` / attached `.p7m` is the
+general-purpose format for the other cases, when a department, buyer or
+auditor wants a file other than a PDF digitally signed with a DSC. Check what the receiving office
+expects (and whether it wants the `.p7s` or the `.p7m`) before relying on one.
+A PDF is better signed as a PDF (the signature shows in Adobe Reader); a
+`.p7s` of a PDF works too.
+
+In the app, **Sign other files…** (the toolbar button next to *Verify folder*,
+or the start screen) or dropping / opening a file that is not a PDF shows the
+file panel: each file with its size, SHA-256 and the `.p7s` already next to it,
+checked as for a PDF signature (valid or not, signer, issuer, signing time,
+chain, CCA India trust). Choose *Separate file (.p7s)* or *File inside
+(.p7m)*, optionally the timestamp, and **Sign**: one PIN entry for all files,
+as with a PDF batch (also for keys that ask for the PIN on every signature).
+An existing `.p7s` / `.p7m` is replaced, after the panel has said so. A `.p7s`
+or `.p7m` opened or dropped is checked (a `.p7s` against the file of the same
+name next to it); for a `.p7m`, **Save original…** writes the file inside.
+"Sign with TrackMySign" in Explorer's right-click menu stays for PDFs only:
+registering it for every file type would add the entry to every file on the
+PC; use *Open with* or drag the files onto the window instead.
+
+```powershell
+.\trackmysign.exe sign-file bid.docx prices.xlsx drawing.zip       # bid.docx.p7s, … : one PIN for all
+.\trackmysign.exe sign-file --attached data.xml                    # data.xml.p7m with the file inside
+.\trackmysign.exe sign-file bid.docx --timestamp --out C:\Out\bid.p7s --force
+.\trackmysign.exe verify-file bid.docx                             # finds bid.docx.p7s next to it
+.\trackmysign.exe verify-file bid.docx --sig signature.p7s
+.\trackmysign.exe verify-file data.xml.p7m --extract               # saves data.xml (or "data (2).xml")
+```
+
+`sign-file` does not replace an existing signature file unless `--force` is
+given; `--out` is for a single file. `verify-file` accepts DER, PEM or Base64
+signatures, and BER as OpenSSL writes a `.p7m`; it exits with status 2 when the
+signature is not valid (the file changed, or the signature does not match the
+certificate) or could not be checked (for example a `.p7s` without its file).
+Trust is checked against the CCA India 2022 root as for PDFs; revocation is not
+checked, and an attached timestamp is reported but not verified. The same
+signature checks with OpenSSL:
+
+```sh
+openssl cms -verify -binary -inform DER -in bid.docx.p7s -content bid.docx -CAfile CCAIndia2022.pem
+openssl cms -verify -binary -inform DER -in data.xml.p7m -out data.xml -CAfile CCAIndia2022.pem
+```
 
 ## Watch folder
 

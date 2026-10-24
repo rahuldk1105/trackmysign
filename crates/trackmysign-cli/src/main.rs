@@ -11,6 +11,7 @@ use trackmysign_core::certdetails::{
     CertificateDetails, complete_chain, export_file_name, to_p7b, to_pem,
 };
 use trackmysign_core::certinfo::{CertSummary, Validity};
+use trackmysign_core::filesig::{self, FileCheck, FileSignRequest};
 use trackmysign_core::folder::{self, FileResult, FileStatus, Options, Progress};
 use trackmysign_core::report::Report;
 use trackmysign_core::token::{Driver, TokenCert, TokenSigner, Tokens, driver_name};
@@ -23,7 +24,11 @@ use trackmysign_core::{
 use zeroize::Zeroizing;
 
 #[derive(Parser)]
-#[command(name = "trackmysign", version, about = "Sign PDFs with your DSC token")]
+#[command(
+    name = "trackmysign",
+    version,
+    about = "Sign PDFs and other files with your DSC token"
+)]
 struct Cli {
     /// PKCS#11 driver of the token. If omitted, every known driver is tried,
     /// or the ones listed in TRACKMYSIGN_PKCS11_MODULE.
@@ -129,6 +134,43 @@ enum Cmd {
         /// PIN (for scripted tests only; normally you are prompted).
         #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
         pin: Option<String>,
+    },
+    /// Sign any files (Word, Excel, ZIP, XML, images, …) with one PIN entry,
+    /// as standard CMS / PKCS#7 signatures: <file>.p7s next to each file
+    /// (detached), or <file>.p7m with the file inside (--attached).
+    SignFile {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// Put the file inside the signature (.p7m) instead of next to it (.p7s).
+        #[arg(long)]
+        attached: bool,
+        /// Signature file to write (single file only).
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Replace a signature file that already exists.
+        #[arg(long)]
+        force: bool,
+        #[arg(long, default_value_t = 1)]
+        cert: usize,
+        /// Add a trusted timestamp from this RFC 3161 server (needs the internet).
+        #[arg(long, value_name = "URL", num_args = 0..=1, default_missing_value = DEFAULT_TSA_URL)]
+        timestamp: Option<String>,
+        #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
+        pin: Option<String>,
+    },
+    /// Check a .p7s or .p7m signature of any file. FILE is the signed file
+    /// (its FILE.p7s is found next to it) or the .p7s / .p7m itself. Exits
+    /// with status 2 if the signature is not valid.
+    VerifyFile {
+        file: PathBuf,
+        /// The detached signature, when it is not FILE.p7s.
+        #[arg(long, value_name = "FILE.p7s")]
+        sig: Option<PathBuf>,
+        /// Save the file inside a .p7m (to --out, or next to it without the .p7m).
+        #[arg(long)]
+        extract: bool,
+        #[arg(long, requires = "extract")]
+        out: Option<PathBuf>,
     },
     /// Sign every PDF put into FOLDER until Ctrl+C, with one PIN entry.
     /// Signed copies go to --out (default FOLDER/signed), originals to
@@ -624,6 +666,87 @@ fn describe_signature(r: &SignatureReport) -> String {
     out.join("\n")
 }
 
+/// `verify-file` output: the fields of a PDF signature that apply to a file.
+fn describe_file_check(c: &FileCheck, sig: &Path) -> String {
+    let r = &c.report;
+    let mut out = vec![format!(
+        "{}: {}",
+        r.field,
+        match r.status {
+            Status::Valid => "VALID",
+            Status::Invalid => "INVALID",
+            Status::Unknown => "UNKNOWN",
+        }
+    )];
+    let mut line = |k: &str, v: String| out.push(format!("   {k}: {v}"));
+    line(
+        "Signature",
+        format!(
+            "{} ({})",
+            file_name(sig),
+            if c.attached {
+                "attached: the file is inside"
+            } else {
+                "detached"
+            }
+        ),
+    );
+    if let Some(h) = &c.sha256 {
+        line("SHA-256", h.clone());
+    }
+    if let Some(s) = &r.signer {
+        let org = s
+            .organization
+            .as_ref()
+            .map(|o| format!(" ({o})"))
+            .unwrap_or_default();
+        line("Signed by", format!("{}{org}", s.subject));
+        line("Issued by", s.issuer.clone());
+        line(
+            "Certificate",
+            format!(
+                "valid {} to {}",
+                s.not_before.format("%d %b %Y"),
+                s.not_after.format("%d %b %Y")
+            ),
+        );
+    }
+    if let Some(t) = r.signing_time {
+        let inside = match r.time_in_validity {
+            Some(false) => ", OUTSIDE certificate validity",
+            _ => "",
+        };
+        line(
+            "Signed at",
+            format!(
+                "{} (signer's clock{inside})",
+                t.format("%Y.%m.%d %H:%M:%S %:z")
+            ),
+        );
+    }
+    if r.timestamped {
+        line("Timestamp", "attached (not verified)".into());
+    }
+    if let Some(d) = r.digest_algorithm {
+        line("Format", format!("CMS / PKCS#7, {d}"));
+    }
+    if !r.chain.is_empty() {
+        let names: Vec<&str> = r.chain.iter().map(|c| c.subject.as_str()).collect();
+        line("Chain", names.join(" <- "));
+    }
+    line(
+        "Trust",
+        match r.trust {
+            Trust::CcaIndia => "chains to CCA India 2022 (revocation not checked)".into(),
+            Trust::NotChecked => "not checked".into(),
+        },
+    );
+    for n in &r.notes {
+        line("Note", n.clone());
+    }
+    out.join("\n")
+}
+
 /// The watch folder's side of the token: one session for the whole run.
 struct WatchHost {
     signer: TokenSigner,
@@ -969,6 +1092,145 @@ fn run() -> Result<()> {
             }
             if failed > 0 {
                 bail!("{failed} of {} PDFs could not be signed", pdfs.len());
+            }
+        }
+        Cmd::SignFile {
+            files,
+            attached,
+            out,
+            force,
+            cert,
+            timestamp,
+            pin,
+        } => {
+            if out.is_some() && files.len() > 1 {
+                bail!("--out works with a single file; signatures go next to each file");
+            }
+            if let Some(url) = &timestamp
+                && !url.starts_with("http://")
+                && !url.starts_with("https://")
+            {
+                bail!("--timestamp expects an http:// or https:// address, got {url:?}");
+            }
+            let single = files.len() == 1;
+            let mut failed = 0;
+            let mut report = |file: &PathBuf, e: anyhow::Error| -> Result<()> {
+                if single {
+                    return Err(e);
+                }
+                eprintln!("Failed: {}: {e:#}", file.display());
+                failed += 1;
+                Ok(())
+            };
+            // Read everything first, so problems show before the PIN prompt.
+            let mut jobs = Vec::new();
+            for file in &files {
+                let target = out
+                    .clone()
+                    .unwrap_or_else(|| filesig::signature_path(file, attached));
+                let read = std::fs::read(file)
+                    .with_context(|| format!("reading {}", file.display()))
+                    .and_then(|data| {
+                        if !force && target.exists() {
+                            bail!("{} already exists (--force replaces it)", target.display());
+                        }
+                        Ok(data)
+                    });
+                match read {
+                    Ok(data) => jobs.push((file, data, target)),
+                    Err(e) => report(file, e)?,
+                }
+            }
+            if jobs.is_empty() {
+                bail!("none of the files could be read");
+            }
+            let tokens = open_tokens(&cli.module)?;
+            let certs = tokens.signing_certificates()?;
+            let chosen = signing_cert(&certs, cert)?;
+            println!("Signing as: {}", chosen.summary.subject_cn);
+            let pin = Zeroizing::new(match pin {
+                Some(p) => p,
+                None => rpassword::prompt_password("Token PIN: ")?,
+            });
+            let mut signer = tokens.signer(chosen, &pin)?;
+            drop(pin);
+            let req = FileSignRequest {
+                attached,
+                timestamp,
+                ..Default::default()
+            };
+            for (file, data, target) in jobs {
+                let done = match filesig::sign_file(&data, &req, &mut signer) {
+                    // Stop the batch: another attempt could lock the token.
+                    Err(e @ (Error::WrongPin { .. } | Error::PinLocked)) => return Err(e.into()),
+                    Err(e @ Error::Timestamp(_)) => Err(anyhow::anyhow!(
+                        "{e}\nNothing was saved. Run again without --timestamp to sign without one."
+                    )),
+                    r => r.map_err(anyhow::Error::from),
+                }
+                .and_then(|sig| {
+                    filesig::write_signature(&target, &sig, force)
+                        .with_context(|| format!("writing {}", target.display()))
+                });
+                match done {
+                    Ok(()) => println!("Signed: {}", target.display()),
+                    Err(e) => report(file, e)?,
+                }
+            }
+            if failed > 0 {
+                bail!("{failed} of {} files could not be signed", files.len());
+            }
+        }
+        Cmd::VerifyFile {
+            file,
+            sig,
+            extract,
+            out,
+        } => {
+            let read =
+                |p: &Path| std::fs::read(p).with_context(|| format!("reading {}", p.display()));
+            // FILE is the signature itself, or the signed file with its .p7s.
+            let (sig_path, content_path) = match sig {
+                Some(s) => (s, Some(file.clone())),
+                None if filesig::is_signature_file(&file) => {
+                    let signed = filesig::signed_file_path(&file).filter(|p| p.is_file());
+                    (file.clone(), signed)
+                }
+                None => match filesig::find_signature(&file) {
+                    Some(s) => (s, Some(file.clone())),
+                    None => bail!(
+                        "no signature found: {} does not exist (--sig names another one)",
+                        filesig::signature_path(&file, false).display()
+                    ),
+                },
+            };
+            let der = filesig::read_signature(&read(&sig_path)?)
+                .with_context(|| format!("reading {}", sig_path.display()))?;
+            let inside = filesig::content(&der)?;
+            // A .p7m is checked on what it carries; a separate file only
+            // when named with --sig.
+            let content = match (&inside, &content_path) {
+                (Some(_), Some(p)) if *p == file => Some(read(p)?),
+                (None, Some(p)) => Some(read(p)?),
+                _ => None,
+            };
+            let name = file_name(content_path.as_deref().unwrap_or(&sig_path));
+            let checked = filesig::verify_file(&der, content.as_deref(), &name)?;
+            println!("{}", describe_file_check(&checked, &sig_path));
+            if extract {
+                let Some(data) = inside else {
+                    bail!(
+                        "{} is detached: the file is not inside it",
+                        sig_path.display()
+                    );
+                };
+                let target = out.unwrap_or_else(|| filesig::original_path(&sig_path));
+                filesig::write_signature(&target, &data, false)
+                    .with_context(|| format!("writing {}", target.display()))?;
+                println!("Saved: {}", target.display());
+            }
+            if checked.report.status != Status::Valid {
+                std::process::exit(2);
             }
         }
         Cmd::Watch {

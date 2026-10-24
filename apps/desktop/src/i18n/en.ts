@@ -81,7 +81,6 @@ export const en = {
   },
   "handed.add": "Add to current batch",
   "handed.replace": "Replace batch",
-  "handed.ignored": { one: "Left out, not a PDF: {names}", other: "Left out, not PDFs: {names}" },
 
   "preset.title": "Preset",
   "preset.hint": "Save the reason, location and position to reuse them.",
@@ -628,6 +627,35 @@ export const en = {
   "folder.exportFailed": "Could not save: {message}",
   "folder.saved": "Saved: {file}",
 
+  // ---- signing other files (.p7s / .p7m)
+  "files.sign": "Sign other files…",
+  "files.signHint": "Sign Word, Excel, ZIP, XML or any other file with your DSC (.p7s / .p7m)",
+  "files.title": "Sign files",
+  "files.empty": "No files yet. Add files to sign them, or a .p7s / .p7m to check it.",
+  "files.add": "Add files…",
+  "files.remove": "Leave out",
+  "files.removeFile": "Leave out {name}",
+  "files.noSignature": "Not signed yet: no .p7s next to it.",
+  "files.signatureNext": "Signature next to it: {name}",
+  "files.signedFile": "Signs {name}, found next to it.",
+  "files.signedFileMissing": "Put the signed file ({name}) in the same folder to check this signature.",
+  "files.inside": "The signed file is inside this signature.",
+  "files.readFailed": "Could not read the signature: {message}",
+  "files.saveOriginal": "Save original…",
+  "files.savedOriginal": "Saved: {file}",
+  "files.mode": "Signature",
+  "files.detached": "Separate file (.p7s)",
+  "files.attached": "File inside (.p7m)",
+  "files.detachedHelp": "Each file stays as it is; a .p7s with the same name is saved next to it. Send or upload both.",
+  "files.attachedHelp": "A .p7m that contains the file is saved next to it. Send or upload the .p7m.",
+  "files.timestamp": "Add trusted timestamp",
+  "files.replaces": "{name} already exists and will be replaced.",
+  "files.signN": { one: "Sign {n} file", other: "Sign {n} files" },
+  "files.pinFiles": { one: "{n} file", other: "{n} files" },
+  "files.signedAs": "Signed: {name}",
+  "files.failed": "Not signed: {message}",
+  "files.format": "Standard CMS / PKCS#7 signature (SHA-256, with your certificate chain), readable by OpenSSL and other signature tools.",
+
   // ---- native dialogs
   "dialog.pdfs": "PDF documents",
   "dialog.images": "Images",
@@ -657,6 +685,7 @@ export const en = {
   "error.tokenLoggedOut": "The token is no longer logged in. Enter the PIN again.",
   "error.watchLocked": "Stop watching to change these settings.",
   "error.watchNoFolder": "Choose the folder to watch.",
+  "error.notAttached": "The signature is detached: the file is not inside it.",
 } satisfies Record<string, string | Plural>;
 
 export type MessageKey = keyof typeof en;

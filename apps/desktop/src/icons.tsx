@@ -74,6 +74,15 @@ export const FileIcon = (p: P) => (
   </Svg>
 );
 
+/** A file with a signature line: signing files other than PDFs. */
+export const FileSignIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z" />
+    <path d="M14 3v5h5" />
+    <path d="M8 16c1.2-1.8 2-2.5 2.6-2.5.8 0-.4 2.2.4 2.2s1.2-1.4 1.8-1.4.2 1 .8 1 1-.5 1.6-.9" />
+  </Svg>
+);
+
 export const PenIcon = (p: P) => (
   <Svg {...p}>
     <path d="M12 20h9" />
