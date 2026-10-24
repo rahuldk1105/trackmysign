@@ -14,6 +14,7 @@ import type {
   PinStatus,
   Signed,
 } from "./api";
+import { CertDetailsDialog } from "./CertDetails";
 import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, remindAbout, today, type ReminderDays } from "./expiry";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
 import { PortalDialog, PortalSettings, PortalStatusItem, usePortal } from "./PortalSigning";
@@ -267,6 +268,7 @@ export default function App() {
   const [page, setPage] = useState(0);
   const [goto, setGoto] = useState<{ page: number; n: number } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [theme, setTheme] = useTheme();
   const [sigImage, setSigImage] = useState<{ url: string; aspect: number } | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -538,7 +540,7 @@ export default function App() {
       ? (certs.length ? certs : known).filter((k) => remindAbout(k.daysLeft, saved.expiryReminder))
       : [];
   const dismissReminders = () => update({ reminderDismissed: today() });
-  const dialogOpen = step.kind !== "idle" || settingsOpen || !!unlock || !!portal.request;
+  const dialogOpen = step.kind !== "idle" || settingsOpen || detailsOpen || !!unlock || !!portal.request;
 
   // ---- keyboard
   const keys = useRef({ pick, zoomBy, dialogOpen, hasDoc: !!doc });
@@ -829,14 +831,19 @@ export default function App() {
                 ) : (
                   <>
                     {certs.length > 1 && (
-                      <select value={certIndex} onChange={(e) => setCertIndex(Number(e.target.value))} aria-label="Certificate">
-                        {certs.map((c, i) => (
-                          <option key={i} value={i}>
-                            {c.name} — {c.issuer}
-                            {manyDrivers ? ` (${c.driver})` : ""}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="cert-pick">
+                        <select value={certIndex} onChange={(e) => setCertIndex(Number(e.target.value))} aria-label="Certificate">
+                          {certs.map((c, i) => (
+                            <option key={i} value={i}>
+                              {c.name} — {c.issuer}
+                              {manyDrivers ? ` (${c.driver})` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <button className="btn" onClick={() => setDetailsOpen(true)} title="Certificate details">
+                          Details
+                        </button>
+                      </div>
                     )}
                     <dl className="kv">
                       <dt>Name</dt>
@@ -850,6 +857,11 @@ export default function App() {
                       <dt>Driver</dt>
                       <dd title={cert.driverPath}>{cert.driver}</dd>
                     </dl>
+                    {certs.length === 1 && (
+                      <button className="link cert-details-link" onClick={() => setDetailsOpen(true)}>
+                        Certificate details
+                      </button>
+                    )}
                     {cert.expired ? (
                       <div className="warn-row">
                         <AlertIcon size={14} />
@@ -1201,6 +1213,8 @@ export default function App() {
           saved={saved}
           update={update}
           certs={certs}
+          selected={cert}
+          onCertDetails={() => setDetailsOpen(true)}
           certError={certError}
           drivers={drivers}
           image={sigImage?.url ?? null}
@@ -1215,6 +1229,8 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+
+      {detailsOpen && cert && <CertDetailsDialog cert={cert} onClose={() => setDetailsOpen(false)} />}
 
       {(step.kind === "pin" || step.kind === "signing") && cert && doc && (
         <PinDialog
@@ -1522,6 +1538,9 @@ function Settings(props: {
   saved: Saved;
   update: (p: Partial<Saved>) => void;
   certs: Cert[] | null;
+  /** The certificate chosen in the side panel. */
+  selected?: Cert;
+  onCertDetails: () => void;
   certError: string | null;
   drivers: Driver[] | undefined;
   image: string | null;
@@ -1545,7 +1564,7 @@ function Settings(props: {
   useEffect(() => {
     panel.current?.querySelector<HTMLElement>("button")?.focus();
   }, []);
-  const cert = props.certs?.[0];
+  const cert = props.selected ?? props.certs?.[0];
   return (
     <div className="panel-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="settings" role="dialog" aria-label="Settings" ref={panel}>
@@ -1725,6 +1744,11 @@ function Settings(props: {
                 </>
               )}
             </dl>
+            {cert && (
+              <button className="btn cert-details-btn" onClick={props.onCertDetails}>
+                Certificate details
+              </button>
+            )}
             {!cert && props.certError && <p className="muted small">{props.certError}</p>}
             <h4>Detected drivers</h4>
             {props.drivers === undefined ? (

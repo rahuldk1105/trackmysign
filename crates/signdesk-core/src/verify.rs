@@ -35,7 +35,7 @@ use crate::{Error, KeyKind, certinfo};
 /// 9A:3F:D3:17:67:98:E8:42:DD:CB:12:C2:62:F1:1C:FA:CC:A7:0A:8B:84:C6:EA:6F:DA:30:84:2A:95:A9:4C:D8).
 /// Source: https://cca.gov.in/cca/sites/default/files/files/CCAIndia2022.cer,
 /// linked from https://cca.gov.in/root_certificate.html; converted to DER.
-const CCA_INDIA_2022: &[u8] = include_bytes!("roots/cca-india-2022.der");
+pub(crate) const CCA_INDIA_2022: &[u8] = include_bytes!("roots/cca-india-2022.der");
 
 const ID_AA_TIME_STAMP_TOKEN: ObjectIdentifier =
     ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.16.2.14");
@@ -578,7 +578,7 @@ fn is_ca(c: &Certificate) -> bool {
     extension::<BasicConstraints>(c, rfc5280::ID_CE_BASIC_CONSTRAINTS).is_some_and(|b| b.ca)
 }
 
-fn signed_by(cert: &Certificate, issuer: &Certificate) -> bool {
+pub(crate) fn signed_by(cert: &Certificate, issuer: &Certificate) -> bool {
     let Some((kind, hash)) = signature_algorithm(cert.signature_algorithm.oid, Hash::Sha256) else {
         return false;
     };

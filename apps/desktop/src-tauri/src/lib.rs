@@ -1,5 +1,6 @@
 //! Tauri backend: thin commands over `signdesk-core`.
 
+mod certs;
 mod known;
 mod portal;
 mod verify;
@@ -735,6 +736,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_certificates,
             known::known_certificates,
+            certs::certificate_details,
+            certs::export_certificate,
             pdf_info,
             read_pdf,
             sign,

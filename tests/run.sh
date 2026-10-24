@@ -306,6 +306,29 @@ if "$BIN" sign "$W/fx/plain.pdf" --cert "$old" --allow-expired --out "$W/expired
 else
   echo "FAIL --allow-expired: $(cat "$W/err")"; fail=1
 fi
+# Certificate details and export: the public certificate as on the token,
+# fingerprint and serial as openssl reads them, the chain up to the root.
+C=$W/certexport
+mkdir -p "$C"
+"$BIN" certs --details >"$C/details" 2>&1 || fail=1
+"$BIN" certs --export 1 --out "$C/me.cer" >/dev/null || fail=1
+"$BIN" certs --export 1 --out "$C/me.pem" --pem >/dev/null || fail=1
+"$BIN" certs --export 1 --out "$C/me.p7b" --chain >/dev/null || fail=1
+(cd "$C" && "$BIN" certs --export 1 >/dev/null) || fail=1
+fp=$(openssl x509 -inform DER -in "$C/me.cer" -noout -fingerprint -sha256 | cut -d= -f2)
+serial=$(openssl x509 -inform DER -in "$C/me.cer" -noout -serial | cut -d= -f2)
+if cmp -s "$C/me.cer" "$TEST_PKI/sign.der" \
+   && openssl x509 -in "$C/me.pem" -outform DER | cmp -s - "$TEST_PKI/sign.der" \
+   && [ "$(openssl pkcs7 -inform DER -in "$C/me.p7b" -print_certs | grep -c '^subject=')" = 3 ] \
+   && openssl pkcs7 -inform DER -in "$C/me.p7b" -print_certs | grep -q "CN = Test CCA India Root" \
+   && cmp -s "$C/RAHUL_TEST_DIRECTOR_DSC.cer" "$TEST_PKI/sign.der" \
+   && grep -q "SHA-256: $fp" "$C/details" && grep -q "Serial number: $serial" "$C/details" \
+   && grep -q "Key: RSA 2048" "$C/details" \
+   && grep -q "Chain: RAHUL TEST DIRECTOR <- Test Sub-CA for Class 3 Individual 2026 <- Test CCA India Root" "$C/details"; then
+  echo "PASS certificate details and export"
+else
+  echo "FAIL certificate export: $(cat "$C/details")"; fail=1
+fi
 # GST portal signing: the listener with a throwaway CA, approving every request
 # (crates/portal-bridge/examples/portal-test-server.rs, never part of the app),
 # a client acting like the portal page, and the portal's own JavaScript run on
