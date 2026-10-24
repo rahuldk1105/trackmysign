@@ -306,4 +306,59 @@ if "$BIN" sign "$W/fx/plain.pdf" --cert "$old" --allow-expired --out "$W/expired
 else
   echo "FAIL --allow-expired: $(cat "$W/err")"; fail=1
 fi
+# GST portal signing: the listener with a throwaway CA, approving every request
+# (crates/portal-bridge/examples/portal-test-server.rs, never part of the app),
+# a client acting like the portal page, and the portal's own JavaScript run on
+# the frames it got.
+PORTAL_BIN=${PORTAL_TEST_SERVER:-${CARGO_TARGET_DIR:-$ROOT/target}/debug/examples/portal-test-server}
+[ -n "${PORTAL_TEST_SERVER:-}" ] || cargo build -q --manifest-path "$ROOT/Cargo.toml" -p portal-bridge --example portal-test-server
+P=$W/portal
+mkdir -p "$P"
+PP=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+"$PORTAL_BIN" "$P" "$PP" >"$P/server.out" 2>"$P/server.err" &
+PORTAL_PID=$!
+trap 'kill $SVC_PID $PORTAL_PID 2>/dev/null' EXIT
+for _ in $(seq 100); do grep -q "^PORT $PP" "$P/server.out" && break; sleep 0.1; done
+openssl x509 -in "$TEST_PKI/sign.pem" -outform DER -out "$P/expected-signer.der"
+portal_sign() {  # tobesigned, PAN, name
+  local d=$P/$3
+  mkdir -p "$d"
+  if ! python3 "$ROOT/tests/portal_client.py" sign "$P/ca.cer" "$PP" https://services.gst.gov.in "$d" "$1" "$2"; then
+    echo "FAIL portal $3: no reply ($(cat "$P/server.err"))"; fail=1; return
+  fi
+  node "$ROOT/tests/portal_compat.js" "$d/greeting.txt" "$d/reply.txt" 2.8 "$d/sig.txt" || { fail=1; return; }
+  python3 -c 'import base64, sys; t = open(sys.argv[1]).read(); sys.stdout.buffer.write(base64.urlsafe_b64decode(t + "=" * (-len(t) % 4)))' \
+    "$d/sig.txt" >"$d/sig.der"
+  openssl asn1parse -inform DER -in "$d/sig.der" >"$d/asn1.txt"
+  if openssl cms -verify -inform DER -in "$d/sig.der" -noverify -out "$d/content" -signer "$d/signer.pem" 2>"$d/verify.err" \
+     && [ "$(cat "$d/content")" = "$1" ] \
+     && openssl x509 -in "$d/signer.pem" -outform DER | cmp -s - "$P/expected-signer.der" \
+     && [ "$(grep -c ':contentType$' "$d/asn1.txt")" = 1 ] && [ "$(grep -c ':signingTime$' "$d/asn1.txt")" = 1 ] \
+     && [ "$(grep -c ':messageDigest$' "$d/asn1.txt")" = 1 ] && [ "$(grep -c 'OBJECT *:sha1$' "$d/asn1.txt")" = 2 ] \
+     && ! grep -qi 'signingCertificate\|cont \[ 1 \]' "$d/asn1.txt" \
+     && head -c 11 "$d/reply.txt" | grep -qx 'signature= ' && grep -q '^CommonName= RAHUL TEST DIRECTOR$' "$d/reply.txt"; then
+    echo "PASS portal signature over $3 verifies (attached content, SHA-1, three signed attributes)"
+  else
+    echo "FAIL portal $3: $(cat "$d/verify.err" "$d/reply.txt")"; fail=1
+  fi
+}
+portal_sign ABCDE1234F ABCDE1234F registration
+portal_sign "$(printf 'return' | sha256sum | cut -d' ' -f1)" ABCDE1234F return
+for origin in https://evil.example http://services.gst.gov.in https://gst.gov.in.evil.example; do
+  if python3 "$ROOT/tests/portal_client.py" refused "$P/ca.cer" "$PP" "$origin"; then
+    echo "PASS portal refuses $origin"
+  else
+    echo "FAIL portal accepted $origin"; fail=1
+  fi
+done
+grep -q 'refused a page from "https://evil.example"' "$P/server.err" || { echo "FAIL refusal not logged"; fail=1; }
+for ip in $(hostname -I 2>/dev/null); do
+  if python3 -c 'import socket, sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=2)' "$ip" "$PP" 2>/dev/null; then
+    echo "FAIL portal listener answers on $ip"; fail=1
+  else
+    echo "PASS portal listener not reachable on $ip"
+  fi
+done
+kill $PORTAL_PID 2>/dev/null
+
 [ $fail = 0 ] && echo "ALL PASSED" || { echo "SOME TESTS FAILED"; exit 1; }

@@ -640,6 +640,15 @@ impl Signer for TokenSigner {
             }
         }
     }
+    fn sign_digest_info(&mut self, digest_info: &[u8]) -> Result<Vec<u8>, Error> {
+        match self.kind {
+            KeyKind::Rsa => self.sign(&Mechanism::RsaPkcs, digest_info),
+            KeyKind::Ec => Err(Error::Token(
+                "This certificate has an elliptic-curve key, which cannot make an RSA signature."
+                    .into(),
+            )),
+        }
+    }
 }
 
 /// Parse helper kept here so callers need not depend on x509-cert.

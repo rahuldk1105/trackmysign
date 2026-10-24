@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 aes = "0.8"
+base64 = "0.22"
 cbc = { version = "0.1", features = ["alloc"] }
 chrono = "0.4"
 cms = { version = "0.2.3", features = ["std"] }

@@ -1,0 +1,11 @@
+signer-cert.der, python-signtype1.der and python-reply.txt are copied unchanged
+from the Swakshar project (fixtures/reference at commit f87f2f8,
+https://github.com/swakshar-app/swakshar), licensed under the Apache License,
+Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
+
+They are a throwaway test certificate (holder "SWAKSHAR TEST SIGNER", issuer
+"Swakshar Test CA 2026", PAN ABCDE1234F), a GST portal signature made with it
+over the content "ABCDE1234F" at 2026-09-25T00:00:00Z, and the reply frame
+sent to the portal. The keys existed only in memory, so the files can sign
+nothing. TrackMySign's tests rebuild the signature and the reply from the same
+inputs and require identical bytes.

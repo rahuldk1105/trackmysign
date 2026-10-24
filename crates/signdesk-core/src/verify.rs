@@ -595,7 +595,7 @@ fn signed_by(cert: &Certificate, issuer: &Certificate) -> bool {
 // -------------------------------------------------------------- crypto
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Hash {
+pub(crate) enum Hash {
     Sha1,
     Sha256,
     Sha384,
@@ -624,7 +624,7 @@ impl Hash {
         }
     }
 
-    fn digest(self, parts: &[&[u8]]) -> Vec<u8> {
+    pub(crate) fn digest(self, parts: &[&[u8]]) -> Vec<u8> {
         fn run<D: Digest>(parts: &[&[u8]]) -> Vec<u8> {
             let mut h = D::new();
             for p in parts {
@@ -739,7 +739,7 @@ fn rsa_verify(key: &RsaPublicKey, hash: Hash, hashed: &[u8], sig: &[u8]) -> bool
 }
 
 /// `Ok(false)` for a wrong signature, `Err` when the key cannot be used.
-fn verify_hashed(
+pub(crate) fn verify_hashed(
     spki: &SubjectPublicKeyInfoOwned,
     kind: KeyKind,
     hash: Hash,

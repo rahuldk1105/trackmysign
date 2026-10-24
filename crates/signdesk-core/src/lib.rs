@@ -6,6 +6,7 @@ mod http;
 pub mod image;
 pub mod ltv;
 pub mod pdf;
+pub mod portal;
 pub mod token;
 pub mod tsa;
 pub mod verify;
@@ -37,6 +38,13 @@ pub trait Signer {
     fn signature_len(&self) -> usize;
     /// RSA: PKCS#1 v1.5 signature. EC: DER `ECDSA-Sig-Value`.
     fn sign_sha256(&mut self, digest: &[u8; 32]) -> Result<Vec<u8>, Error>;
+    /// RSA only: PKCS#1 v1.5 signature over a ready-made DER `DigestInfo`
+    /// (the GST portal wants SHA-1, see [`portal::cms`]).
+    fn sign_digest_info(&mut self, _digest_info: &[u8]) -> Result<Vec<u8>, Error> {
+        Err(Error::Token(
+            "This key cannot make this kind of signature.".into(),
+        ))
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

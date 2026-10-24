@@ -1,0 +1,22 @@
+[package]
+name = "portal-bridge"
+version = "0.2.0"
+edition = "2024"
+description = "Local signer for the GST portal: TLS identity, trust store and WebSocket listener"
+
+[dependencies]
+chrono = "0.4"
+der = "0.7"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+sha1 = "0.10"
+signdesk-core = { version = "0.2.0", path = "../signdesk-core" }
+time = "0.3"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+x509-cert = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
