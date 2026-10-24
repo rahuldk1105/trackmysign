@@ -6,6 +6,8 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-24
+
 ### Added
 
 - Signature box designer: *Appearance → Design…* sets the layout (text only,
@@ -251,7 +253,8 @@ First release.
 - Website at [sign.rahuldk.in](https://sign.rahuldk.in).
 - End-to-end tests with a SoftHSM virtual token, validated with pyHanko and qpdf.
 
-[Unreleased]: https://github.com/rahuldk1105/trackmysign/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/rahuldk1105/trackmysign/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/rahuldk1105/trackmysign/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/rahuldk1105/trackmysign/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/rahuldk1105/trackmysign/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/rahuldk1105/trackmysign/compare/v0.1.4...v0.2.0
