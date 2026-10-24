@@ -72,6 +72,16 @@ export const ta: Catalog = {
   "batch.leaveOutFile": "{name} விலக்கு",
   "batch.firstShown": "முதல் ஆவணம் காட்டப்படுகிறது. ஒவ்வொன்றிலும் அதே பக்கத்தில் அதே இடத்தில் பெட்டி வரும்.",
 
+  // ---- several files handed over at once (file manager)
+  "handed.title": "தற்போதைய தொகுப்பில் சேர்க்கவா?",
+  "handed.body": {
+    one: "கையொப்பமிட {total} ஆவணங்கள் ஏற்றப்பட்டிருக்கும்போது {n} PDF திறக்கப்பட்டது.",
+    other: "கையொப்பமிட {total} ஆவணங்கள் ஏற்றப்பட்டிருக்கும்போது {n} PDF-கள் திறக்கப்பட்டன.",
+  },
+  "handed.add": "தற்போதைய தொகுப்பில் சேர்",
+  "handed.replace": "தொகுப்பை மாற்று",
+  "handed.ignored": { one: "PDF அல்ல, விலக்கப்பட்டது: {names}", other: "PDF அல்லாதவை விலக்கப்பட்டன: {names}" },
+
   "preset.title": "முன்னமைவு",
   "preset.hint": "காரணம், இடம், நிலையைச் சேமித்து மீண்டும் பயன்படுத்தலாம்.",
   "preset.saveCurrent": "தற்போதையதை முன்னமைவாகச் சேமி…",

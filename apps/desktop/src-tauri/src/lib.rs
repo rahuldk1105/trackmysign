@@ -3,6 +3,7 @@
 mod background;
 mod certs;
 mod folder;
+mod incoming;
 mod known;
 mod output;
 mod portal;
@@ -12,6 +13,7 @@ mod verify;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use incoming::{Arrival, Incoming};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -634,53 +636,55 @@ fn token_drivers() -> Vec<DriverDto> {
         .collect()
 }
 
-/// PDFs handed over by the system: on the command line ("Open with",
-/// "Sign with TrackMySign", drag onto the icon), by Finder, or by a second
-/// launch while the app is running.
-#[derive(Default)]
-struct Opened {
-    /// Set once the window has asked for its startup files; from then on new
-    /// files are sent to it as `open-files` events.
-    ready: bool,
-    pending: Vec<String>,
+/// Existing files among `args`, relative paths resolved against `cwd`,
+/// sorted into PDFs and others.
+fn file_args(args: impl IntoIterator<Item = String>, cwd: &Path) -> Arrival {
+    Arrival::sort(
+        args.into_iter()
+            .map(|a| cwd.join(a))
+            .filter(|p| p.is_file())
+            .map(|p| p.to_string_lossy().into_owned()),
+    )
 }
 
-/// Existing PDFs among `args`, relative paths resolved against `cwd`.
-fn pdf_args(args: impl IntoIterator<Item = String>, cwd: &Path) -> Vec<String> {
-    args.into_iter()
-        .filter(|a| a.to_lowercase().ends_with(".pdf"))
-        .map(|a| cwd.join(a))
-        .filter(|p| p.is_file())
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect()
-}
-
-fn hand_over(app: &AppHandle, files: Vec<String>) {
-    if files.is_empty() {
+/// Collects handed-over files; the window gets them once no more arrive.
+fn hand_over(app: &AppHandle, arrival: Arrival) {
+    if arrival.is_empty() {
         return;
     }
-    let state = app.state::<Mutex<Opened>>();
-    let mut opened = state.lock().unwrap_or_else(|p| p.into_inner());
-    if opened.ready {
-        let _ = app.emit("open-files", files);
-    } else {
-        opened.pending.extend(files);
+    if app.state::<Incoming>().arrive(arrival) {
+        deliver_later(app.clone());
     }
     background::show(app);
 }
 
-/// Files opened before the window was ready to receive them.
-#[tauri::command]
-fn startup_files(state: State<'_, Mutex<Opened>>) -> Vec<String> {
-    let mut opened = state.lock().unwrap_or_else(|p| p.into_inner());
-    opened.ready = true;
-    std::mem::take(&mut opened.pending)
+/// Sends the collected files as one `open-files` event once no more arrive;
+/// before the window listens, `startup_files` takes them.
+fn deliver_later(app: AppHandle) {
+    std::thread::spawn(move || {
+        loop {
+            match app.state::<Incoming>().poll() {
+                incoming::Poll::Wait(d) => std::thread::sleep(d),
+                incoming::Poll::Deliver(arrival) => {
+                    let _ = app.emit("open-files", arrival);
+                    break;
+                }
+                incoming::Poll::Held | incoming::Poll::Idle => break,
+            }
+        }
+    });
 }
 
-/// The first of [`startup_files`].
+/// Files opened before the window was ready to receive them.
 #[tauri::command]
-fn startup_file(state: State<'_, Mutex<Opened>>) -> Option<String> {
-    startup_files(state).into_iter().next()
+fn startup_files(state: State<'_, Incoming>) -> Arrival {
+    state.startup()
+}
+
+/// The first PDF of [`startup_files`].
+#[tauri::command]
+fn startup_file(state: State<'_, Incoming>) -> Option<String> {
+    startup_files(state).files.into_iter().next()
 }
 
 #[tauri::command]
@@ -713,10 +717,7 @@ fn open_website() -> CmdResult<()> {
 pub fn run() {
     let cwd = std::env::current_dir().unwrap_or_default();
     let hidden = background::launched_hidden(std::env::args());
-    let opened = Opened {
-        ready: false,
-        pending: pdf_args(std::env::args().skip(1), &cwd),
-    };
+    let startup = file_args(std::env::args().skip(1), &cwd);
     let builder = tauri::Builder::default();
     // Must be the first plugin: a second launch hands its files to this one and exits.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -725,7 +726,7 @@ pub fn run() {
         if !background::launched_hidden(&args) {
             background::show(app);
         }
-        hand_over(app, pdf_args(args.into_iter().skip(1), Path::new(&cwd)));
+        hand_over(app, file_args(args.into_iter().skip(1), Path::new(&cwd)));
     }));
     // In-app updates; the front end decides when to check (settings).
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -741,13 +742,16 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(Mutex::new(opened))
+        .manage(Incoming::default())
         .manage(portal::PortalState::default())
         .manage(background::BackgroundState::default())
         .manage(folder::FolderState::default())
         .on_window_event(background::on_window_event)
         .setup(move |app| {
             background::start(app.handle(), hidden);
+            if app.state::<Incoming>().arrive(startup) {
+                deliver_later(app.handle().clone());
+            }
             portal::start_if_enabled(app.handle());
             Ok(())
         })
@@ -803,13 +807,12 @@ pub fn run() {
 fn on_run_event(app: &AppHandle, event: tauri::RunEvent) {
     match event {
         tauri::RunEvent::Opened { urls } => {
+            // Several events for one selection become one batch.
             let files = urls
                 .iter()
                 .filter_map(|u| u.to_file_path().ok())
-                .map(|p| p.to_string_lossy().into_owned())
-                .filter(|p| p.to_lowercase().ends_with(".pdf"))
-                .collect();
-            hand_over(app, files);
+                .map(|p| p.to_string_lossy().into_owned());
+            hand_over(app, Arrival::sort(files));
         }
         #[cfg(target_os = "macos")]
         tauri::RunEvent::Reopen { .. } => background::show(app),
@@ -825,7 +828,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pdf_args_resolve_and_filter() {
+    fn file_args_resolve_and_sort() {
         let dir = std::env::temp_dir().join(format!("tms-args-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.pdf"), b"%PDF").unwrap();
@@ -833,12 +836,13 @@ mod tests {
         std::fs::write(dir.join("notes.txt"), b"").unwrap();
         let abs = dir.join("B.PDF").to_string_lossy().into_owned();
         let args = ["a.pdf", "notes.txt", "missing.pdf", "--flag", abs.as_str()];
-        let found = pdf_args(args.iter().map(|s| s.to_string()), &dir);
+        let found = file_args(args.iter().map(|s| s.to_string()), &dir);
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(
-            found,
+            found.files,
             vec![dir.join("a.pdf").to_string_lossy().into_owned(), abs]
         );
+        assert_eq!(found.ignored, ["notes.txt"]);
     }
 
     /// The shape `scripts/updater-manifest.mjs` writes is what the updater accepts.

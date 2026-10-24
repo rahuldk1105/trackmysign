@@ -73,6 +73,16 @@ export const en = {
   "batch.leaveOutFile": "Leave out {name}",
   "batch.firstShown": "The first document is shown. The box goes on the same page and spot of each.",
 
+  // ---- several files handed over at once (file manager)
+  "handed.title": "Add to the current batch?",
+  "handed.body": {
+    one: "{n} PDF was opened while {total} documents are loaded for signing.",
+    other: "{n} PDFs were opened while {total} documents are loaded for signing.",
+  },
+  "handed.add": "Add to current batch",
+  "handed.replace": "Replace batch",
+  "handed.ignored": { one: "Left out, not a PDF: {names}", other: "Left out, not PDFs: {names}" },
+
   "preset.title": "Preset",
   "preset.hint": "Save the reason, location and position to reuse them.",
   "preset.saveCurrent": "Save current as preset…",
