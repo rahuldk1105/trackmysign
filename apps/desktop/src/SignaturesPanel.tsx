@@ -171,7 +171,8 @@ function SavedToast({ output, onClose }: { output: string; onClose: () => void }
   );
 }
 
-export function SignaturesPanel({ path, password, count }: { path: string; password?: string; count: number }) {
+export function SignaturesPanel(props: { path: string; password?: string; count: number; onVerifyFolder: () => void }) {
+  const { path, password, count } = props;
   const [checks, setChecks] = useState<SignatureCheck[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -235,6 +236,9 @@ export function SignaturesPanel({ path, password, count }: { path: string; passw
             {exporting ? t("report.exporting") : t("report.export")}
           </button>
           {exportError && <p className="sig-export-error">{t("report.failed", { message: exportError })}</p>}
+          <button className="link" onClick={props.onVerifyFolder}>
+            {t("folder.checkThisFolder")}
+          </button>
         </div>
       )}
       {saved && <SavedToast output={saved} onClose={closeToast} />}

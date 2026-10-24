@@ -1,0 +1,182 @@
+/* Verify folder dialog (FolderVerify.tsx). */
+
+.dialog.folder-dialog {
+  width: 820px;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+.folder-dialog .dialog-title {
+  padding-right: 12px;
+}
+.folder-dialog .dialog-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.folder-pick {
+  display: flex;
+  gap: 8px;
+}
+.folder-pick .file-row {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  font-weight: 400;
+}
+.folder-pick .file-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+.folder-options {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 4px;
+}
+.folder-options label.check-row {
+  flex: none;
+  height: 30px;
+  margin: 0;
+}
+.folder-password {
+  flex: 1;
+  min-width: 0;
+}
+.folder-password label {
+  margin-top: 6px;
+}
+.folder-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  margin-top: 14px;
+}
+.folder-status p {
+  margin: 0;
+}
+.folder-status .strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.folder-status .bad {
+  color: var(--bad);
+}
+.folder-bar {
+  height: 3px;
+  margin-top: 6px;
+  background: var(--line);
+}
+.folder-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.15s;
+}
+.folder-filter {
+  align-self: flex-start;
+  min-width: 360px;
+}
+.folder-table {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.folder-rows {
+  max-height: 340px;
+  overflow-y: auto;
+}
+.folder-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1.2fr) 72px minmax(0, 1.8fr);
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  text-align: left;
+}
+.folder-rows .folder-row:last-child {
+  border-bottom: 0;
+}
+.folder-row.head {
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+button.folder-row:hover:not(:disabled) {
+  background: var(--hover);
+}
+button.folder-row:disabled {
+  cursor: default;
+}
+.folder-row:focus-visible {
+  outline-offset: -2px;
+}
+.folder-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-row .num {
+  text-align: right;
+}
+.folder-name {
+  color: var(--text);
+}
+.folder-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.folder-state .icon {
+  flex: none;
+}
+.folder-state .sq {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  background: var(--line-strong);
+}
+.folder-row.waiting {
+  color: var(--muted);
+}
+.folder-row.ok .folder-state {
+  color: var(--ok);
+}
+.folder-row.bad .folder-state {
+  color: var(--bad);
+  font-weight: 500;
+}
+.folder-row.warn .folder-state {
+  color: var(--text);
+}
+.folder-empty {
+  margin: 0;
+  padding: 10px;
+}
+.folder-saved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  color: var(--text-2);
+}
+.folder-saved .icon {
+  color: var(--ok);
+}
+.empty-block .btn.empty-folder {
+  height: 34px;
+  margin-left: 8px;
+}

@@ -92,10 +92,10 @@ field "$W/fx/field-lock.pdf" Approver field-lock --lock company
 field "$W/fx/field-sv.pdf" CadesOnly field-cades --subfilter ETSI.CAdES.detached
 "$BIN" sign "$W/fx/field-simple.pdf" --field ClientSignature --image "$W/fx/sig.png" --out "$W/signed/field-img.pdf" >/dev/null
 check "$W/fx/field-simple.pdf" "$W/signed/field-img.pdf"
-if "$BIN" info "$W/fx/field-nested.pdf" | grep -q "approvals.director: page 1, 340,692,200,60" \
-   && "$BIN" info "$W/fx/field-rotated.pdf" | grep -q "Rotated90: page 1, 560,60,200,60" \
-   && "$BIN" info "$W/fx/field-mixed.pdf" | grep -q "Existing signatures: 1" \
-   && ! "$BIN" info "$W/signed/field-mixed.pdf" | grep -q "Empty signature fields"; then
+if "$BIN" info "$W/fx/field-nested.pdf" | grep "approvals.director: page 1, 340,692,200,60" >/dev/null \
+   && "$BIN" info "$W/fx/field-rotated.pdf" | grep "Rotated90: page 1, 560,60,200,60" >/dev/null \
+   && "$BIN" info "$W/fx/field-mixed.pdf" | grep "Existing signatures: 1" >/dev/null \
+   && ! "$BIN" info "$W/signed/field-mixed.pdf" | grep "Empty signature fields" >/dev/null; then
   echo "PASS info lists empty signature fields"
 else
   echo "FAIL info: $("$BIN" info "$W/fx/field-nested.pdf")"; fail=1
@@ -347,6 +347,44 @@ report --password=own "$BIN" "$W/signed/enc-aes256.pdf" "$W/reports" "1 signatur
   "Protection Password-protected"
 report "$BIN" "$W/signed/indic.pdf" "$W/reports" "Reason Svikrita (transliterated)" "Location Chennai (transliterated)"
 report "$BIN" "$W/fx/plain.pdf" "$W/reports" "No signatures found."
+# Verifying a folder: valid, multi-signature, tampered, changed, unsigned, encrypted and
+# damaged PDFs; a hidden folder and a non-PDF are skipped. Then a folder with no problems.
+F=$W/folder
+mkdir -p "$F/sub" "$F/.hidden"
+cp "$W/signed/plain.pdf" "$F/valid.pdf"
+cp "$W/signed/twice.pdf" "$F/sub/three-signatures.pdf"
+cp "$W/tampered-plain.pdf" "$F/tampered.pdf"
+cp "$W/changed.pdf" "$F/sub/changed.pdf"
+cp "$W/fx/plain.pdf" "$F/unsigned.PDF"
+cp "$W/signed/enc-aes256.pdf" "$F/encrypted.pdf"
+cp "$W/fx/plain.pdf" "$F/.hidden/skipped.pdf"
+printf '%%PDF-1.7\n1 0 obj << /Type /Catalog' > "$F/damaged.pdf"
+printf 'not a pdf' > "$F/notes.txt"
+folder() { python3 -W ignore "$ROOT/tests/check_folder.py" "$@" || fail=1; }
+folder --recursive "$BIN" "$F" "$W/reports" 2 valid.pdf=all_valid sub/three-signatures.pdf=all_valid \
+  tampered.pdf=some_invalid sub/changed.pdf=content_changed unsigned.PDF=unsigned encrypted.pdf=needs_password \
+  damaged.pdf=unreadable
+folder --password=user "$BIN" "$F" "$W/reports" 2 valid.pdf=all_valid tampered.pdf=some_invalid \
+  unsigned.PDF=unsigned encrypted.pdf=all_valid damaged.pdf=unreadable
+mkdir -p "$W/folder-ok"
+cp "$W/signed/plain.pdf" "$W/signed/twice.pdf" "$W/fx/form.pdf" "$W/folder-ok/"
+folder "$BIN" "$W/folder-ok" "$W/reports" 0 plain.pdf=all_valid twice.pdf=all_valid form.pdf=unsigned
+folder --require-signed "$BIN" "$W/folder-ok" "$W/reports" 2 plain.pdf=all_valid twice.pdf=all_valid form.pdf=unsigned
+if "$BIN" verify-folder "$F" --recursive >"$W/folder.out" 2>&1; then
+  echo "FAIL verify-folder reported success"; fail=1
+elif grep -q "^INVALID SIGNATURE  *tampered.pdf" "$W/folder.out" \
+   && grep -q "^NEEDS A PASSWORD  *encrypted.pdf .*(--password)" "$W/folder.out" \
+   && grep -q "^ALL VALID  *sub/three-signatures.pdf  (3 signatures: " "$W/folder.out" \
+   && grep -qx "7 files: 2 all valid, 2 with problems, 1 unsigned, 1 unreadable, 1 needs a password" "$W/folder.out"; then
+  echo "PASS verify-folder text output"
+else
+  echo "FAIL verify-folder text: $(cat "$W/folder.out")"; fail=1
+fi
+if "$BIN" verify-folder "$W/no-such-folder" 2>"$W/err"; then
+  echo "FAIL verify-folder of a missing folder succeeded"; fail=1
+else
+  grep -q "reading .*no-such-folder" "$W/err" && echo "PASS missing folder reported" || { echo "FAIL: $(cat "$W/err")"; fail=1; }
+fi
 # Watch folder: PDFs copied in are signed with one PIN entry; a corrupt one and a
 # certified (no changes) one go to failed/ with a reason, temporary names are left alone.
 WF=$W/watch

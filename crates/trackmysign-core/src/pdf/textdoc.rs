@@ -406,6 +406,33 @@ impl TextDoc {
         }
     }
 
+    /// One row of a table: each cell is its text, column width and style,
+    /// wrapped within the column. A row of up to four lines is not split
+    /// across pages.
+    pub fn columns(&mut self, cells: &[(&str, f64, Style)]) {
+        let lines: Vec<Vec<String>> = cells
+            .iter()
+            .map(|(text, width, s)| wrap(text, s.face, s.size, width - 8.0))
+            .collect();
+        let leading = cells.iter().map(|c| c.2.leading()).fold(0.0, f64::max);
+        let rows = lines.iter().map(Vec::len).max().unwrap_or(0);
+        if rows <= 4 {
+            self.keep(rows as f64 * leading);
+        }
+        for i in 0..rows {
+            self.keep(leading);
+            self.y -= leading;
+            let mut x = MARGIN;
+            for ((_, width, style), cell) in cells.iter().zip(&lines) {
+                if let Some(l) = cell.get(i) {
+                    let y = self.y + style.size * 0.25;
+                    self.draw(x, y, l, *style);
+                }
+                x += width;
+            }
+        }
+    }
+
     /// A horizontal line across the text area, with `pad` points above and below.
     pub fn rule(&mut self, weight: f64, color: Rgb, pad: f64) {
         self.keep(2.0 * pad + weight);

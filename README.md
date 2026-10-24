@@ -29,7 +29,7 @@ highlighted on the page and listed in the side panel: click one and the signatur
 
 *Certificate details* (next to the certificate, and in *Settings → DSC token*) shows the class, fingerprints and chain of your DSC, and saves the public certificate as `.cer`, `.pem` or `.p7b` for a portal or bank that asks for it.
 
-You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows, macOS and Linux). Your default PDF viewer stays as it is.
+You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows, macOS and Linux). Your default PDF viewer stays as it is. Select several PDFs first and they open together as one batch, signed with one PIN entry; files that are not PDFs are left out. If a batch is already loaded, the app asks whether to add them to it or replace it.
 
 The app speaks English, Hindi (हिन्दी) and Tamil (தமிழ்); it follows your system language, or choose one under *Settings → Appearance → Language*. The text printed in the signature box stays in English.
 
@@ -111,6 +111,7 @@ Other options:
 .\trackmysign.exe verify file.pdf                     # check existing signatures
 .\trackmysign.exe verify file.pdf --report report.pdf # ... and save a PDF report for auditors
 .\trackmysign.exe verify file.pdf --json              # ... as JSON, for scripts
+.\trackmysign.exe verify-folder C:\Invoices --recursive --report invoices.pdf --csv invoices.csv
 .\trackmysign.exe sign file.pdf --page 1 --position top-right
 .\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
 .\trackmysign.exe sign file.pdf --pages all            # one signature, box on every page
@@ -208,6 +209,64 @@ Each signature:
 | `trust` | `cca_india_2022` or `not_checked` |
 | `chain` | certificates, signer first, same fields as `signer` |
 | `notes` | why the status is not valid first, then other warnings |
+
+### Verifying a folder
+
+**Verify folder…** (the shield button in the toolbar, the start screen, or
+*Verify all PDFs in this folder…* in the Signatures panel) checks every PDF in a
+folder, optionally with its subfolders, and lists each file as it is checked:
+*All valid*, *Invalid signature*, *Changed after signing*, *Unsigned*,
+*Unreadable* (not a PDF, or damaged) or *Needs a password*. Filter the list by
+*All*, *Problems* or *Unsigned*, click a file to open it, and save the result
+with **Export report…** (one PDF) or **Export CSV…** (by default
+`Invoices_verification.pdf` / `.csv` for a folder `Invoices`, saved next to
+it, not inside it). A password
+typed in the dialog is tried on every PDF that does not open without one; it is
+not stored. Files and folders whose names start with `.` (and, on Windows,
+hidden or system files) are skipped; links are followed, each folder once.
+
+```powershell
+.\trackmysign.exe verify-folder C:\Invoices                      # one line per PDF, then the totals
+.\trackmysign.exe verify-folder C:\Invoices --recursive --password "secret" --report invoices.pdf --csv invoices.csv
+.\trackmysign.exe verify-folder C:\Invoices --json               # JSON, for scripts
+```
+
+The exit status is 0 when every signed PDF is valid, and 2 when a signature is
+invalid, the content changed after signing, or a PDF could not be read or needs
+a password. PDFs without signatures do not count unless `--require-signed` is
+given.
+
+The PDF report has the folder, the time of the check (IST and UTC), the totals
+("12 files: 8 all valid, 2 with problems, 1 unsigned, 1 unreadable"), a table
+of the files with their status and signers, and an appendix with each file's
+size, SHA-256 and the same signature details as the single-file report. The
+CSV has one row per signature (one row for a file without any), with the file's
+columns repeated: `file`, `size`, `sha256`, `file_status`, `signatures`,
+`file_error`, `signature` (1 = signed first), `field`, `status`, `signer`,
+`organization`, `issuer`, `serial`, `not_before`, `not_after`, `signing_time`,
+`timestamp`, `reason`, `location`, `certification` (level), `changes`, `trust`,
+`notes`. It is UTF-8 with a byte order mark so spreadsheet programs show
+Indian scripts; text from a PDF that starts with `=`, `+`, `-` or `@` gets a
+leading `'` so it is not run as a formula.
+
+JSON schema version 1 (`schema_version` is raised only when a field is removed
+or changes meaning):
+
+| Field | Meaning |
+|---|---|
+| `schema` | `"trackmysign.folder-verification-report"` |
+| `schema_version` | `1` |
+| `generator`, `checked_at` | as in the single-file report |
+| `folder`, `recursive` | the folder checked, and whether subfolders were |
+| `complete` | `false` when the check was stopped before every file was checked |
+| `summary` | the totals line |
+| `totals` | `files`, `all_valid`, `problems` (= `some_invalid` + `content_changed`), `some_invalid`, `content_changed`, `unsigned`, `unreadable`, `needs_password`, `signatures` |
+| `checked`, `not_checked` | as in the single-file report |
+| `files[]` | in path order: `path` (relative, `/` between folders), `size`, `sha256`, `status` (`all_valid`, `some_invalid`, `content_changed`, `unsigned`, `unreadable`, `needs_password`), `error` (why it could not be checked, else `null`), `pages`, `encrypted`, `summary` (the single-file summary line), `signatures` (as in the single-file report) |
+
+`some_invalid` means a signature is invalid or could not be checked;
+`content_changed` means the content changed after a signature, or anything
+changed after a certification that allowed no changes.
 
 ## Watch folder
 

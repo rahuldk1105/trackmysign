@@ -11,6 +11,7 @@ use trackmysign_core::certdetails::{
     CertificateDetails, complete_chain, export_file_name, to_p7b, to_pem,
 };
 use trackmysign_core::certinfo::{CertSummary, Validity};
+use trackmysign_core::folder::{self, FileResult, FileStatus, Options, Progress};
 use trackmysign_core::report::Report;
 use trackmysign_core::token::{Driver, TokenCert, TokenSigner, Tokens, driver_name};
 use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
@@ -177,6 +178,28 @@ enum Cmd {
         /// Print the result as JSON instead of text (schema in the README).
         #[arg(long)]
         json: bool,
+    },
+    /// Check the signatures of every PDF in a folder (one --password is tried
+    /// on protected files). Exits with status 2 if a signed file is not
+    /// valid or a PDF could not be checked; unsigned files count only with
+    /// --require-signed.
+    VerifyFolder {
+        dir: PathBuf,
+        /// Also check the PDFs in subfolders.
+        #[arg(long)]
+        recursive: bool,
+        /// Also write one report for auditors (A4 PDF) to this file.
+        #[arg(long, value_name = "FILE")]
+        report: Option<PathBuf>,
+        /// Also write a CSV file, one row per signature.
+        #[arg(long, value_name = "FILE")]
+        csv: Option<PathBuf>,
+        /// Print the result as JSON instead of text (schema in the README).
+        #[arg(long)]
+        json: bool,
+        /// Fail on PDFs that have no signature, too.
+        #[arg(long)]
+        require_signed: bool,
     },
 }
 
@@ -1050,8 +1073,85 @@ fn run() -> Result<()> {
                 std::process::exit(2);
             }
         }
+        Cmd::VerifyFolder {
+            dir,
+            recursive,
+            report,
+            csv,
+            json,
+            require_signed,
+        } => {
+            let options = Options {
+                recursive,
+                password: cli.password.clone(),
+            };
+            let total = std::sync::atomic::AtomicUsize::new(0);
+            let done = std::sync::atomic::AtomicUsize::new(0);
+            let counting = std::io::stderr().is_terminal();
+            let stop = std::sync::atomic::AtomicBool::new(false);
+            let checked =
+                folder::verify_folder(&dir, &options, env!("CARGO_PKG_VERSION"), &stop, |p| {
+                    use std::sync::atomic::Ordering::Relaxed;
+                    match p {
+                        Progress::Found(files) => total.store(files.len(), Relaxed),
+                        Progress::Checked(..) if counting => {
+                            let n = done.fetch_add(1, Relaxed) + 1;
+                            eprint!("\rChecked {n} of {}", total.load(Relaxed));
+                        }
+                        Progress::Checked(..) => {}
+                    }
+                })
+                .with_context(|| format!("reading {}", dir.display()))?;
+            if counting && !checked.files.is_empty() {
+                eprintln!();
+            }
+            if json {
+                println!("{}", checked.to_json());
+            } else {
+                for f in &checked.files {
+                    println!("{}", describe_file(f));
+                }
+                println!("{}", checked.summary());
+            }
+            for (path, contents, what) in [
+                (&report, checked.to_pdf(), "Report"),
+                (&csv, checked.to_csv().into_bytes(), "CSV"),
+            ] {
+                if let Some(path) = path {
+                    std::fs::write(path, contents)
+                        .with_context(|| format!("writing {}", path.display()))?;
+                    if !json {
+                        println!("{what}: {}", path.display());
+                    }
+                }
+            }
+            if !checked.passed(require_signed) {
+                std::process::exit(2);
+            }
+        }
     }
     Ok(())
+}
+
+/// "INVALID SIGNATURE  sub/invoice.pdf  (2 signatures: A, B)".
+fn describe_file(f: &FileResult) -> String {
+    let detail = match (&f.error, f.signatures().len()) {
+        (Some(e), _) if f.status == FileStatus::NeedsPassword => format!("{e} (--password)"),
+        (Some(e), _) => e.clone(),
+        (None, 0) => String::new(),
+        (None, n) => format!(
+            "{} signature{}: {}",
+            n,
+            if n == 1 { "" } else { "s" },
+            f.signers().join(", ")
+        ),
+    };
+    let line = format!("{:<22} {}", f.status.label().to_uppercase(), f.relative);
+    if detail.is_empty() {
+        line
+    } else {
+        format!("{line}  ({detail})")
+    }
 }
 
 #[cfg(test)]

@@ -8,6 +8,23 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ### Added
 
+- Verify a whole folder: **Verify folder…** (toolbar, start screen, or the
+  Signatures panel for the open document's folder) checks every PDF in a
+  folder, optionally with subfolders, and lists each file as it is checked:
+  all valid, invalid signature, changed after signing, unsigned, unreadable or
+  needs a password (one password can be given for all). Filter by problems or
+  unsigned files, click one to open it, and export one PDF report for the
+  folder or a CSV with a row per signature. Command line:
+  `trackmysign verify-folder <folder> [--recursive] [--password P]
+  [--report out.pdf] [--csv out.csv] [--json] [--require-signed]`, exit status
+  2 when anything signed is not valid or a PDF could not be checked.
+- Several PDFs selected in Explorer, Finder or a Linux file manager and opened
+  with *Sign with TrackMySign* or *Open With* arrive as one batch instead of one
+  file after another. Files that come in within 0.7 s of each other are put
+  together (Explorer starts the app once per file); if a batch is already
+  loaded, the app asks whether to add them or replace it. Files that are not
+  PDFs are left out, with a note. On Windows the menu entry now also shows for
+  more than 15 selected PDFs (up to 100).
 - Watch folder: *Settings → Watch folder* signs every PDF put into a folder
   you choose, with a copy of a saved preset, after you press *Start watching*
   and enter the PIN once. Signed copies go to its `signed` folder (or one you
