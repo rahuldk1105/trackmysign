@@ -64,7 +64,7 @@
         code = [];
       } else if ((m = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line))) {
         flush();
-        var tag = m[1].length <= 2 ? "h4" : "h5";
+        var tag = m[1].length <= 2 ? "h3" : "h4";
         html.push("<" + tag + ">" + inline(m[2]) + "</" + tag + ">");
       } else if ((m = /^\s*(?:([-*+])|\d+[.)])\s+(.*)$/.exec(line))) {
         var want = m[1] ? "ul" : "ol";
@@ -115,7 +115,7 @@
             '<time datetime="' + esc(r.published_at || "") + '">' + esc(date(r.published_at)) + "</time>" +
             "</div>" +
             '<div class="release-body">' +
-            "<h3>" + esc(r.name || tag) + "</h3>" +
+            "<h2>" + esc(r.name || tag) + "</h2>" +
             '<div class="notes">' + (r.body ? render(r.body) : '<p class="muted">No notes for this release.</p>') + "</div>" +
             '<p class="release-link">' + link(url, "Downloads and details on GitHub") + "</p>" +
             "</div>" +

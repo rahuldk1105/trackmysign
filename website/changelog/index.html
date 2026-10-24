@@ -3,11 +3,30 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Changelog · TrackMy Sign</title>
-    <meta name="description" content="What changed in each TrackMy Sign release." />
+    <title>Changelog: TrackMy Sign releases and new features</title>
+    <meta name="description" content="What changed in each release of TrackMy Sign, the free open-source app that signs PDFs with your DSC token on Windows, macOS and Linux." />
     <link rel="canonical" href="https://sign.rahuldk.in/changelog/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="../favicon.ico" sizes="48x48" />
     <link rel="icon" href="../assets/logo.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="../assets/icon.png" />
+    <link rel="icon" href="../assets/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png" />
+    <link rel="manifest" href="../site.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="TrackMy Sign" />
+    <meta property="og:url" content="https://sign.rahuldk.in/changelog/" />
+    <meta property="og:title" content="Changelog: TrackMy Sign releases and new features" />
+    <meta property="og:description" content="What changed in each release of TrackMy Sign, the free open-source app that signs PDFs with your DSC token on Windows, macOS and Linux." />
+    <meta property="og:image" content="https://sign.rahuldk.in/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="TrackMy Sign: sign PDFs with your DSC token. Free and open source for Windows, macOS and Linux." />
+    <meta property="og:locale" content="en_IN" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Changelog: TrackMy Sign releases and new features" />
+    <meta name="twitter:description" content="What changed in each release of TrackMy Sign, the free open-source app that signs PDFs with your DSC token on Windows, macOS and Linux." />
+    <meta name="twitter:image" content="https://sign.rahuldk.in/assets/og.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
@@ -22,8 +41,17 @@
     </script>
     <script src="../main.js" defer></script>
     <script src="releases.js" defer></script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "TrackMy Sign", "item": "https://sign.rahuldk.in/" },
+          { "@type": "ListItem", "position": 2, "name": "Changelog", "item": "https://sign.rahuldk.in/changelog/" }
+        ]
+      }
+    </script>
   </head>
-
   <body>
     <a class="skip" href="#main">Skip to content</a>
 
@@ -35,6 +63,7 @@
         </a>
         <nav class="nav" aria-label="Sections">
           <a href="../#how">How it works</a>
+          <a href="../features/">Features</a>
           <a href="../#spec">Specification</a>
           <a href="../#download">Download</a>
           <a href="../#faq">FAQ</a>
@@ -60,9 +89,10 @@
 
     <main id="main" class="band policy">
       <div class="wrap">
+          <nav class="crumbs mono" aria-label="Breadcrumb"><a href="../">TrackMy Sign</a><span aria-hidden="true">/</span><span aria-current="page">Changelog</span></nav>
         <header class="sec-head">
           <p class="label mono">Releases</p>
-          <h2>Changelog</h2>
+          <h1>Changelog</h1>
           <p class="sec-lede">
             What changed in each release, from the
             <a href="https://github.com/rahuldk1105/trackmysign/releases" target="_blank" rel="noopener">GitHub releases page</a>.
@@ -88,10 +118,14 @@
           <a href="https://github.com/rahuldk1105/trackmysign" target="_blank" rel="noopener">Source</a>
           <a href="https://github.com/rahuldk1105/trackmysign/releases" target="_blank" rel="noopener">Releases</a>
           <a href="https://github.com/rahuldk1105/trackmysign/issues" target="_blank" rel="noopener">Issues</a>
+          <a href="../features/">Features</a>
           <a href="./">Changelog</a>
           <a href="https://github.com/rahuldk1105/trackmysign/blob/main/PRIVACY.md" target="_blank" rel="noopener">Privacy</a>
           <a href="../code-signing/">Code signing policy</a>
         </nav>
+      </div>
+      <div class="wrap">
+        <p class="foot-note muted">TrackMy Sign is an independent open-source project, not affiliated with, endorsed or certified by GSTN, MCA, the CCA or any vendor named here. emSigner, emBridge and eMudhra are trademarks of eMudhra Ltd; ePass2003 (Feitian), ProxKey (Watchdata), SafeNet and Gemalto (Thales), HyperPKI (Hypersecu) and Adobe Acrobat Reader (Adobe) are trademarks of their respective owners and are named only to describe compatibility.</p>
       </div>
     </footer>
   </body>

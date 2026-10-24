@@ -6,6 +6,18 @@ All notable changes to TrackMy Sign are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Website: the features section is grouped (signing, documents and files,
+  verification and records, automation, platform and privacy), with a drawing
+  and concrete details for each feature, and a new page,
+  [sign.rahuldk.in/features](https://sign.rahuldk.in/features/), explains
+  every feature at length. Every page now has its own title and description,
+  Open Graph and Twitter cards with a social image, structured data
+  (software, organisation, FAQ, breadcrumbs), icons and a web app manifest; the
+  site has a sitemap, robots.txt and a 404 page. See `website/README.md` for
+  what to update on each release.
+
 ## [0.6.0] - 2026-10-24
 
 ### Added

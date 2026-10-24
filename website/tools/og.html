@@ -1,0 +1,103 @@
+<!doctype html>
+<!-- Source of assets/og.png (1200×630). Rendered by build_assets.py; not linked from the site. -->
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="robots" content="noindex" />
+    <title>TrackMy Sign social image</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=block" />
+    <link rel="stylesheet" href="../style.css" />
+    <style>
+      html,
+      body {
+        width: 1200px;
+        height: 630px;
+        margin: 0;
+        overflow: hidden;
+      }
+      body::before {
+        display: none;
+      }
+      .og {
+        position: relative;
+        width: 1200px;
+        height: 630px;
+        padding: 64px 72px;
+        display: grid;
+        grid-template-columns: 600px 1fr;
+        gap: 48px;
+        background-color: var(--paper);
+        background-image: linear-gradient(var(--hero-grid) 1px, transparent 1px),
+          linear-gradient(90deg, var(--hero-grid) 1px, transparent 1px);
+        background-size: 48px 48px;
+        border-bottom: 14px solid var(--accent);
+      }
+      .og .mark {
+        font-size: 26px;
+        gap: 14px;
+      }
+      .og h1 {
+        margin-top: 64px;
+        font: 800 76px/0.98 var(--f-display);
+        font-stretch: 118%;
+        letter-spacing: -0.035em;
+      }
+      .og .kicker {
+        margin-top: 36px;
+        font-size: 18px;
+        color: var(--ink-2);
+      }
+      .og .url {
+        position: absolute;
+        left: 72px;
+        bottom: 52px;
+        font: 500 20px/1 var(--f-mono);
+        color: var(--accent);
+      }
+      .art {
+        align-self: center;
+        display: grid;
+        gap: 18px;
+        border: 1px solid var(--rule-strong);
+        background: var(--paper);
+        padding: 28px;
+      }
+      .art .ill {
+        width: 100%;
+      }
+      .art .row {
+        display: flex;
+        justify-content: space-between;
+        font: 500 14px/1 var(--f-mono);
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="og">
+      <div>
+        <span class="mark">
+          <svg class="logo-mark" width="40" height="40" viewBox="0 0 64 64" aria-hidden="true"><rect class="lb" width="64" height="64" rx="6.4"/><path class="lf" d="M14 40c6-10 10-14 13-14 4 0-2 12 2 12s6-8 9-8 1 6 4 6 5-3 8-5" stroke-width="4.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path class="lf" d="M14 49h36" stroke-opacity=".45" stroke-width="3" stroke-linecap="round"/></svg>
+          <span>TrackMy Sign</span>
+        </span>
+        <h1>Sign PDFs with your DSC&nbsp;token.</h1>
+        <p class="kicker mono"><span class="dot"></span>Free · Open source · Windows, macOS, Linux</p>
+      </div>
+      <div class="art">
+        <div class="row"><span>board-resolution_signed.pdf</span><span>2 of 2 valid</span></div>
+        <svg class="ill" viewBox="0 0 260 150" aria-hidden="true">
+          <path class="s pg" d="M62 4h116l24 24v118H62z" />
+          <path class="s" d="M178 4v24h24" />
+          <path class="m" d="M80 32h72M80 44h102M80 56h90M80 68h96M80 80h60" />
+          <rect class="s" x="78" y="102" width="52" height="28" />
+          <rect class="a-o" x="138" y="102" width="52" height="28" />
+          <circle class="ok-f" cx="130" cy="102" r="9" />
+          <path class="ok-s" d="m126 102 3 3 6-6" />
+          <circle class="ok-f" cx="190" cy="102" r="9" />
+          <path class="ok-s" d="m186 102 3 3 6-6" />
+        </svg>
+      </div>
+      <span class="url">sign.rahuldk.in</span>
+    </div>
+  </body>
+</html>

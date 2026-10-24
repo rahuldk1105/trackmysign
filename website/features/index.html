@@ -1,0 +1,936 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Features: DSC PDF signing for India · TrackMy Sign</title>
+    <meta
+      name="description"
+      content="All 30 features of TrackMy Sign: batch and every-page DSC signing, signature designer, verification reports, GST portal signing, watch folder, CLI."
+    />
+    <link rel="canonical" href="https://sign.rahuldk.in/features/" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="../favicon.ico" sizes="48x48" />
+    <link rel="icon" href="../assets/logo.svg" type="image/svg+xml" />
+    <link rel="icon" href="../assets/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png" />
+    <link rel="manifest" href="../site.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="TrackMy Sign" />
+    <meta property="og:url" content="https://sign.rahuldk.in/features/" />
+    <meta property="og:title" content="TrackMy Sign features: sign PDFs with your DSC token" />
+    <meta property="og:description" content="Batch and every-page signing, a signature box designer, verification reports, GST portal signing, a watch folder and a CLI. Free and open source." />
+    <meta property="og:image" content="https://sign.rahuldk.in/assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="TrackMy Sign: sign PDFs with your DSC token. Free and open source for Windows, macOS and Linux." />
+    <meta property="og:locale" content="en_IN" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="TrackMy Sign features: sign PDFs with your DSC token" />
+    <meta name="twitter:description" content="Batch and every-page signing, a signature box designer, verification reports, GST portal signing, a watch folder and a CLI." />
+    <meta name="twitter:image" content="https://sign.rahuldk.in/assets/og.png" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+    />
+    <link rel="stylesheet" href="../style.css" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("tms-theme");
+          if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+        } catch (e) {}
+      })();
+    </script>
+    <script src="../main.js" defer></script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "TrackMy Sign", "item": "https://sign.rahuldk.in/" },
+          { "@type": "ListItem", "position": 2, "name": "Features", "item": "https://sign.rahuldk.in/features/" }
+        ]
+      }
+    </script>
+  </head>
+
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="top">
+      <div class="wrap top-row">
+        <a class="mark" href="../" aria-label="TrackMy Sign home">
+          <svg class="logo-mark" width="24" height="24" viewBox="0 0 64 64" aria-hidden="true"><rect class="lb" width="64" height="64" rx="6.4"/><path class="lf" d="M14 40c6-10 10-14 13-14 4 0-2 12 2 12s6-8 9-8 1 6 4 6 5-3 8-5" stroke-width="4.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path class="lf" d="M14 49h36" stroke-opacity=".45" stroke-width="3" stroke-linecap="round"/></svg>
+          <span>TrackMy Sign</span>
+        </a>
+        <nav class="nav" aria-label="Sections">
+          <a href="../#how">How it works</a>
+          <a href="./" aria-current="page">Features</a>
+          <a href="../#spec">Specification</a>
+          <a href="../#download">Download</a>
+          <a href="../#faq">FAQ</a>
+          <a href="../changelog/">Changelog</a>
+        </nav>
+        <div class="top-actions">
+          <button class="icon-btn" id="theme" type="button" aria-label="Switch light or dark theme" title="Light / dark">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5a7.5 7.5 0 1 0 0 15z" /><circle cx="10" cy="10" r="7.5" /></svg>
+          </button>
+          <a class="gh" href="https://github.com/rahuldk1105/trackmysign" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"
+              />
+            </svg>
+            <span>Source</span>
+            <span class="gh-stars mono" data-stars hidden></span>
+          </a>
+          <a class="btn btn-primary" href="../#download">Download</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="band page-hero">
+        <div class="wrap">
+          <nav class="crumbs mono" aria-label="Breadcrumb"><a href="../">TrackMy Sign</a><span aria-hidden="true">/</span><span aria-current="page">Features</span></nav>
+          <header class="sec-head wide">
+            <div>
+              <p class="label mono">Features · v0.6</p>
+              <h1>Everything TrackMy Sign does, in detail.</h1>
+            </div>
+            <p class="sec-lede">
+              TrackMy Sign is a free, open-source desktop app for Windows, macOS and Linux that signs PDFs and other files
+              with your USB DSC token. These are its 30 features in five groups, with what each one checks, writes
+              and leaves alone.
+            </p>
+          </header>
+          <nav class="jump" aria-label="Feature groups">
+            <a href="#signing"><span class="mono">01</span>Signing<span class="mono jump-n">6</span></a>
+            <a href="#documents"><span class="mono">02</span>Documents &amp; files<span class="mono jump-n">6</span></a>
+            <a href="#verification"><span class="mono">03</span>Verification &amp; records<span class="mono jump-n">6</span></a>
+            <a href="#automation"><span class="mono">04</span>Automation<span class="mono jump-n">6</span></a>
+            <a href="#platform"><span class="mono">05</span>Platform &amp; privacy<span class="mono jump-n">6</span></a>
+          </nav>
+        </div>
+      </section>
+
+      <section id="signing" class="band">
+        <div class="wrap">
+          <header class="sec-head wide">
+            <div>
+              <p class="label mono">01 · Signing</p>
+              <h2>Signing</h2>
+            </div>
+            <p class="sec-lede">TrackMy Sign writes a standard PKCS#7 detached signature (adbe.pkcs7.detached, SHA-256) as an incremental update, so the original bytes and any signatures already on the document are left exactly as they were. Adobe Acrobat Reader shows the result as “Signature is valid”. These are the ways to apply it.</p>
+          </header>
+          <div class="fds">
+              <article class="fd" id="tokens">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s f" x="46" y="12" width="92" height="28" rx="4" />
+                    <rect class="s f" x="138" y="19" width="20" height="14" />
+                    <rect class="s f" x="22" y="36" width="114" height="38" rx="5" />
+                    <rect class="s f" x="136" y="45" width="30" height="20" />
+                    <rect class="s" x="141" y="50" width="8" height="4" /><rect class="s" x="153" y="50" width="8" height="4" />
+                    <rect class="s" x="141" y="57" width="8" height="4" /><rect class="s" x="153" y="57" width="8" height="4" />
+                    <circle class="s" cx="38" cy="55" r="6" />
+                    <circle class="led" cx="124" cy="46" r="3" />
+                    <text class="t2 mono" x="54" y="59">PKCS#11</text>
+                    <path class="m" d="M22 86h156" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Tokens</p>
+                <h3>Every common Indian DSC token</h3>
+                <p class="fd-lede">Drivers for the tokens Indian Certifying Authorities ship are found automatically, and certificates from all of them are listed together.</p>
+                <p>The app talks to your token through PKCS#11, using the driver that came with the token. It looks for the drivers of Hypersecu HyperPKI (tested with the HYP2003), Feitian ePass2003, Watchdata ProxKey, Longmai mToken CryptoID, Trust Key, Watchdata, SafeNet eToken, Gemalto IDPrime and Bit4id, loads every one that is installed, and falls back to OpenSC when nothing else is found. Settings shows which drivers were found.</p>
+                <p>The private key never leaves the token: the app sends it a 32-byte SHA-256 hash and gets the signature back. Tokens whose key asks for the PIN on every signature work too, with the PIN entered once, and the PIN dialog warns when few attempts are left. A driver in an unusual place can be added with the <code>TRACKMYSIGN_PKCS11_MODULE</code> environment variable.</p>
+                <ul class="feat-specs mono">
+                  <li>Windows, macOS and Linux driver paths searched</li>
+                  <li>OpenSC as a last resort; p11-kit proxy on Linux</li>
+                  <li>PIN never stored, never written to disk</li>
+                  <li>Signing always uses the driver the certificate came from</li>
+                </ul>
+              </article>
+              <article class="fd" id="batch">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s pg" x="18" y="8" width="48" height="62" />
+                    <rect class="s pg" x="28" y="16" width="48" height="62" />
+                    <rect class="s pg" x="38" y="24" width="48" height="62" />
+                    <path class="m" d="M46 36h30M46 44h34M46 52h26" />
+                    <rect class="a-o" x="58" y="68" width="22" height="11" />
+                    <path class="a-s" d="M98 55h22m0 0-6-6m6 6-6 6" />
+                    <rect class="s f" x="130" y="44" width="58" height="22" />
+                    <circle class="a" cx="142" cy="55" r="3" /><circle class="a" cx="153" cy="55" r="3" /><circle class="a" cx="164" cy="55" r="3" /><circle class="a" cx="175" cy="55" r="3" />
+                    <text class="t2 mono" x="130" y="36">1 PIN</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Batch</p>
+                <h3>Many PDFs, one PIN</h3>
+                <p class="fd-lede">Select a stack of PDFs, place the box once and sign them all in one session. A file that fails never stops the rest.</p>
+                <p>Add as many PDFs as you need, place the signature box once and press Sign: every file is signed in one token session with one PIN entry. Each result is reported separately, so a damaged or protected file is listed with the reason while the others are signed.</p>
+                <p>Every signed copy is saved as <code>name_signed.pdf</code> next to its original, or in a folder you choose. An existing file is never replaced; the copy becomes <code>name_signed_2.pdf</code> instead. On the command line, <code>trackmysign sign a.pdf b.pdf c.pdf</code> does the same.</p>
+                <ul class="feat-specs mono">
+                  <li>Also for keys that ask for the PIN on every signature</li>
+                  <li>Add files from the window, Explorer, Finder or a file manager</li>
+                  <li>Command line: trackmysign sign *.pdf</li>
+                </ul>
+              </article>
+              <article class="fd" id="pages">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s pg" x="12" y="6" width="38" height="50" />
+                    <rect class="s pg" x="58" y="6" width="38" height="50" />
+                    <rect class="s pg" x="104" y="6" width="38" height="50" />
+                    <rect class="s pg" x="150" y="6" width="38" height="50" />
+                    <path class="m" d="M18 16h22M18 24h26M64 16h22M64 24h26M110 16h22M110 24h26M156 16h22M156 24h26" />
+                    <rect class="a-o" x="30" y="40" width="15" height="9" /><rect class="a-o" x="76" y="40" width="15" height="9" /><rect class="a-o" x="122" y="40" width="15" height="9" /><rect class="a-o" x="168" y="40" width="15" height="9" />
+                    <path class="d" d="M37 56v16M83 56v16M129 56v16M175 56v16M37 72h138" />
+                    <path class="a-s" d="M106 72v10" />
+                    <rect class="a" x="96" y="82" width="20" height="10" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Pages</p>
+                <h3>Every page, one signature</h3>
+                <p class="fd-lede">Show the signature box on all pages or a range such as 1-3, 5. It is still one signature and one PIN entry.</p>
+                <p>Some offices want the signature visible on every page of a resolution or an agreement. Choose All pages or type a range under Placement → Pages and the box appears on each selected page, in the same position.</p>
+                <p>It remains a single signature over the whole document, so the token signs once and Adobe Reader lists one signature, with a widget on each page.</p>
+                <ul class="feat-specs mono">
+                  <li>Ranges: 1-3,5 or all</li>
+                  <li>One signature field, several widgets</li>
+                  <li>Command line: --pages all or --pages 1-3,5</li>
+                </ul>
+              </article>
+              <article class="fd" id="field">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s pg" x="48" y="4" width="104" height="88" />
+                    <path class="m" d="M60 18h70M60 27h80M60 36h62" />
+                    <rect class="d" x="66" y="52" width="70" height="26" />
+                    <text class="t2 mono" x="74" y="69">Director</text>
+                    <path class="s f" d="m128 64 0 22 6-6 4 9 4-2-4-9 9 0z" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Forms</p>
+                <h3>Sign into existing boxes</h3>
+                <p class="fd-lede">Bank and government PDFs often carry empty signature fields. Click one and the signature fills it, honouring its locks.</p>
+                <p>Forms from banks, registrars and government offices often come with empty signature fields already placed by the author. TrackMy Sign highlights them on the page and lists them in the side panel; click one and the signature fills exactly that field instead of a box you drew.</p>
+                <p>If the field says which other fields to lock after signing, the lock is recorded in the signature as the form's author intended. A field that demands a signature format the app cannot produce is refused with an explanation instead of producing a signature Adobe would reject.</p>
+                <ul class="feat-specs mono">
+                  <li>Fields named and listed in the side panel</li>
+                  <li>Field locks (FieldMDP) honoured</li>
+                  <li>Command line: trackmysign info lists fields, sign --field NAME</li>
+                </ul>
+              </article>
+              <article class="fd" id="certify">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s pg" x="44" y="4" width="84" height="88" />
+                    <path class="m" d="M56 18h56M56 27h64M56 36h50M56 45h58" />
+                    <rect class="a-o" x="56" y="66" width="40" height="16" />
+                    <path class="s" d="M118 46v-9a13 13 0 0 1 26 0v9" />
+                    <rect class="s f" x="110" y="46" width="42" height="34" />
+                    <rect class="a" x="129" y="56" width="4" height="12" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Certify</p>
+                <h3>Lock the document</h3>
+                <p class="fd-lede">Make the first signature a certification that says what may change afterwards.</p>
+                <p>A certification signature is the author's signature. It is applied first and records what later users may do: nothing at all, fill in forms and sign, or also add comments. Adobe Reader shows a blue certification bar and flags anything that breaks these rules.</p>
+                <p>Only an unsigned document can be certified, and a document certified with “no changes” cannot be signed again, which is what you want for a final version. In the app this is Signature type → Certify in the side panel.</p>
+                <ul class="feat-specs mono">
+                  <li>DocMDP levels 1, 2 and 3</li>
+                  <li>Shown in Adobe Reader as a certified document</li>
+                  <li>Command line: --certify none|forms|annotations</li>
+                </ul>
+              </article>
+              <article class="fd" id="ltv">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <path class="m" d="M14 70h172" />
+                    <path class="a-s" d="M14 70h96" />
+                    <path class="d" d="M110 70h76" />
+                    <path class="s" d="M14 64v12M110 64v12M186 64v12" />
+                    <text class="t2 mono" x="14" y="90">DSC valid</text>
+                    <text class="t2 mono" x="116" y="90">still verifies</text>
+                    <circle class="s f" cx="62" cy="32" r="18" />
+                    <path class="a-s" d="M62 21v11l8 5" />
+                    <path class="s pg" d="M138 10h26l8 8v32h-34z" />
+                    <circle class="ok-f" cx="168" cy="46" r="9" />
+                    <path class="ok-s" d="m164 46 3 3 6-6" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Long-term</p>
+                <h3>Valid after the DSC expires</h3>
+                <p class="fd-lede">Optional trusted timestamp and embedded revocation data, so the signature can still be checked years later.</p>
+                <p>A DSC is valid for one to three years. If the signature also carries a trusted timestamp and the certificate authority's revocation answers from the time of signing, a validator can confirm it was valid when it was made, long after the certificate has expired.</p>
+                <p>Both are optional and off by default, so signing works with the network cable unplugged. When switched on, only a hash of the signature goes to the timestamp server, and if a server cannot be reached nothing is saved and you can sign again without it.</p>
+                <ul class="feat-specs mono">
+                  <li>Default timestamp server: timestamp.digicert.com, or your own</li>
+                  <li>Revocation data embedded as a /DSS dictionary</li>
+                  <li>Settings → Long-term validity; command line: --timestamp, --ltv</li>
+                </ul>
+              </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="documents" class="band band-alt">
+        <div class="wrap">
+          <header class="sec-head wide">
+            <div>
+              <p class="label mono">02 · Documents &amp; files</p>
+              <h2>Documents &amp; files</h2>
+            </div>
+            <p class="sec-lede">What the signature looks like on the page, how to prepare a document before signing it, and how to sign files that are not PDFs at all.</p>
+          </header>
+          <div class="fds">
+              <article class="fd" id="design">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s f" x="18" y="14" width="164" height="68" />
+                    <path class="m" d="M30 32h72M30 44h88M30 56h60M30 68h44" />
+                    <circle class="a-o" cx="152" cy="48" r="22" />
+                    <circle class="d" cx="152" cy="48" r="15" />
+                    <rect class="a" x="18" y="14" width="5" height="68" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Designer</p>
+                <h3>Design your signature box</h3>
+                <p class="fd-lede">Company seal or logo, “For Company — Director” lines, fonts, colours, border and date format, with a preview that matches the PDF exactly.</p>
+                <p>Appearance → Design… sets the layout: text only, signature image left of or above the text, or the image alone. A company seal or logo (PNG with transparency, or JPEG) goes right of the text or behind it at an opacity you choose.</p>
+                <p>Text lines can be switched on and off and put in any order: Digitally signed by, your name, For the organisation (from the certificate or typed), a role such as Director or Authorised Signatory, the date, reason, location and two lines of your own. The preview is drawn from the same layout the PDF is written from, so what you see is what is signed. Hindi and Tamil typed into a line are transliterated into English letters for the standard PDF fonts.</p>
+                <ul class="feat-specs mono">
+                  <li>Layouts: text only, image left, image above, image only</li>
+                  <li>Date: 2026.10.24 14:05:09 +05:30, 24-10-2026 14:05 IST, 24 Oct 2026</li>
+                  <li>Border, background, padding, colour, alignment</li>
+                  <li>Command line: --style style.json --seal seal.png</li>
+                </ul>
+              </article>
+              <article class="fd" id="image">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s f" x="14" y="12" width="172" height="72" />
+                    <path class="a-s" d="M14 40c6-10 10-14 13-14 4 0-2 12 2 12s6-8 9-8 1 6 4 6 5-3 8-5" transform="translate(14 8) scale(1.45)" vector-effect="non-scaling-stroke" />
+                    <path class="s" d="M102 22v52" />
+                    <path class="m" d="M112 32h58M112 44h64M112 56h46" />
+                    <text class="t2 mono" x="22" y="78">PNG · JPEG</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Stamp</p>
+                <h3>Handwritten signature image</h3>
+                <p class="fd-lede">Add a scanned signature beside or above the “Digitally signed by” text.</p>
+                <p>Many people want their handwritten signature on the page as well as the digital one. Pick a scan of it and it is drawn inside the signature box, to the left of the text or above it. A PNG with a transparent background looks best on coloured letterheads.</p>
+                <p>If you do not want anything on the page at all, sign invisibly: the signature is still in the document and shown in Adobe Reader's signature panel.</p>
+                <ul class="feat-specs mono">
+                  <li>PNG (with alpha) or JPEG</li>
+                  <li>Command line: --image signature.png --image-position above</li>
+                  <li>Invisible signatures: --invisible</li>
+                </ul>
+              </article>
+              <article class="fd" id="presets">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="a-o" x="30" y="10" width="140" height="22" />
+                    <rect class="a" x="38" y="18" width="6" height="6" />
+                    <text class="t2 mono" x="52" y="25">Board resolution</text>
+                    <rect class="s f" x="30" y="38" width="140" height="22" />
+                    <rect class="s" x="38" y="46" width="6" height="6" />
+                    <text class="t2 mono" x="52" y="53">Bank forms</text>
+                    <rect class="s f" x="30" y="66" width="140" height="22" />
+                    <rect class="s" x="38" y="74" width="6" height="6" />
+                    <text class="t2 mono" x="52" y="81">Invoices</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Presets</p>
+                <h3>Presets for each kind of document</h3>
+                <p class="fd-lede">Save the reason, location, box position, pages and design once, and pick them per document.</p>
+                <p>A board resolution, a bank form and an invoice each need the signature in a different place with a different reason. Save each combination as a preset and pick it from the side panel; the box moves to the saved position, given in millimetres from the top-left of the page.</p>
+                <p>Presets carry the signature image and the box design too, and the watch folder signs with a copy of the preset you choose.</p>
+                <ul class="feat-specs mono">
+                  <li>Position remembered between sessions</li>
+                  <li>Placement in millimetres</li>
+                  <li>Command line: --preset-json for the watch command</li>
+                </ul>
+              </article>
+              <article class="fd" id="pagetools">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s pg" x="14" y="18" width="36" height="50" />
+                    <rect class="s pg" x="58" y="18" width="36" height="50" />
+                    <path class="m" d="M20 28h22M20 36h24M64 28h22M64 36h24" />
+                    <rect class="d" x="102" y="18" width="36" height="50" />
+                    <g transform="rotate(-9 166 42)">
+                    <rect class="s pg" x="148" y="16" width="36" height="50" />
+                    <path class="m" d="M154 26h22M154 34h24" />
+                    </g>
+                    <path class="a-s" d="M150 82h-26m0 0 6-6m-6 6 6 6" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Prepare</p>
+                <h3>Page tools</h3>
+                <p class="fd-lede">Merge PDFs, reorder, rotate, delete or insert pages, and save a prepared copy ready to sign. The original is never changed.</p>
+                <p>Pages in the toolbar shows the document as thumbnails. Drag them into order, turn them left or right, delete them, insert a blank page the size of the page before it, append other PDFs with Add PDF… and undo any step. Save as… writes a new PDF, <code>name_prepared.pdf</code> by default, which then opens ready to sign.</p>
+                <p>Contents, fonts, images, links, comments and form fields are copied; page sizes and rotation stay as they were. Existing signatures cannot survive changes to the pages, so the app warns and asks again when a source is already signed: use the page tools to prepare a document, not to edit a signed one.</p>
+                <ul class="feat-specs mono">
+                  <li>Same-named form fields renamed (company → company_2)</li>
+                  <li>Bookmarks are not carried over</li>
+                  <li>Command line: trackmysign pages merge|select|rotate|delete|insert-blank</li>
+                </ul>
+              </article>
+              <article class="fd" id="password">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s pg" x="58" y="4" width="84" height="88" />
+                    <path class="m" d="M70 18h56M70 27h62M70 36h48" />
+                    <rect class="s f" x="30" y="50" width="140" height="26" />
+                    <circle class="a" cx="46" cy="63" r="3.5" /><circle class="a" cx="58" cy="63" r="3.5" /><circle class="a" cx="70" cy="63" r="3.5" /><circle class="a" cx="82" cy="63" r="3.5" />
+                    <text class="t2 mono" x="112" y="67">AES-256</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Protected</p>
+                <h3>Password-protected PDFs</h3>
+                <p class="fd-lede">Opens RC4 and AES encrypted PDFs. The signed copy keeps the same password and restrictions.</p>
+                <p>Statements and forms are often encrypted. Most only restrict editing and open without asking; if a PDF needs a password, the app asks for it and keeps it only while the document is open.</p>
+                <p>The signed copy is encrypted with the same password and keeps the same restrictions. If the document's security settings do not allow signing, give its owner (permissions) password instead.</p>
+                <ul class="feat-specs mono">
+                  <li>Security handler revisions 2–6</li>
+                  <li>Command line: --password</li>
+                  <li>Signed copy keeps the original's encryption</li>
+                </ul>
+              </article>
+              <article class="fd" id="anyfile">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <path class="s pg" d="M22 8h42l12 12v66H22z" />
+                    <path class="s" d="M64 8v12h12" />
+                    <path class="m" d="M32 32h32M32 40h36M32 48h28" />
+                    <text class="t2 mono" x="30" y="74">.docx</text>
+                    <path class="d" d="M80 48h36" />
+                    <path class="a-o" d="M122 8h42l12 12v66h-54z" />
+                    <path class="a-o" d="M164 8v12h12" />
+                    <rect class="a" x="132" y="34" width="34" height="12" />
+                    <text class="t2 mono" x="132" y="74">.p7s</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Files</p>
+                <h3>Sign any file (.p7s / .p7m)</h3>
+                <p class="fd-lede">Sign Word, Excel, ZIP or XML files as a standard CMS signature, and check signatures you receive.</p>
+                <p>Sign other files… (or dropping a file that is not a PDF) shows the file panel: each file with its size, SHA-256 and any .p7s already next to it, checked. Choose a separate signature file (<code>bid.docx.p7s</code>, the original stays as it is) or the file inside the signature (<code>bid.docx.p7m</code>), optionally with a timestamp, and sign them all with one PIN.</p>
+                <p>The format is CMS / PKCS#7 (RFC 5652), DER, SHA-256, with signingCertificateV2 and the certificate chain, the same signature the app puts into a PDF. A .p7s or .p7m you receive is checked the same way, and Save original… extracts the file from a .p7m. Check what the receiving office expects before relying on one format.</p>
+                <ul class="feat-specs mono">
+                  <li>RSA or ECDSA, as the key is</li>
+                  <li>Reads DER, PEM, Base64 and BER signatures</li>
+                  <li>Command line: sign-file, verify-file --extract</li>
+                </ul>
+              </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="verification" class="band">
+        <div class="wrap">
+          <header class="sec-head wide">
+            <div>
+              <p class="label mono">03 · Verification &amp; records</p>
+              <h2>Verification &amp; records</h2>
+            </div>
+            <p class="sec-lede">Signature checks that do not need Adobe, reports an auditor can file, and a private record of everything signed on your computer.</p>
+          </header>
+          <div class="fds">
+              <article class="fd" id="verify">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s pg" x="44" y="4" width="112" height="88" />
+                    <path class="m" d="M56 18h70M56 27h88M56 36h64" />
+                    <rect class="s" x="56" y="56" width="40" height="22" />
+                    <rect class="a-o" x="104" y="56" width="40" height="22" />
+                    <circle class="ok-f" cx="96" cy="56" r="8" /><path class="ok-s" d="m92.5 56 2.5 2.5 5-5" />
+                    <circle class="ok-f" cx="144" cy="56" r="8" /><path class="ok-s" d="m140.5 56 2.5 2.5 5-5" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Verify</p>
+                <h3>Check any signed PDF</h3>
+                <p class="fd-lede">See who signed, whether each signature is valid, whether the chain reaches CCA India, and what changed after signing.</p>
+                <p>The Signatures panel lists every signature in the open PDF, in signing order, with the signer, issuer, signing time, reason and location. For each one it checks that the signed bytes are intact, that the signature matches the signer's certificate, whether the chain reaches the CCA India 2022 root, and what later revisions changed: nothing, more signatures, form filling or comments, or the content itself.</p>
+                <p>Revocation (CRL and OCSP) and timestamp tokens are not checked, even when the PDF contains them, and the app says so instead of implying otherwise.</p>
+                <ul class="feat-specs mono">
+                  <li>Statuses: valid, invalid, unknown</li>
+                  <li>Certification level and allowed changes shown</li>
+                  <li>Command line: trackmysign verify file.pdf</li>
+                </ul>
+              </article>
+              <article class="fd" id="report">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s pg" x="70" y="10" width="84" height="84" />
+                    <rect class="s pg" x="58" y="2" width="84" height="84" />
+                    <rect class="a" x="58" y="2" width="84" height="10" />
+                    <rect class="ok-f" x="68" y="22" width="8" height="8" /><path class="m" d="M84 26h46" />
+                    <rect class="ok-f" x="68" y="38" width="8" height="8" /><path class="m" d="M84 42h38" />
+                    <rect class="ok-f" x="68" y="54" width="8" height="8" /><path class="m" d="M84 58h44" />
+                    <text class="t2 mono" x="68" y="78">SHA-256</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Audit</p>
+                <h3>Verification report</h3>
+                <p class="fd-lede">Export a PDF report of every signature in a document for auditors, or JSON from the command line.</p>
+                <p>Export report… in the Signatures panel saves a plain A4 PDF: the file name, its SHA-256, page count, the time of the check in IST and UTC and the TrackMy Sign version, a one-line summary such as “3 signatures — all valid, document unchanged since the last signature”, and every signature's status, signer, organisation, issuer, serial, validity, signing time, timestamp, certification level, what changed after it and whether it chains to CCA India.</p>
+                <p>The footer of every page states what is not checked. Names in Indian scripts are transliterated in the PDF and marked as such; the JSON keeps the original text.</p>
+                <ul class="feat-specs mono">
+                  <li>Saved as name_verification.pdf by default</li>
+                  <li>JSON schema version 1, exit status 2 on problems</li>
+                  <li>Command line: verify --report report.pdf, verify --json</li>
+                </ul>
+              </article>
+              <article class="fd" id="folder">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <path class="s f" d="M16 18h44l8 8h116v62H16z" />
+                    <path class="s" d="M16 34h168" />
+                    <rect class="ok-f" x="28" y="42" width="8" height="8" /><path class="m" d="M44 46h92" />
+                    <rect class="ok-f" x="28" y="56" width="8" height="8" /><path class="m" d="M44 60h72" />
+                    <rect class="bad-f" x="28" y="70" width="8" height="8" /><path class="m" d="M44 74h88" />
+                    <text class="t2 mono" x="148" y="62">.csv</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Folders</p>
+                <h3>Verify a whole folder</h3>
+                <p class="fd-lede">Check every signed PDF in a folder at once, filter the problems, and export one PDF report or a spreadsheet.</p>
+                <p>Verify folder… checks every PDF in a folder, optionally with its subfolders, and lists each file as it is checked: all valid, invalid signature, changed after signing, unsigned, unreadable, or needs a password. One password typed in the dialog is tried on every protected file and not stored.</p>
+                <p>Export one PDF report for the folder, with the totals, a table of files and signers and an appendix with every signature's details, or a CSV with one row per signature. The CSV is UTF-8 with a byte order mark so spreadsheets show Indian scripts, and text that starts with <code>= + - or @</code> is escaped so it is never run as a formula.</p>
+                <ul class="feat-specs mono">
+                  <li>Hidden and system files skipped</li>
+                  <li>Totals such as “12 files: 8 all valid, 2 with problems”</li>
+                  <li>Command line: verify-folder --recursive --report --csv --json</li>
+                </ul>
+              </article>
+              <article class="fd" id="history">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <path class="a-s" d="M24 20v58" />
+                    <rect class="a" x="20" y="16" width="8" height="8" /><rect class="a" x="20" y="44" width="8" height="8" /><rect class="a" x="20" y="72" width="8" height="8" />
+                    <rect class="s f" x="40" y="9" width="146" height="22" />
+                    <rect class="s f" x="40" y="37" width="146" height="22" />
+                    <rect class="s f" x="40" y="65" width="146" height="22" />
+                    <text class="t2 mono" x="48" y="24">41 · prev 9f2c…</text>
+                    <text class="t2 mono" x="48" y="52">42 · prev 1ab7…</text>
+                    <text class="t2 mono" x="48" y="80">43 · prev 6d0e…</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">History</p>
+                <h3>Signing history</h3>
+                <p class="fd-lede">A private, tamper-evident log of everything you sign, with search and CSV or PDF export. Can be turned off.</p>
+                <p>Every signature made on this computer is recorded: single documents, batches, every-page and form-field signatures, certifications, .p7s and .p7m files, the watch folder and GST portal requests, from the app and the command line. History lists them newest first with the document, certificate and outcome; open an entry for both files' SHA-256 hashes, the certificate's issuer, serial and fingerprint, and the options used.</p>
+                <p>Each entry holds the SHA-256 of the line before it, so Check log integrity names the line where an edit outside the app breaks the chain. It is evidence of edits, not a signature. Keep entries forever, for 1 year or for 90 days, export them as an A4 PDF or CSV, or turn the history off.</p>
+                <ul class="feat-specs mono">
+                  <li>Stored in the app's data folder, nowhere else</li>
+                  <li>Retention: forever, 1 year or 90 days</li>
+                  <li>Command line: trackmysign history --since --json --report</li>
+                </ul>
+              </article>
+              <article class="fd" id="cert">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s f" x="20" y="10" width="160" height="76" />
+                    <rect class="s" x="26" y="16" width="148" height="64" />
+                    <text class="t2 mono" x="36" y="34">Class 3</text>
+                    <path class="m" d="M36 48h76M36 58h88M36 68h56" />
+                    <circle class="a-o" cx="148" cy="52" r="14" />
+                    <path class="a-o" d="m140 64-4 18 8-4 4 6 3-14M156 64l4 18-8-4" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Certificate</p>
+                <h3>See and share your DSC</h3>
+                <p class="fd-lede">Class, CA, validity, fingerprints and chain at a glance. Save the public certificate for a bank or portal that asks for it.</p>
+                <p>Certificate details shows the holder, organisation, PAN hash (subject serial number), email, issuing CA, serial number, validity with days left, key type and size, key usage, and the certificate policies with India PKI Class 1, 2, 3 and eKYC named. The chain is shown up to the CCA India root.</p>
+                <p>Fingerprints can be copied, and the public certificate saved as .cer (DER), .pem, or with its chain as .p7b, for a bank, registrar or portal that asks you to upload it. The private key never leaves the token.</p>
+                <ul class="feat-specs mono">
+                  <li>Opens from the certificate picker or Settings → DSC token</li>
+                  <li>Chain up to CCA India</li>
+                  <li>Command line: certs --details, certs --export N</li>
+                </ul>
+              </article>
+              <article class="fd" id="expiry">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s f" x="20" y="14" width="96" height="74" />
+                    <path class="s" d="M20 30h96M40 8v12M96 8v12" />
+                    <rect class="s" x="30" y="38" width="12" height="10" /><rect class="s" x="48" y="38" width="12" height="10" /><rect class="s" x="66" y="38" width="12" height="10" /><rect class="s" x="84" y="38" width="12" height="10" />
+                    <rect class="s" x="30" y="54" width="12" height="10" /><rect class="s" x="48" y="54" width="12" height="10" /><rect class="s" x="66" y="54" width="12" height="10" /><rect class="a" x="84" y="54" width="12" height="10" />
+                    <rect class="s" x="30" y="70" width="12" height="10" /><rect class="s" x="48" y="70" width="12" height="10" />
+                    <text class="t mono" x="130" y="54">30 d</text>
+                    <path class="a-s" d="M130 64h50" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Reminders</p>
+                <h3>DSC expiry reminder</h3>
+                <p class="fd-lede">Days left are always shown, with a reminder before your certificate expires, even when the token is not plugged in.</p>
+                <p>Every certificate list shows the days left. The app reminds you 30 days before the DSC expires (15 or 60 days, or off, under Settings → Expiry reminder), also when the token is not plugged in.</p>
+                <p>Once a certificate has expired, signing with it is turned off, since a signature made with it would not be valid. The command-line tool refuses one too unless you pass <code>--allow-expired</code>.</p>
+                <ul class="feat-specs mono">
+                  <li>Works without the token plugged in</li>
+                  <li>Days left wherever certificates are listed</li>
+                  <li>Command line: certs shows the expiry date and days left</li>
+                </ul>
+              </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="automation" class="band band-alt">
+        <div class="wrap">
+          <header class="sec-head wide">
+            <div>
+              <p class="label mono">04 · Automation</p>
+              <h2>Automation</h2>
+            </div>
+            <p class="sec-lede">For the GST portal, the accounts team's exports, the scanner PC and the scripts around them. Every automatic path still needs your token and PIN.</p>
+          </header>
+          <div class="fds">
+              <article class="fd" id="portal">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s f" x="8" y="14" width="92" height="68" />
+                    <path class="s" d="M8 26h92" />
+                    <rect class="a" x="14" y="17" width="6" height="6" />
+                    <path class="m" d="M18 38h56M18 48h68M18 58h44" />
+                    <rect class="a-o" x="56" y="66" width="36" height="10" />
+                    <path class="d" d="M104 48h30" />
+                    <path class="a-s" d="M134 48l-6-5m6 5-6 5" />
+                    <text class="t2 mono" x="106" y="38">wss</text>
+                    <rect class="s f" x="142" y="37" width="38" height="22" rx="3" />
+                    <rect class="s f" x="180" y="42" width="10" height="12" />
+                    <circle class="led" cx="172" cy="43" r="2.5" />
+                    <text class="t2 mono" x="104" y="74">127.0.0.1</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">GST portal</p>
+                <h3>Sign on the GST portal</h3>
+                <p class="fd-lede">Turn on portal signing and the GST portal signs DSC registration and returns through TrackMy Sign. Every request asks for your approval and PIN.</p>
+                <p>The GST portal signs DSC registrations and returns through a program on your computer, which it reaches over a local secure WebSocket. With Settings → GST portal signing turned on, TrackMy Sign answers those requests with the DSC on your token, so no separate signer utility is needed. It creates a certificate authority for this computer only, issues one certificate for <code>127.0.0.1</code>, deletes the authority's private key and adds its certificate to your user's trusted certificates.</p>
+                <p>Each request brings the app to the front with the site, the PAN and exactly what will be signed; it picks the certificate for that PAN when the certificate shows it, and nothing is signed without your PIN. It listens only on <code>127.0.0.1</code>, answers only pages from gst.gov.in, and Disable and remove takes the certificate out again. MCA21 V3, the Income Tax portal and TRACES use a different, licensed protocol and are not supported.</p>
+                <ul class="feat-specs mono">
+                  <li>Ports 1585, 2095, 2568, 2868 or 4587</li>
+                  <li>Windows, macOS and Linux (on Linux: Chrome and Firefox certificate lists)</li>
+                  <li>Expired certificates refused</li>
+                </ul>
+              </article>
+              <article class="fd" id="tray">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s f" x="96" y="8" width="94" height="50" />
+                    <circle class="led" cx="108" cy="22" r="3" />
+                    <text class="t2 mono" x="116" y="26">Portal: on</text>
+                    <path class="m" d="M106 38h60M106 48h44" />
+                    <rect class="s f" x="10" y="66" width="180" height="20" />
+                    <rect class="s" x="130" y="71" width="10" height="10" /><rect class="s" x="146" y="71" width="10" height="10" />
+                    <rect class="a" x="162" y="71" width="10" height="10" />
+                    <path class="a-s" d="M167 58v8" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Background</p>
+                <h3>Always ready for the portal</h3>
+                <p class="fd-lede">Runs from the tray or menu bar and can start when you sign in, so portal signing works without opening the app.</p>
+                <p>With Keep running in the background (on by default once portal signing is on), closing the window leaves TrackMy Sign in the system tray on Windows and Linux or the menu bar on macOS. A portal request brings the window up as usual.</p>
+                <p>Start TrackMy Sign when I sign in starts it there at sign-in, without a window. Turning background mode off removes the sign-in entry again, and the Windows uninstaller removes it too.</p>
+                <ul class="feat-specs mono">
+                  <li>Tray menu: Open TrackMy Sign, Quit</li>
+                  <li>GNOME needs the AppIndicator extension (Ubuntu has it)</li>
+                  <li>Settings → Background</li>
+                </ul>
+              </article>
+              <article class="fd" id="watch">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s pg" x="10" y="16" width="36" height="48" />
+                    <path class="m" d="M16 26h22M16 34h24M16 42h18" />
+                    <path class="a-s" d="M52 40h18m0 0-5-5m5 5-5 5" />
+                    <path class="s f" d="M78 24h22l6 6h32v42H78z" />
+                    <path class="d" d="M86 44h44M86 54h36" />
+                    <path class="a-s" d="M144 40h18m0 0-5-5m5 5-5 5" />
+                    <rect class="s pg" x="168" y="16" width="26" height="48" />
+                    <rect class="a-o" x="172" y="48" width="18" height="10" />
+                    <text class="t2 mono" x="80" y="88">signed/</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Watch</p>
+                <h3>Watch folder</h3>
+                <p class="fd-lede">Drop PDFs into a private folder and they are signed with your preset after one PIN entry, with time and daily limits.</p>
+                <p>For invoices exported by an accounting program or scans from a copier: press Start watching, enter the PIN once, and every PDF put into the folder is signed with a copy of the preset you chose. A file is picked up once it has stopped changing and opens as a PDF; temporary files are left alone.</p>
+                <p>Signed copies go to <code>signed/</code> (never overwritten), originals move to <code>done/</code>, and a file that cannot be signed goes to <code>failed/</code> with a note saying why. Watching stops after the time you chose, when the computer sleeps, on quit, when the token is removed and at the daily limit. Anyone who can write to the folder while watching can get documents signed, so use a private folder on your own computer.</p>
+                <ul class="feat-specs mono">
+                  <li>Status bar and tray show Watching — N signed, with Stop</li>
+                  <li>Last 200 events listed in Settings</li>
+                  <li>Command line: trackmysign watch C:\Scans --hours 8</li>
+                </ul>
+              </article>
+              <article class="fd" id="rightclick">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s pg" x="10" y="16" width="34" height="46" />
+                    <rect class="s pg" x="18" y="22" width="34" height="46" />
+                    <path class="m" d="M24 32h20M24 40h22" />
+                    <rect class="s f" x="58" y="18" width="134" height="68" />
+                    <path class="m" d="M68 30h60M68 72h50" />
+                    <rect class="a" x="58" y="40" width="134" height="18" />
+                    <text class="ta" x="66" y="53">Sign with TrackMy Sign</text>
+                    <path class="s f" d="m178 54 0 22 6-6 4 9 4-2-4-9 9 0z" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Desktop</p>
+                <h3>Right-click to sign</h3>
+                <p class="fd-lede">Select one or many PDFs in Explorer, Finder or your file manager and sign them as one batch. Your default PDF viewer stays as it is.</p>
+                <p>On Windows, right-click a PDF and choose Sign with TrackMy Sign; on every platform, Open With → TrackMy Sign works too. Your default PDF viewer is not changed.</p>
+                <p>Select several PDFs first and they arrive together as one batch, signed with one PIN entry. If a batch is already loaded, the app asks whether to add them or replace it. Other files go to the file panel to be signed as .p7s or .p7m.</p>
+                <ul class="feat-specs mono">
+                  <li>Default PDF viewer untouched</li>
+                  <li>Files arriving together form one batch</li>
+                  <li>Drag and drop onto the window works too</li>
+                </ul>
+              </article>
+              <article class="fd" id="cli">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s f" x="10" y="10" width="180" height="76" />
+                    <path class="s" d="M10 22h180" />
+                    <text class="t2 mono" x="20" y="40">&gt; trackmysign sign *.pdf</text>
+                    <text class="t2 mono" x="20" y="56">Token PIN: ********</text>
+                    <text class="t2 mono tok" x="20" y="72">Signed: 12 files</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Command line</p>
+                <h3>A command-line tool</h3>
+                <p class="fd-lede">Everything the app signs and checks is also a command, for scripts and batch jobs.</p>
+                <p>The <code>trackmysign</code> command lists certificates (<code>certs</code>), shows a PDF's pages, signatures and empty fields (<code>info</code>), signs (<code>sign, sign-file</code>), checks (<code>verify, verify-folder, verify-file</code>), watches a folder (<code>watch</code>), reads the signing history (<code>history</code>) and prepares pages (<code>pages</code>).</p>
+                <p>It is a single executable built from the same Rust library as the desktop app, so a signature made from a script is byte-for-byte the same kind of signature. It asks for the PIN on the terminal and never stores it.</p>
+                <ul class="feat-specs mono">
+                  <li>trackmysign-windows-x64.exe, -macos-arm64, -linux-x64</li>
+                  <li>Box by page and corner, or exact points</li>
+                  <li>PIN asked on the terminal, never stored</li>
+                </ul>
+              </article>
+              <article class="fd" id="json">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <path class="s pg" d="M12 14h40l10 10v58H12z" />
+                    <text class="t2 mono" x="18" y="58">.json</text>
+                    <path class="s pg" d="M74 14h40l10 10v58H74z" />
+                    <text class="t2 mono" x="82" y="58">.csv</text>
+                    <path class="a-o" d="M136 14h40l10 10v58h-50z" />
+                    <text class="t2 mono" x="144" y="58">.pdf</text>
+                    <path class="m" d="M18 32h26M80 32h26" />
+                    <rect class="a" x="142" y="28" width="30" height="8" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Scripts</p>
+                <h3>JSON, CSV and exit codes</h3>
+                <p class="fd-lede">Verification and history results come out as JSON or CSV, with exit codes a script can act on.</p>
+                <p><code>trackmysign verify --json</code>, <code>verify-folder --json</code> and <code>history --json</code> print documented JSON with a schema name and version, raised only when a field is removed or changes meaning. A script can archive the result next to the document or feed it to another system.</p>
+                <p>The exit status is 2 when a signature is invalid, the content changed after signing, a PDF could not be read, or the history's integrity check finds a problem, so a nightly job can fail loudly instead of quietly.</p>
+                <ul class="feat-specs mono">
+                  <li>schema_version 1 for every report</li>
+                  <li>--require-signed to treat unsigned PDFs as failures</li>
+                  <li>CSV safe for spreadsheets (formula escaping)</li>
+                </ul>
+              </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="platform" class="band">
+        <div class="wrap">
+          <header class="sec-head wide">
+            <div>
+              <p class="label mono">05 · Platform &amp; privacy</p>
+              <h2>Platform &amp; privacy</h2>
+            </div>
+            <p class="sec-lede">How TrackMy Sign is built, installed, updated and kept private.</p>
+          </header>
+          <div class="fds">
+              <article class="fd" id="offline">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s f" x="16" y="8" width="104" height="64" />
+                    <path class="m" d="M28 24h64M28 34h76M28 44h52" />
+                    <path class="s" d="M56 72v10M40 86h56" />
+                    <path class="s" d="M120 48h20" />
+                    <rect class="s f" x="140" y="42" width="12" height="12" />
+                    <path class="d" d="M152 48h16" />
+                    <rect class="s" x="172" y="38" width="16" height="20" />
+                    <text class="t2 mono" x="136" y="80">offline</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Privacy</p>
+                <h3>Offline, no account</h3>
+                <p class="fd-lede">Your documents, certificates and PIN never leave your computer. You can sign with the network cable unplugged.</p>
+                <p>TrackMy Sign has no server and no sign-up. Documents are read and written on your own disk, the token signs on your own computer, and the PIN is passed to the token and forgotten.</p>
+                <p>The only network requests are the update check against GitHub Releases, which can be turned off, and, when you switch them on, a timestamp request (a hash only) and certificate revocation checks. See the privacy statement for details.</p>
+                <ul class="feat-specs mono">
+                  <li>No analytics or tracking of any kind</li>
+                  <li>Update check can be turned off</li>
+                  <li>Privacy statement: PRIVACY.md</li>
+                </ul>
+              </article>
+              <article class="fd" id="platforms">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s f" x="6" y="12" width="58" height="52" />
+                    <path class="s" d="M6 24h58" />
+                    <path class="s" d="M44 18h4M52 18h4" /><rect class="a" x="58" y="15" width="4" height="6" />
+                    <rect class="s f" x="71" y="12" width="58" height="52" />
+                    <path class="s" d="M71 24h58" />
+                    <circle class="a" cx="78" cy="18" r="2.2" /><circle class="s" cx="85" cy="18" r="2.2" /><circle class="s" cx="92" cy="18" r="2.2" />
+                    <rect class="s f" x="136" y="12" width="58" height="52" />
+                    <path class="s" d="M136 24h58" />
+                    <rect class="a" x="186" y="15" width="5" height="5" />
+                    <path class="m" d="M14 36h36M14 46h28M79 36h36M79 46h28M144 36h36M144 46h28" />
+                    <text class="t2 mono" x="16" y="84">win</text>
+                    <text class="t2 mono" x="82" y="84">mac</text>
+                    <text class="t2 mono" x="144" y="84">linux</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Platforms</p>
+                <h3>Windows, macOS and Linux</h3>
+                <p class="fd-lede">Native apps for all three, with the same features. Small downloads, no admin rights needed on Windows.</p>
+                <p>The Windows installer is about 3 MB and installs for your user only, without admin rights. The macOS app is a universal build for Apple Silicon and Intel, signed with a Developer ID and notarized by Apple. On Linux there is an AppImage for any x86_64 distribution and a .deb for Ubuntu 22.04+ and Debian 12+.</p>
+                <p>On Windows it can also be installed with winget once the package is approved: <code>winget install --id TrackMyTech.TrackMySign</code>.</p>
+                <ul class="feat-specs mono">
+                  <li>Linux: glibc 2.35+, needs pcscd and the token's driver</li>
+                  <li>Built with Rust, Tauri 2 and PDF.js</li>
+                  <li>winget id TrackMyTech.TrackMySign</li>
+                </ul>
+              </article>
+              <article class="fd" id="updates">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <path class="a-s" d="M114 32a16 16 0 1 1-6-12.5" />
+                    <path class="a-s" d="M110 12v8h-8" />
+                    <rect class="s" x="24" y="56" width="152" height="12" />
+                    <rect class="a" x="24" y="56" width="108" height="12" />
+                    <text class="t2 mono" x="24" y="88">latest.json · key checked</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Updates</p>
+                <h3>One-click updates</h3>
+                <p class="fd-lede">New versions are offered in the app and install when you say so, after a signature check.</p>
+                <p>On launch the app fetches <code>latest.json</code> from the latest GitHub release; nothing about you or your documents is sent. If a newer version is out, a bar offers Install and restart: the update is downloaded, checked against the signing key built into the app, installed, and the app reopens.</p>
+                <p>On Linux the AppImage replaces itself and a .deb install asks for your password. Turn the check off, or check by hand, under Settings → Updates.</p>
+                <ul class="feat-specs mono">
+                  <li>Install and restart, nothing silent</li>
+                  <li>AppImage and .deb updated on Linux</li>
+                  <li>Settings → Updates</li>
+                </ul>
+              </article>
+              <article class="fd" id="languages">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <rect class="s f" x="14" y="16" width="50" height="50" />
+                    <text class="t3" x="39" y="50" text-anchor="middle">A</text>
+                    <rect class="a-o" x="75" y="16" width="50" height="50" />
+                    <text class="t3" x="100" y="50" text-anchor="middle">अ</text>
+                    <rect class="s f" x="136" y="16" width="50" height="50" />
+                    <text class="t3" x="161" y="50" text-anchor="middle">அ</text>
+                    <path class="m" d="M14 82h172" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Languages</p>
+                <h3>English, हिन्दी, தமிழ்</h3>
+                <p class="fd-lede">The whole app in Hindi or Tamil, following your system language or chosen in Settings.</p>
+                <p>Every screen, dialog and message of the desktop app is available in English, Hindi and Tamil. It follows the system language, or choose one under Settings → Appearance → Language.</p>
+                <p>The text printed in the signature box stays in English letters, because the standard PDF fonts cannot show Indian scripts; names typed in Hindi or Tamil are transliterated, and the designer shows how a line will print.</p>
+                <ul class="feat-specs mono">
+                  <li>Settings → Appearance → Language</li>
+                  <li>Indian-script names transliterated in the box</li>
+                  <li>Reports mark transliterated names</li>
+                </ul>
+              </article>
+              <article class="fd" id="recent">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <path class="s pg" d="M24 10h12l4 4v14H24z" /><path class="m" d="M50 20h88" /><rect class="a-o" x="148" y="14" width="34" height="12" />
+                    <path class="s pg" d="M24 40h12l4 4v14H24z" /><path class="m" d="M50 50h72" />
+                    <path class="s pg" d="M24 70h12l4 4v14H24z" /><path class="m" d="M50 80h96" />
+                    <path class="s" d="M14 34h172M14 64h172" />
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Recent</p>
+                <h3>Pick up where you left off</h3>
+                <p class="fd-lede">Recent documents on the start screen, the last folder remembered, and an optional folder for signed copies.</p>
+                <p>The start screen and the arrow next to Open… list the last 10 PDFs you opened, with their folder and date. Files signed in the app are marked and their signed copy opens with one click; files that no longer exist drop out.</p>
+                <p>Settings → Save signed copies to keeps copies next to the original or in a folder you choose. An existing file is never replaced: the copy becomes <code>name_signed_2.pdf</code>, <code>name_signed_3.pdf</code>, and so on. The recent list can be turned off or cleared.</p>
+                <ul class="feat-specs mono">
+                  <li>Settings → Recent files</li>
+                  <li>Settings → Save signed copies to</li>
+                  <li>List kept in the app's data folder</li>
+                </ul>
+              </article>
+              <article class="fd" id="opensource">
+                <div class="fd-ill">
+                  <svg class="ill feat-ill" viewBox="0 0 200 96" aria-hidden="true">
+                    <path class="s" d="M20 56h160" />
+                    <path class="s" d="M76 56q10-28 32-28h30" />
+                    <circle class="s f" cx="40" cy="56" r="7" /><circle class="s f" cx="76" cy="56" r="7" /><circle class="s f" cx="116" cy="56" r="7" />
+                    <circle class="s f" cx="138" cy="28" r="7" />
+                    <circle class="a" cx="164" cy="56" r="8" />
+                    <text class="t2 mono" x="20" y="88">MIT · built in public</text>
+                  </svg>
+                </div>
+                <p class="feat-tag mono">Open source</p>
+                <h3>Open source, built in public</h3>
+                <p class="fd-lede">MIT licensed. Every release is built by GitHub Actions from the public source, and tested against an independent validator.</p>
+                <p>The signing engine is a small Rust library you can read in an afternoon, and the whole app is on GitHub under the MIT licence. Every release is built by GitHub Actions from that source; no binary is built on a personal machine.</p>
+                <p>The end-to-end tests sign real PDFs on a virtual token and check the results with independent tools, pyHanko and qpdf, so the format is verified by software that is not ours.</p>
+                <ul class="feat-specs mono">
+                  <li>Source: github.com/rahuldk1105/trackmysign</li>
+                  <li>Issues and token driver reports welcome</li>
+                  <li>SHA-256 of each download shown on this site</li>
+                </ul>
+              </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="band band-ink">
+        <div class="wrap cta-band">
+          <div>
+            <p class="label mono">Download</p>
+            <h2>Free for Windows, macOS and Linux.</h2>
+            <p class="cta-note">No account, no telemetry, MIT licence. Your token's own driver is all it needs.</p>
+          </div>
+          <div class="cta">
+            <a class="btn btn-light btn-lg" href="../#download">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 17h12" /></svg>
+              Download TrackMy Sign
+            </a>
+            <a class="btn btn-ghost btn-lg" href="https://github.com/rahuldk1105/trackmysign" target="_blank" rel="noopener">Source on GitHub</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap foot-row">
+        <span class="mark small"><svg class="logo-mark" width="18" height="18" viewBox="0 0 64 64" aria-hidden="true"><rect class="lb" width="64" height="64" rx="6.4"/><path class="lf" d="M14 40c6-10 10-14 13-14 4 0-2 12 2 12s6-8 9-8 1 6 4 6 5-3 8-5" stroke-width="4.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path class="lf" d="M14 49h36" stroke-opacity=".45" stroke-width="3" stroke-linecap="round"/></svg> TrackMy Sign</span>
+        <span class="muted">MIT licence · Built by <a href="https://rahuldk.in" target="_blank" rel="noopener">DK Rahul</a></span>
+        <nav class="foot-links" aria-label="Project">
+          <a href="https://github.com/rahuldk1105/trackmysign" target="_blank" rel="noopener">Source</a>
+          <a href="https://github.com/rahuldk1105/trackmysign/releases" target="_blank" rel="noopener">Releases</a>
+          <a href="https://github.com/rahuldk1105/trackmysign/issues" target="_blank" rel="noopener">Issues</a>
+          <a href="./">Features</a>
+          <a href="../changelog/">Changelog</a>
+          <a href="https://github.com/rahuldk1105/trackmysign/blob/main/PRIVACY.md" target="_blank" rel="noopener">Privacy</a>
+          <a href="../code-signing/">Code signing policy</a>
+        </nav>
+      </div>
+      <div class="wrap">
+        <p class="foot-note muted">TrackMy Sign is an independent open-source project, not affiliated with, endorsed or certified by GSTN, MCA, the CCA or any vendor named here. emSigner, emBridge and eMudhra are trademarks of eMudhra Ltd; ePass2003 (Feitian), ProxKey (Watchdata), SafeNet and Gemalto (Thales), HyperPKI (Hypersecu) and Adobe Acrobat Reader (Adobe) are trademarks of their respective owners and are named only to describe compatibility.</p>
+      </div>
+    </footer>
+  </body>
+</html>
