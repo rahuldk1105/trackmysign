@@ -93,15 +93,15 @@
           <p class="label mono">Releases</p>
           <h1>Code signing policy</h1>
           <p class="sec-lede">
-            Free code signing provided by <a href="https://about.signpath.io" target="_blank" rel="noopener">SignPath.io</a>,
-            certificate by <a href="https://signpath.org" target="_blank" rel="noopener">SignPath Foundation</a>.
+            How TrackMy Sign releases are built and signed. The macOS app is signed with an Apple
+            Developer ID and notarized by Apple. The Windows installer is not code-signed yet.
           </p>
         </header>
 
         <dl class="spec policy-list">
           <div>
             <dt>What is signed</dt>
-            <dd>The Windows installer (<span class="mono">TrackMySign-Setup-windows-x64.exe</span>), the application executable inside it, and the command-line tool (<span class="mono">trackmysign-windows-x64.exe</span>) published on the <a href="https://github.com/rahuldk1105/trackmysign/releases" target="_blank" rel="noopener">GitHub releases page</a>.</dd>
+            <dd>macOS: the app in <span class="mono">TrackMySign-macos-universal.dmg</span> is signed with the Developer ID of TrackMy Tech Private Limited and notarized by Apple. Windows: the installer (<span class="mono">TrackMySign-Setup-windows-x64.exe</span>) and command-line tool are not code-signed yet; the Microsoft Store package is signed by Microsoft when it is published. In-app updates for all platforms are signed with the project's update key and checked by the app before installing. All files are published on the <a href="https://github.com/rahuldk1105/trackmysign/releases" target="_blank" rel="noopener">GitHub releases page</a> with SHA-256 checksums.</dd>
           </div>
           <div>
             <dt>How binaries are built</dt>
@@ -113,7 +113,7 @@
           </div>
           <div>
             <dt>Approvers</dt>
-            <dd><a href="https://github.com/rahuldk1105" target="_blank" rel="noopener">DK Rahul (@rahuldk1105)</a>, repository owner. Every signing request is approved manually.</dd>
+            <dd><a href="https://github.com/rahuldk1105" target="_blank" rel="noopener">DK Rahul (@rahuldk1105)</a>, repository owner, who approves every release.</dd>
           </div>
           <div>
             <dt>Privacy policy</dt>

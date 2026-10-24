@@ -9,7 +9,7 @@ every push to `main` that touches it; `CNAME` holds the custom domain.
 | `index.html` | Home page: hero, how it works, features, specification, download, FAQ |
 | `features/` | All features in detail, one section per group |
 | `changelog/` | Release notes, loaded from the GitHub releases API by `releases.js` |
-| `code-signing/` | Code signing policy (required by SignPath) |
+| `code-signing/` | Code signing policy |
 | `404.html` | Served by GitHub Pages for any missing path; links are root-relative |
 | `style.css`, `main.js` | Shared by every page (theme, download tabs, live version and stars) |
 | `robots.txt`, `sitemap.xml` | For search engines |

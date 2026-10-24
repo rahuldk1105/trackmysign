@@ -154,7 +154,7 @@
                 "name": "Why does Windows warn me during install?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "The installer isn't code-signed yet, so Windows doesn't recognise the publisher. Every release is built in public by GitHub Actions from the source in the repository."
+                  "text": "The Windows installer isn't code-signed yet, so SmartScreen doesn't recognise the publisher: choose More info, then Run anyway. Every release is built in public by GitHub Actions from the source in the repository, and the macOS app is signed and notarized by Apple."
                 }
               }
             ]
@@ -1227,8 +1227,7 @@ Token PIN: ********
                link to https://apps.microsoft.com/detail/9NV4G85VML2K with Microsoft's official badge image. -->
 
           <p class="dl-sign">
-            Free code signing provided by <a href="https://about.signpath.io" target="_blank" rel="noopener">SignPath.io</a>,
-            certificate by <a href="https://signpath.org" target="_blank" rel="noopener">SignPath Foundation</a> ·
+            macOS app signed and notarized by Apple · Windows installer not code-signed yet ·
             <a href="code-signing/">Code signing policy</a>
           </p>
 
@@ -1275,7 +1274,7 @@ Token PIN: ********
             </details>
             <details>
               <summary>Why does Windows warn me during install?</summary>
-              <p>The installer isn't code-signed yet, so Windows doesn't recognise the publisher. Every release is built in public by GitHub Actions from the source in the repository.</p>
+              <p>The Windows installer isn't code-signed yet, so SmartScreen doesn't recognise the publisher: choose More info, then Run anyway. Every release is built in public by GitHub Actions from the source in the repository, and the macOS app is signed and notarized by Apple.</p>
             </details>
           </div>
         </div>
