@@ -15,13 +15,14 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
+use trackmysign_core::history::WatchRecorder;
 use trackmysign_core::token::{Token, TokenCert, TokenSigner};
 use trackmysign_core::watch::{self, Control, Event, Folders, ImageChoice, PinCheck, Preset, Stop};
-use trackmysign_core::{Error, SignRequest, sign_pdf};
+use trackmysign_core::{Error, SignRequest, Signer, sign_pdf};
 use zeroize::Zeroize;
 
 use super::{
-    CmdResult, CommandError, TOKEN_LOCK, background, not_expired, saved_image, style_seal,
+    CmdResult, CommandError, TOKEN_LOCK, background, history, not_expired, saved_image, style_seal,
 };
 
 /// Log entries kept; older ones drop off.
@@ -405,12 +406,18 @@ pub struct StartArgs {
 struct AppHost {
     app: AppHandle,
     signer: TokenSigner,
+    history: WatchRecorder,
 }
 
 impl watch::Host for AppHost {
     fn sign(&mut self, data: &[u8], req: &SignRequest) -> Result<Vec<u8>, Error> {
-        let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        sign_pdf(data, req, &mut self.signer)
+        let result = {
+            let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+            sign_pdf(data, req, &mut self.signer)
+        };
+        let cert = self.signer.certificate().to_vec();
+        self.history.signing(data, req, &cert, &result);
+        result
     }
 
     fn check(&mut self) -> Result<(), Error> {
@@ -419,6 +426,9 @@ impl watch::Host for AppHost {
     }
 
     fn event(&mut self, event: Event) {
+        if let Some(entry) = self.history.event(&event) {
+            history::record(&self.app, entry);
+        }
         match event {
             Event::Signed {
                 input,
@@ -539,6 +549,7 @@ fn start(app: &AppHandle, args: &StartArgs, mut pin: String) -> CmdResult<()> {
         let mut host = AppHost {
             app: thread_app.clone(),
             signer,
+            history: WatchRecorder::new(history::PROGRAM),
         };
         let stop = watch::run(
             &folders,
@@ -549,6 +560,9 @@ fn start(app: &AppHandle, args: &StartArgs, mut pin: String) -> CmdResult<()> {
             &control,
             &mut host,
         );
+        if let Some(entry) = host.history.stopped(&folders.input, &stop) {
+            history::record(&thread_app, entry);
+        }
         // Closes the session (the token logs out) and wipes a kept PIN.
         {
             let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());

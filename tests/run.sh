@@ -5,6 +5,8 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 W=${WORK:-$(mktemp -d)}
 BIN=${TRACKMYSIGN_BIN:-$ROOT/target/debug/trackmysign}
+# Signing history: kept in this run's own data folder, not the user's.
+export XDG_DATA_HOME=$W/data
 # Local TSA / OCSP / CRL server for the timestamp and LTV tests (no internet needed).
 PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 export TEST_SERVICES_URL=http://127.0.0.1:$PORT
@@ -555,5 +557,32 @@ for ip in $(hostname -I 2>/dev/null); do
   fi
 done
 kill $PORTAL_PID 2>/dev/null
+# Signing history: every signing above was recorded in the app's data folder
+# (named as Tauri names it); a few more, then the log is read back and tampered with.
+HIST=$XDG_DATA_HOME/in.trackmytech.trackmysign/history
+H=$W/history
+mkdir -p "$H"
+cp "$W/fx/plain.pdf" "$H/batch-a.pdf"
+cp "$W/fx/objstm.pdf" "$H/batch-b.pdf"
+"$BIN" sign "$W/fx/plain.pdf" --out "$H/one.pdf" --reason Approved >/dev/null
+"$BIN" sign "$W/fx/rotated.pdf" --pages all --out "$H/pages.pdf" >/dev/null
+"$BIN" sign "$W/fx/field-simple.pdf" --field ClientSignature --out "$H/field.pdf" >/dev/null
+"$BIN" sign "$W/fx/plain.pdf" --certify forms --out "$H/certified.pdf" >/dev/null
+"$BIN" sign "$H/batch-a.pdf" "$H/batch-b.pdf" >/dev/null
+if [ -d "$HIST" ]; then
+  python3 -W ignore "$ROOT/tests/check_history.py" "$BIN" "$HIST" "$H" \
+    "$W/fx/plain.pdf|$H/one.pdf|sign|manual" "$W/fx/rotated.pdf|$H/pages.pdf|sign_pages|manual" \
+    "$W/fx/field-simple.pdf|$H/field.pdf|sign_field|manual" "$W/fx/plain.pdf|$H/certified.pdf|certify|manual" \
+    "$H/batch-a.pdf|$H/batch-a_signed.pdf|sign|batch" "$H/batch-b.pdf|$H/batch-b_signed.pdf|sign|batch" || fail=1
+else
+  echo "FAIL signing history: $HIST was not created"; fail=1
+fi
+# Turned off in the app: nothing more is written.
+before=$(cat "$HIST"/*.jsonl 2>/dev/null | wc -l)
+printf '{"enabled": false, "retention": "forever"}' >"$HIST/settings.json"
+"$BIN" sign "$W/fx/plain.pdf" --out "$H/off.pdf" >/dev/null
+[ "$(cat "$HIST"/*.jsonl | wc -l)" = "$before" ] && echo "PASS signing history off records nothing" \
+  || { echo "FAIL signing history recorded while turned off"; fail=1; }
+rm "$HIST/settings.json"
 
 [ $fail = 0 ] && echo "ALL PASSED" || { echo "SOME TESTS FAILED"; exit 1; }

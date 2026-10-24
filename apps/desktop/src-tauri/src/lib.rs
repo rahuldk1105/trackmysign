@@ -3,6 +3,7 @@
 mod background;
 mod certs;
 mod folder;
+mod history;
 mod incoming;
 mod known;
 mod output;
@@ -19,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
 use trackmysign_core::certinfo::{Validity, days_until};
+use trackmysign_core::history::{Entry, Source};
 use trackmysign_core::stamp;
 use trackmysign_core::token::{Token, TokenCert, Tokens, installed_drivers};
 use trackmysign_core::{
@@ -316,25 +318,11 @@ struct SignedDto {
 async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
     tauri::async_runtime::spawn_blocking(move || {
         let input = PathBuf::from(&args.path);
-        let data = std::fs::read(&input)?;
         let image = match args.image {
             Some(_) => Some(saved_image(&app)?),
             None => None,
         };
         let seal = style_seal(&app, &args.style)?;
-        let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let token = Token::open(Path::new(&args.driver_path))?;
-        let certs = token.signing_certificates()?;
-        let cert = certs
-            .iter()
-            .find(|c| c.fingerprint() == args.cert_id)
-            .ok_or_else(|| CommandError {
-                kind: "token",
-                message: "The selected certificate is no longer on the token.".into(),
-            })?;
-        not_expired(cert)?;
-        watch::check_pin(&app, cert, &args.pin)?;
-        let mut signer = token.signer(cert, &args.pin)?;
         let req = SignRequest {
             page: args.page,
             rect: args.rect.map(|r| DisplayRect {
@@ -357,8 +345,36 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             certify: args.certify.map(|p| DocMdp::from_level(p.into())),
             ..Default::default()
         };
-        let signed = sign_pdf(&data, &req, &mut signer)?;
-        let out = output::write_signed(&input, args.out_dir.as_deref(), &signed)?;
+        let mut entry = Entry::signing(Source::Manual, history::PROGRAM, &input, &req);
+        let result = (|| -> CmdResult<(PathBuf, Vec<u8>)> {
+            let data = std::fs::read(&input)?;
+            entry.input_data(&data);
+            let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+            let token = Token::open(Path::new(&args.driver_path))?;
+            let certs = token.signing_certificates()?;
+            let cert = certs
+                .iter()
+                .find(|c| c.fingerprint() == args.cert_id)
+                .ok_or_else(|| CommandError {
+                    kind: "token",
+                    message: "The selected certificate is no longer on the token.".into(),
+                })?;
+            entry.cert_der(&cert.der);
+            not_expired(cert)?;
+            watch::check_pin(&app, cert, &args.pin)?;
+            let mut signer = token.signer(cert, &args.pin)?;
+            let signed = sign_pdf(&data, &req, &mut signer)?;
+            let out = output::write_signed(&input, args.out_dir.as_deref(), &signed)?;
+            Ok((out, signed))
+        })();
+        let (out, signed) = match result {
+            Ok(r) => r,
+            Err(e) => {
+                history::record(&app, entry.failed(e.message.clone()));
+                return Err(e);
+            }
+        };
+        history::record(&app, entry.signed(&out, &signed));
         Ok(SignedDto {
             name: out
                 .file_name()
@@ -461,14 +477,58 @@ enum BatchProgress {
     },
 }
 
+/// The history entry for a file of the batch, before it is placed.
+fn batch_entry(path: &Path, args: &BatchArgs, cert: Option<&TokenCert>) -> Entry {
+    let req = SignRequest {
+        reason: args.reason.clone().filter(|s| !s.trim().is_empty()),
+        location: args.location.clone().filter(|s| !s.trim().is_empty()),
+        timestamp: trimmed_url(args.timestamp.clone()),
+        ltv: args.ltv,
+        certify: args.certify.map(|p| DocMdp::from_level(p.into())),
+        ..Default::default()
+    };
+    let mut e = Entry::signing(Source::Batch, history::PROGRAM, path, &req);
+    if let Some(c) = cert {
+        e.cert_der(&c.der);
+    }
+    e
+}
+
+/// Signs one file of the batch and records it in the history.
 fn sign_one(
+    app: &AppHandle,
+    path: &Path,
+    args: &BatchArgs,
+    image: &Option<StampImage>,
+    seal: &Option<StampImage>,
+    cert: &TokenCert,
+    signer: &mut dyn trackmysign_core::Signer,
+) -> CmdResult<PathBuf> {
+    let mut entry = batch_entry(path, args, Some(cert));
+    match sign_batch_file(path, args, image, seal, signer, &mut entry) {
+        Ok((out, signed)) => {
+            history::record(app, entry.signed(&out, &signed));
+            Ok(out)
+        }
+        Err(e) => {
+            history::record(app, entry.failed(e.message.clone()));
+            Err(e)
+        }
+    }
+}
+
+/// Places the box on `path` as the batch says and signs it; `entry` gets
+/// the details as they are known.
+fn sign_batch_file(
     path: &Path,
     args: &BatchArgs,
     image: &Option<StampImage>,
     seal: &Option<StampImage>,
     signer: &mut dyn trackmysign_core::Signer,
-) -> CmdResult<PathBuf> {
+    entry: &mut Entry,
+) -> CmdResult<(PathBuf, Vec<u8>)> {
     let data = std::fs::read(path)?;
+    entry.input_data(&data);
     // Files that open without a password are not held up by the batch's one.
     let (info, password) = match inspect_with_password(&data, args.password.as_deref()) {
         Err(Error::Pdf(PdfError::WrongPassword)) => (inspect_with_password(&data, None)?, None),
@@ -518,8 +578,13 @@ fn sign_one(
         certify: args.certify.map(|p| DocMdp::from_level(p.into())),
         ..Default::default()
     };
+    let cert = entry.cert.take();
+    *entry = Entry::signing(Source::Batch, history::PROGRAM, path, &req);
+    entry.cert = cert;
+    entry.input_data(&data);
     let signed = sign_pdf(&data, &req, signer)?;
-    output::write_signed(path, args.out_dir.as_deref(), &signed)
+    let out = output::write_signed(path, args.out_dir.as_deref(), &signed)?;
+    Ok((out, signed))
 }
 
 /// Signs every file with one login. Fails as a whole only when the token or
@@ -547,13 +612,31 @@ async fn sign_batch(
                 kind: "token",
                 message: "The selected certificate is no longer on the token.".into(),
             })?;
-        not_expired(cert)?;
-        watch::check_pin(&app, cert, &args.pin)?;
-        let mut signer = token.signer(cert, &args.pin)?;
+        let login = not_expired(cert)
+            .and_then(|()| watch::check_pin(&app, cert, &args.pin))
+            .and_then(|()| Ok(token.signer(cert, &args.pin)?));
+        let mut signer = match login {
+            Ok(s) => s,
+            Err(e) => {
+                for path in &args.paths {
+                    let entry = batch_entry(Path::new(path), &args, Some(cert));
+                    history::record(&app, entry.failed(e.message.clone()));
+                }
+                return Err(e);
+            }
+        };
         for (index, path) in args.paths.iter().enumerate() {
             let _ = progress.send(BatchProgress::Signing { index });
             let _ = progress.send(
-                match sign_one(Path::new(path), &args, &image, &seal, &mut signer) {
+                match sign_one(
+                    &app,
+                    Path::new(path),
+                    &args,
+                    &image,
+                    &seal,
+                    cert,
+                    &mut signer,
+                ) {
                     // Another attempt with the same PIN could lock the token.
                     Err(e) if matches!(e.kind, "wrongPin" | "pinLocked") => return Err(e),
                     Ok(out) => BatchProgress::Done {
@@ -864,6 +947,7 @@ pub fn run() {
                 deliver_later(app.handle().clone());
             }
             portal::start_if_enabled(app.handle());
+            history::start(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -900,6 +984,12 @@ pub fn run() {
             folder::stop_folder_verify,
             folder::export_folder_report,
             folder::export_folder_csv,
+            history::history_entries,
+            history::history_settings,
+            history::history_set_settings,
+            history::history_check,
+            history::history_clear,
+            history::history_export,
             portal::portal_status,
             portal::portal_enable,
             portal::portal_disable,

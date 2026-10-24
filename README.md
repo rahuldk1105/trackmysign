@@ -127,6 +127,7 @@ Other options:
 .\trackmysign.exe sign file.pdf --password "secret"  # password-protected PDF
 .\trackmysign.exe sign file.pdf --certify forms       # certify as the author (first signature only)
 .\trackmysign.exe watch C:\Scans                      # sign every PDF put into a folder (see Watch folder)
+.\trackmysign.exe history --since 2026-10-01          # what was signed on this computer (see Signing history)
 ```
 
 Long-term validity is off by default, so signing works fully offline. `--timestamp`
@@ -381,6 +382,65 @@ also `pages`, `image` with `--image`, `invisible`, `timestamp`, `ltv`, and
 `style` as below, with `--seal` when it shows a seal; `--style` replaces it);
 `--keep-originals`, `--daily-limit N` (0 for none) and `--hours` work as in
 the app.
+
+## Signing history
+
+TrackMySign keeps a private log of every signature it makes on your computer:
+single documents, batches, every-page and empty-field signatures,
+certifications, the watch folder and GST portal requests, from the app and the
+command line. **History** (toolbar or start screen) lists them, newest first,
+with the date (IST; the UTC time is in the details), document, action,
+certificate and outcome. Search by file name or signer, filter by dates,
+source (single, batch, watch folder, GST portal) and outcome, and click an
+entry for its details: both files' paths and SHA-256 hashes, the
+certificate's issuer, serial number and fingerprint, the pages, reason,
+location, certification level, timestamp and LTV, or why it failed, with
+*Open signed copy* and *Show in folder*. *Export PDF…* and *Export CSV…* save
+the entries shown; the PDF is an A4 "Signing history" for auditors and
+includes the integrity check.
+
+Each entry also holds the SHA-256 of the line before it, so an entry changed
+or deleted outside TrackMySign breaks the chain: *Check log integrity* follows
+it through every file and names the line where it breaks. This shows edits
+made without recomputing every hash after them; it is not a signature, and
+anyone who can write to the folder can delete or rebuild the whole log.
+
+*Settings → Signing history* turns it off (on by default; turning it off or on
+is itself noted), keeps entries forever, for 1 year or for 90 days (older
+months are deleted, with a note saying how many entries went), and clears it
+(after a confirmation; one entry recording the clearing is kept). It never
+holds a PIN, a password or anything from inside a document; for a GST portal
+request it keeps the PAN and the hash signed, and for text only its SHA-256.
+See [PRIVACY.md](PRIVACY.md).
+
+The log is one JSON object per line, one file per month (`2026-10.jsonl`), in
+the app's data folder: `%APPDATA%\in.trackmytech.trackmysign\history` on
+Windows, `~/Library/Application Support/in.trackmytech.trackmysign/history` on
+macOS and `~/.local/share/in.trackmytech.trackmysign/history` (or
+`$XDG_DATA_HOME/…`) on Linux. The command-line tool writes to the same log, as
+the same user, and reads it:
+
+```powershell
+.\trackmysign.exe history                                   # every entry, then the integrity check
+.\trackmysign.exe history --since 2026-10-01 --until 2026-10-31 --source watch --outcome failed
+.\trackmysign.exe history --search invoice --csv > signed.csv
+.\trackmysign.exe history --json                            # entries and integrity check, for scripts
+.\trackmysign.exe history --report history.pdf              # the PDF the app exports
+```
+
+Dates are days in this computer's time zone. `history` exits with status 2
+when the integrity check finds a problem. `--json` prints `schema`
+(`"trackmysign-history"`), `schema_version` (1), `generator`, `integrity`
+(`entries`, `files`, `problems[]` with `file`, `line`, `seq`, `message`) and
+`entries[]`, each with `seq`, `time` (UTC), `action` (`sign`, `sign_pages`,
+`sign_field`, `certify`, `portal_sign`, or the notes `cleared`, `pruned`,
+`paused`, `resumed`), `source` (`manual`, `batch`, `watch`, `portal`),
+`program`, `input` and `output` (`path`, `sha256`), `origin` and `portal`
+(`pan`, `kind`, `data`, `sha256`) for the GST portal, `cert` (`subject`,
+`organization`, `issuer`, `serial`, `fingerprint`), `pages`, `field`, `reason`,
+`location`, `certify`, `timestamp`, `ltv`, `outcome` (`signed`, `failed`),
+`error`, `removed`, and `prev` (the hash of the line before). Fields without a
+value are left out.
 
 ## Portal signing (GST)
 

@@ -8,10 +8,11 @@ use portal_bridge::identity::{self, Store};
 use portal_bridge::{Config, Reply, Requests, Running, trust};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
+use trackmysign_core::history::{Action, Entry, PortalRef, Source};
 use trackmysign_core::portal::{self, Request, frame};
 use trackmysign_core::token::{Token, Tokens};
 
-use super::{CertDto, CmdResult, CommandError, TOKEN_LOCK, cert_dto, not_expired, watch};
+use super::{CertDto, CmdResult, CommandError, TOKEN_LOCK, cert_dto, history, not_expired, watch};
 
 fn other(message: impl Into<String>) -> CommandError {
     CommandError {
@@ -100,22 +101,26 @@ pub struct RequestDto {
     expiry_check: bool,
 }
 
+/// "registration" (the PAN itself), "digest" (a hash) or "text".
+fn kind(request: &Request) -> &'static str {
+    let data = &request.to_be_signed;
+    if !request.pan.is_empty() && data.eq_ignore_ascii_case(&request.pan) {
+        "registration"
+    } else if data.len() >= 40 && data.chars().all(|c| c.is_ascii_hexdigit()) {
+        "digest"
+    } else {
+        "text"
+    }
+}
+
 impl RequestDto {
     fn new(p: &Pending) -> Self {
-        let data = &p.request.to_be_signed;
-        let kind = if !p.request.pan.is_empty() && data.eq_ignore_ascii_case(&p.request.pan) {
-            "registration"
-        } else if data.len() >= 40 && data.chars().all(|c| c.is_ascii_hexdigit()) {
-            "digest"
-        } else {
-            "text"
-        };
         RequestDto {
             id: p.id,
             origin: p.origin.clone(),
             pan: p.request.pan.clone(),
-            to_be_signed: data.clone(),
-            kind,
+            to_be_signed: p.request.to_be_signed.clone(),
+            kind: kind(&p.request),
             expiry_check: p.request.expiry_check,
         }
     }
@@ -434,35 +439,46 @@ pub struct PortalSignArgs {
 #[tauri::command]
 pub async fn portal_sign(app: AppHandle, args: PortalSignArgs) -> CmdResult<()> {
     let gone = || other("The GST portal page is no longer waiting for this signature.");
-    let request = {
+    let (request, origin) = {
         let state = app.state::<PortalState>();
         let inner = state.lock();
         match &inner.pending {
-            Some(p) if p.id == args.id => p.request.clone(),
+            Some(p) if p.id == args.id => (p.request.clone(), p.origin.clone()),
             _ => return Err(gone()),
         }
     };
+    let mut entry = Entry::new(Action::PortalSign, Some(Source::Portal), history::PROGRAM);
+    entry.origin = Some(origin);
+    entry.portal = Some(PortalRef::new(
+        &request.pan,
+        kind(&request),
+        &request.to_be_signed,
+    ));
     let handle = app.clone();
-    let frame = tauri::async_runtime::spawn_blocking(move || -> CmdResult<String> {
-        let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let token = Token::open(Path::new(&args.driver_path))?;
-        let certs = token.signing_certificates()?;
-        let cert = certs
-            .iter()
-            .find(|c| c.fingerprint() == args.cert_id)
-            .ok_or_else(|| CommandError {
-                kind: "token",
-                message: "The selected certificate is no longer on the token.".into(),
-            })?;
-        if request.expiry_check {
-            not_expired(cert)?;
-        }
-        watch::check_pin(&handle, cert, &args.pin)?;
-        let mut signer = token.signer(cert, &args.pin)?;
-        Ok(portal::sign(&mut signer, &request, chrono::Utc::now())?)
+    let (cert_der, frame) = tauri::async_runtime::spawn_blocking(move || {
+        let mut cert_der = None;
+        let frame = sign_request(
+            &handle,
+            &args.driver_path,
+            &args.cert_id,
+            &args.pin,
+            &request,
+            &mut cert_der,
+        );
+        (cert_der, frame)
     })
     .await
-    .map_err(|e| other(e.to_string()))??;
+    .map_err(|e| other(e.to_string()))?;
+    if let Some(der) = &cert_der {
+        entry.cert_der(der);
+    }
+    let frame = match frame {
+        Ok(f) => f,
+        Err(e) => {
+            history::record(&app, entry.failed(e.message.clone()));
+            return Err(e);
+        }
+    };
     let pending = {
         let state = app.state::<PortalState>();
         let mut inner = state.lock();
@@ -470,13 +486,49 @@ pub async fn portal_sign(app: AppHandle, args: PortalSignArgs) -> CmdResult<()> 
             Some(p) if p.id == args.id => p,
             other_request => {
                 inner.pending = other_request;
+                history::record(&app, entry.failed(gone().message));
                 return Err(gone());
             }
         }
     };
     let sent = pending.reply.send(frame);
     let _ = app.emit("portal-closed", args.id);
-    if sent { Ok(()) } else { Err(gone()) }
+    if sent {
+        history::record(&app, entry.succeeded());
+        Ok(())
+    } else {
+        history::record(&app, entry.failed(gone().message));
+        Err(gone())
+    }
+}
+
+/// Signs `request` with the certificate `cert_id`; `cert_der` gets the
+/// certificate once it is found.
+fn sign_request(
+    app: &AppHandle,
+    driver_path: &str,
+    cert_id: &str,
+    pin: &str,
+    request: &Request,
+    cert_der: &mut Option<Vec<u8>>,
+) -> CmdResult<String> {
+    let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let token = Token::open(Path::new(driver_path))?;
+    let certs = token.signing_certificates()?;
+    let cert = certs
+        .iter()
+        .find(|c| c.fingerprint() == cert_id)
+        .ok_or_else(|| CommandError {
+            kind: "token",
+            message: "The selected certificate is no longer on the token.".into(),
+        })?;
+    *cert_der = Some(cert.der.clone());
+    if request.expiry_check {
+        not_expired(cert)?;
+    }
+    watch::check_pin(app, cert, pin)?;
+    let mut signer = token.signer(cert, pin)?;
+    Ok(portal::sign(&mut signer, request, chrono::Utc::now())?)
 }
 
 /// The user declined: the page shows "Signing Cancelled".

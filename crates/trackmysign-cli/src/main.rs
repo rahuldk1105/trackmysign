@@ -6,19 +6,21 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, bail};
+use chrono::{Local, NaiveDate, TimeZone};
 use clap::{Parser, Subcommand, ValueEnum};
 use trackmysign_core::certdetails::{
     CertificateDetails, complete_chain, export_file_name, to_p7b, to_pem,
 };
 use trackmysign_core::certinfo::{CertSummary, Validity};
 use trackmysign_core::folder::{self, FileResult, FileStatus, Options, Progress};
+use trackmysign_core::history::{self, Entry, Filter, History, WatchRecorder};
 use trackmysign_core::report::Report;
 use trackmysign_core::token::{Driver, TokenCert, TokenSigner, Tokens, driver_name};
 use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
 use trackmysign_core::{
     DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, ImagePosition, PdfError, PdfInfo, SignRequest,
-    StampImage, StampStyle, check_permitted_with_password, inspect_with_password, parse_pages,
-    sign_pdf, signed_path, watch,
+    Signer, StampImage, StampStyle, check_permitted_with_password, inspect_with_password,
+    parse_pages, sign_pdf, signed_path, watch,
 };
 use zeroize::Zeroizing;
 
@@ -214,6 +216,116 @@ enum Cmd {
         #[arg(long)]
         require_signed: bool,
     },
+    /// Show the signing history kept on this computer, the same one the
+    /// desktop app shows, oldest first. Exits with status 2 if the history
+    /// was changed outside TrackMySign.
+    History {
+        /// Only entries from this day on (YYYY-MM-DD, this computer's time zone).
+        #[arg(long, value_name = "DATE", value_parser = parse_day)]
+        since: Option<NaiveDate>,
+        /// Only entries up to and including this day.
+        #[arg(long, value_name = "DATE", value_parser = parse_day)]
+        until: Option<NaiveDate>,
+        #[arg(long, value_enum)]
+        source: Option<HistorySource>,
+        #[arg(long, value_enum)]
+        outcome: Option<HistoryOutcome>,
+        /// Only entries whose file, signer or PAN contains this text.
+        #[arg(long)]
+        search: Option<String>,
+        /// Print the entries and the integrity check as JSON.
+        #[arg(long, conflicts_with = "csv")]
+        json: bool,
+        /// Print the entries as CSV.
+        #[arg(long)]
+        csv: bool,
+        /// Also write the entries shown as a PDF (A4) to this file.
+        #[arg(long, value_name = "FILE")]
+        report: Option<PathBuf>,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum HistorySource {
+    Manual,
+    Batch,
+    Watch,
+    Portal,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum HistoryOutcome {
+    Signed,
+    Failed,
+}
+
+/// `TrackMySign` as named in history entries made here.
+const PROGRAM: &str = concat!("cli ", env!("CARGO_PKG_VERSION"));
+
+/// The history in the desktop app's data folder (where Tauri's
+/// `app_data_dir` points: `%APPDATA%`, `~/Library/Application Support` or
+/// `$XDG_DATA_HOME`, then the app's identifier), so both keep one log.
+fn history_store() -> Option<History> {
+    dirs::data_dir().map(|d| History::in_app_data(&d.join(history::APP_ID)))
+}
+
+/// Adds `entry` to the history, unless it is turned off in the app.
+fn record(entry: Entry) {
+    let Some(h) = history_store() else { return };
+    if let Err(e) = h.record(entry) {
+        eprintln!(
+            "Warning: could not write the signing history in {}: {e}",
+            h.dir().display()
+        );
+    }
+}
+
+fn parse_day(s: &str) -> Result<NaiveDate, String> {
+    NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").map_err(|_| "expected YYYY-MM-DD".into())
+}
+
+/// `p` from the root, as the history keeps it.
+fn absolute(p: &Path) -> PathBuf {
+    std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+/// Midnight starting `day` on this computer's clock.
+fn local_midnight(day: NaiveDate) -> chrono::DateTime<chrono::Utc> {
+    let t = day.and_hms_opt(0, 0, 0).unwrap();
+    Local
+        .from_local_datetime(&t)
+        .earliest()
+        .map(|t| t.with_timezone(&chrono::Utc))
+        .unwrap_or_else(|| chrono::Utc.from_utc_datetime(&t))
+}
+
+/// "12  24 Oct 2026, 14:03:11 IST  Signed (Batch)  invoice.pdf  DK RAHUL  signed".
+fn describe_entry(e: &Entry) -> String {
+    let ist = e
+        .time
+        .with_timezone(&chrono::FixedOffset::east_opt(5 * 3600 + 30 * 60).unwrap());
+    let mut parts = vec![
+        format!("{:>4}", e.seq),
+        ist.format("%d %b %Y, %H:%M:%S IST").to_string(),
+        match e.source {
+            Some(s) => format!("{} ({})", e.action.label(), s.label()),
+            None => e.action.label().to_string(),
+        },
+    ];
+    if !e.action.is_marker() {
+        parts.push(e.document());
+    }
+    if let Some(c) = &e.cert {
+        parts.push(c.subject.clone());
+    }
+    match (e.outcome, &e.error, e.removed) {
+        (Some(history::Outcome::Signed), _, _) => parts.push("signed".into()),
+        (Some(history::Outcome::Failed), Some(r), _) => parts.push(format!("FAILED: {r}")),
+        (Some(history::Outcome::Failed), None, _) => parts.push("FAILED".into()),
+        (None, _, Some(n)) => parts.push(format!("{n} entries deleted")),
+        _ => {}
+    }
+    parts.join("  ")
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -628,6 +740,7 @@ fn describe_signature(r: &SignatureReport) -> String {
 struct WatchHost {
     signer: TokenSigner,
     signed: usize,
+    history: WatchRecorder,
 }
 
 fn file_name(p: &Path) -> String {
@@ -638,12 +751,18 @@ fn file_name(p: &Path) -> String {
 
 impl watch::Host for WatchHost {
     fn sign(&mut self, data: &[u8], req: &SignRequest) -> Result<Vec<u8>, Error> {
-        sign_pdf(data, req, &mut self.signer)
+        let result = sign_pdf(data, req, &mut self.signer);
+        let cert = self.signer.certificate().to_vec();
+        self.history.signing(data, req, &cert, &result);
+        result
     }
     fn check(&mut self) -> Result<(), Error> {
         self.signer.check()
     }
     fn event(&mut self, event: watch::Event) {
+        if let Some(entry) = self.history.event(&event) {
+            record(entry);
+        }
         match event {
             watch::Event::Signed {
                 input,
@@ -924,32 +1043,56 @@ fn run() -> Result<()> {
                 Some(p) => p,
                 None => rpassword::prompt_password("Token PIN: ")?,
             };
-            let mut signer = tokens.signer(chosen, &pin)?;
+            let source = if single {
+                history::Source::Manual
+            } else {
+                history::Source::Batch
+            };
+            let request = |job: &Job| SignRequest {
+                page: job.page,
+                rect: job.rect,
+                pages: job.pages.clone(),
+                reason: reason.clone(),
+                location: location.clone(),
+                image: image.clone(),
+                image_position: match image_position {
+                    ImageSide::Left => ImagePosition::Left,
+                    ImageSide::Above => ImagePosition::Above,
+                },
+                seal: seal.clone(),
+                style: style.clone(),
+                timestamp: timestamp.clone(),
+                ltv,
+                field: field.clone(),
+                password: job.password.clone(),
+                certify,
+                ..Default::default()
+            };
+            let entry = |pdf: &Path, job: &Job, req: &SignRequest| {
+                let mut e = Entry::signing(source, PROGRAM, &absolute(pdf), req);
+                e.input_data(&job.data);
+                e.cert_der(&chosen.der);
+                e
+            };
+            let mut signer = match tokens.signer(chosen, &pin) {
+                Ok(s) => s,
+                Err(e) => {
+                    for (pdf, job) in &jobs {
+                        record(entry(pdf, job, &request(job)).failed(e.to_string()));
+                    }
+                    return Err(e.into());
+                }
+            };
             for (pdf, job) in jobs {
-                let req = SignRequest {
-                    page: job.page,
-                    rect: job.rect,
-                    pages: job.pages,
-                    reason: reason.clone(),
-                    location: location.clone(),
-                    image: image.clone(),
-                    image_position: match image_position {
-                        ImageSide::Left => ImagePosition::Left,
-                        ImageSide::Above => ImagePosition::Above,
-                    },
-                    seal: seal.clone(),
-                    style: style.clone(),
-                    timestamp: timestamp.clone(),
-                    ltv,
-                    field: field.clone(),
-                    password: job.password,
-                    certify,
-                    ..Default::default()
-                };
+                let req = request(&job);
+                let entry = entry(pdf, &job, &req);
                 let out = out.clone().unwrap_or_else(|| signed_path(pdf));
                 let done = match sign_pdf(&job.data, &req, &mut signer) {
                     // Stop the batch: another attempt could lock the token.
-                    Err(e @ (Error::WrongPin { .. } | Error::PinLocked)) => return Err(e.into()),
+                    Err(e @ (Error::WrongPin { .. } | Error::PinLocked)) => {
+                        record(entry.failed(e.to_string()));
+                        return Err(e.into());
+                    }
                     Err(e @ Error::Timestamp(_)) => Err(anyhow::anyhow!(
                         "{e}\nNothing was saved. Run again without --timestamp to sign without one."
                     )),
@@ -959,12 +1102,19 @@ fn run() -> Result<()> {
                     r => r.map_err(anyhow::Error::from),
                 }
                 .and_then(|signed| {
-                    std::fs::write(&out, signed)
-                        .with_context(|| format!("writing {}", out.display()))
+                    std::fs::write(&out, &signed)
+                        .with_context(|| format!("writing {}", out.display()))?;
+                    Ok(signed)
                 });
                 match done {
-                    Ok(()) => println!("Signed: {}", out.display()),
-                    Err(e) => report(pdf, e)?,
+                    Ok(signed) => {
+                        record(entry.signed(&absolute(&out), &signed));
+                        println!("Signed: {}", out.display())
+                    }
+                    Err(e) => {
+                        record(entry.failed(format!("{e:#}")));
+                        report(pdf, e)?
+                    }
                 }
             }
             if failed > 0 {
@@ -1074,7 +1224,11 @@ fn run() -> Result<()> {
                 "Anyone who can write to this folder can now get documents signed with your DSC. \
                  Press Ctrl+C to stop."
             );
-            let mut host = WatchHost { signer, signed: 0 };
+            let mut host = WatchHost {
+                signer,
+                signed: 0,
+                history: WatchRecorder::new(PROGRAM),
+            };
             let end = watch::run(
                 &folders,
                 &preset,
@@ -1084,6 +1238,9 @@ fn run() -> Result<()> {
                 &control,
                 &mut host,
             );
+            if let Some(entry) = host.history.stopped(&folders.input, &end) {
+                record(entry);
+            }
             let signed = host.signed;
             // Closes the session and wipes a PIN kept for keys that ask on every signature.
             drop(host);
@@ -1184,6 +1341,84 @@ fn run() -> Result<()> {
                 std::process::exit(2);
             }
         }
+        Cmd::History {
+            since,
+            until,
+            source,
+            outcome,
+            search,
+            json,
+            csv,
+            report,
+        } => {
+            let store = history_store().context("this computer has no data folder")?;
+            let entries = store
+                .entries()
+                .with_context(|| format!("reading {}", store.dir().display()))?;
+            let integrity = store
+                .check()
+                .with_context(|| format!("reading {}", store.dir().display()))?;
+            let filter = Filter {
+                since: since.map(local_midnight),
+                until: until.and_then(|d| d.succ_opt()).map(local_midnight),
+                source: source.map(|s| match s {
+                    HistorySource::Manual => history::Source::Manual,
+                    HistorySource::Batch => history::Source::Batch,
+                    HistorySource::Watch => history::Source::Watch,
+                    HistorySource::Portal => history::Source::Portal,
+                }),
+                outcome: outcome.map(|o| match o {
+                    HistoryOutcome::Signed => history::Outcome::Signed,
+                    HistoryOutcome::Failed => history::Outcome::Failed,
+                }),
+                text: search,
+            };
+            let shown = filter.apply(&entries);
+            if json {
+                println!(
+                    "{}",
+                    history::to_json(&shown, &integrity, env!("CARGO_PKG_VERSION"))
+                );
+            } else if csv {
+                print!("{}", history::to_csv(&shown));
+            } else {
+                println!("History: {}", store.dir().display());
+                if !store.settings().enabled {
+                    println!("Recording is turned off (desktop app: Settings → Signing history).");
+                }
+                if shown.is_empty() {
+                    println!("No entries.");
+                }
+                for e in &shown {
+                    println!("{}", describe_entry(e));
+                }
+                println!("{}", integrity.summary());
+            }
+            for p in &integrity.problems {
+                eprintln!("Problem: {p}");
+            }
+            if let Some(path) = &report {
+                let scope = if shown.len() == entries.len() {
+                    "All entries".to_string()
+                } else {
+                    format!("{} of {} entries (filtered)", shown.len(), entries.len())
+                };
+                let pdf = history::to_pdf(
+                    &shown,
+                    &scope,
+                    Some(&integrity),
+                    env!("CARGO_PKG_VERSION"),
+                    chrono::Utc::now(),
+                );
+                std::fs::write(path, pdf).with_context(|| format!("writing {}", path.display()))?;
+                if !json && !csv {
+                    println!("Report: {}", path.display());
+                }
+            }
+            if !integrity.ok() {
+                std::process::exit(2);
+            }
+        }
     }
     Ok(())
 }
@@ -1212,6 +1447,24 @@ fn describe_file(f: &FileResult) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The command line writes to the history the desktop app reads: Tauri's
+    /// `app_data_dir` is `dirs::data_dir()` joined with the identifier.
+    #[test]
+    fn history_is_in_the_apps_data_folder() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../apps/desktop/src-tauri/tauri.conf.json"
+        ))
+        .unwrap();
+        assert_eq!(conf["identifier"], history::APP_ID);
+        assert_eq!(
+            history_store().unwrap().dir(),
+            dirs::data_dir()
+                .unwrap()
+                .join("in.trackmytech.trackmysign")
+                .join("history")
+        );
+    }
 
     #[test]
     fn validity_wording() {

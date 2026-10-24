@@ -6,6 +6,23 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Signing history: every signature made on this computer, in the app or on
+  the command line (single, batch, every page, empty field, certification,
+  watch folder, GST portal), is recorded with the time, the original's and the
+  signed copy's paths and SHA-256 hashes, the certificate (name, issuer,
+  serial number, fingerprint), the options used and the outcome; never a PIN,
+  a password or document content. **History** (toolbar or start screen) lists
+  it with search and filters (dates, source, outcome), opens a signed copy,
+  exports the entries shown as a PDF or CSV and checks the log's hash chain
+  (*Check log integrity*). *Settings → Signing history* turns it off, keeps
+  entries forever, 1 year or 90 days, and clears it. Kept as one JSON Lines
+  file per month in the app's data folder. Command line:
+  `trackmysign history [--since DATE] [--until DATE] [--source …] [--outcome …]
+  [--search TEXT] [--json | --csv] [--report out.pdf]`, exit status 2 when the
+  log was changed.
+
 ## [0.5.0] - 2026-10-24
 
 ### Added

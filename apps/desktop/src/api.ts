@@ -851,3 +851,149 @@ export async function onWatchChanged(cb: () => void): Promise<() => void> {
   const { listen } = await import("@tauri-apps/api/event");
   return listen("watch-changed", () => cb());
 }
+
+// ------------------------------------------------------- Signing history
+
+export type HistoryAction = "sign" | "sign_pages" | "sign_field" | "certify" | "portal_sign" | "cleared" | "pruned" | "paused" | "resumed";
+export type HistorySource = "manual" | "batch" | "watch" | "portal";
+export type HistoryOutcome = "signed" | "failed";
+
+export interface HistoryFile {
+  path: string;
+  /** Lower-case hex; missing when the file could not be read. */
+  sha256?: string;
+}
+
+/** One line of the log, as stored (`trackmysign_core::history::Entry`). */
+export interface HistoryEntry {
+  seq: number;
+  /** RFC 3339, UTC. */
+  time: string;
+  action: HistoryAction;
+  source?: HistorySource;
+  /** "desktop 0.6.0" or "cli 0.6.0". */
+  program: string;
+  /** The page that asked (GST portal). */
+  origin?: string;
+  input?: HistoryFile;
+  output?: HistoryFile;
+  portal?: { pan: string; kind: string; data?: string; sha256: string };
+  cert?: { subject: string; organization?: string; issuer: string; serial: string; fingerprint: string };
+  /** Numbered from 1. */
+  pages?: number[];
+  field?: string;
+  reason?: string;
+  location?: string;
+  certify?: CertifyLevel;
+  timestamp?: string;
+  ltv?: boolean;
+  outcome?: HistoryOutcome;
+  error?: string;
+  /** Entries deleted (cleared, pruned). */
+  removed?: number;
+}
+
+export type Retention = "forever" | "year" | "days90";
+
+export interface HistorySettings {
+  enabled: boolean;
+  retention: Retention;
+  /** Where the log is kept. */
+  folder: string;
+}
+
+export interface HistoryIntegrity {
+  entries: number;
+  files: number;
+  problems: { file: string; line: number; seq: number | null; message: string }[];
+}
+
+let mockHistorySettings: HistorySettings = { enabled: true, retention: "forever", folder: "C:\\Users\\you\\AppData\\Roaming\\in.trackmytech.trackmysign\\history" };
+const mockCert = { subject: "DK RAHUL", organization: "Personal", issuer: "Verasys Sub CA 2022", serial: "4f2a91c03b", fingerprint: "9c1e5b7d" };
+let mockHistory: HistoryEntry[] = [
+  {
+    seq: 1,
+    time: "2026-10-20T05:12:40Z",
+    action: "sign",
+    source: "manual",
+    program: "desktop 0.5.0",
+    input: { path: "C:\\Users\\you\\Documents\\invoice-1042.pdf", sha256: "3b7d1f0e5a3c9d8e2f6b1a4c7e9d0f2a3b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e" },
+    output: { path: "C:\\Users\\you\\Documents\\invoice-1042_signed.pdf", sha256: "a1c4e6f8b0d2e4f6a8c0e2f4b6d8f0a2c4e6f8b0d2e4f6a8c0e2f4b6d8f0a2c4" },
+    cert: mockCert,
+    pages: [2],
+    reason: "Approved",
+    location: "Chennai",
+    outcome: "signed",
+  },
+  {
+    seq: 2,
+    time: "2026-10-22T09:40:02Z",
+    action: "sign",
+    source: "watch",
+    program: "desktop 0.5.0",
+    input: { path: "D:\\Inbox\\scan.pdf" },
+    outcome: "failed",
+    error: "Not a valid PDF (it does not end like one; it may be incomplete).",
+  },
+  {
+    seq: 3,
+    time: "2026-10-23T11:02:15Z",
+    action: "portal_sign",
+    source: "portal",
+    program: "desktop 0.5.0",
+    origin: "https://services.gst.gov.in",
+    portal: { pan: "ABCDE1234F", kind: "registration", data: "ABCDE1234F", sha256: "77ac0d1e" },
+    cert: mockCert,
+    outcome: "signed",
+  },
+];
+
+/** Every entry, oldest first. */
+export async function historyEntries(): Promise<HistoryEntry[]> {
+  return inTauri ? invoke("history_entries") : mockHistory;
+}
+
+export async function historySettings(): Promise<HistorySettings> {
+  return inTauri ? invoke("history_settings") : mockHistorySettings;
+}
+
+export async function historySetSettings(enabled: boolean, retention: Retention): Promise<HistorySettings> {
+  if (inTauri) return invoke("history_set_settings", { settings: { enabled, retention } });
+  mockHistorySettings = { ...mockHistorySettings, enabled, retention };
+  return mockHistorySettings;
+}
+
+/** Follows the log's hash chain. */
+export async function historyCheck(): Promise<HistoryIntegrity> {
+  if (inTauri) return invoke("history_check");
+  await new Promise((r) => setTimeout(r, 400));
+  return { entries: mockHistory.length, files: 1, problems: [] };
+}
+
+/** Deletes every entry; one saying so is left. */
+export async function historyClear(): Promise<void> {
+  if (inTauri) return invoke("history_clear");
+  const seq = (mockHistory[mockHistory.length - 1]?.seq ?? 0) + 1;
+  mockHistory = [{ seq, time: new Date().toISOString(), action: "cleared", program: "desktop 0.5.0", removed: mockHistory.length }];
+}
+
+/** Asks where to save the history; null when cancelled. */
+export async function pickHistoryExport(ext: "pdf" | "csv"): Promise<string | null> {
+  const name = `signing-history-${new Date().toISOString().slice(0, 10)}.${ext}`;
+  if (!inTauri) return name;
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const filter = ext === "pdf" ? { name: t("dialog.pdfs"), extensions: ["pdf"] } : { name: t("dialog.csv"), extensions: ["csv"] };
+  return save({ defaultPath: name, filters: [filter] });
+}
+
+/** Writes the entries numbered `seqs` to `output`. */
+export async function historyExport(output: string, ext: "pdf" | "csv", seqs: number[]): Promise<void> {
+  if (inTauri) await invoke("history_export", { output, format: ext, seqs });
+}
+
+/** A signature was recorded, or the history was cleared or its settings changed. */
+export async function onHistoryChanged(cb: () => void): Promise<() => void> {
+  if (!inTauri) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen("history-changed", () => cb());
+}

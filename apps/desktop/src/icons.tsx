@@ -120,6 +120,14 @@ export const RefreshIcon = (p: P) => (
   </Svg>
 );
 
+export const HistoryIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 12a9 9 0 1 0 2.6-6.4L3 8" />
+    <path d="M3 3v5h5" />
+    <path d="M12 7v5l3 2" />
+  </Svg>
+);
+
 export const ExternalIcon = (p: P) => (
   <Svg {...p}>
     <path d="M14 4h6v6M20 4l-9 9" />

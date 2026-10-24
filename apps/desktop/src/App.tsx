@@ -17,6 +17,7 @@ import type {
 } from "./api";
 import { CertDetailsDialog } from "./CertDetails";
 import { FolderDialog, type FolderRun } from "./FolderVerify";
+import { HistoryDialog, HistorySettingsSection } from "./History";
 import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, reminderLabel, remindAbout, today, type ReminderDays } from "./expiry";
 import { currentLang, isLangPref, LANGUAGE_NAMES, t, tx, useLanguage, type LangPref, type MessageKey } from "./i18n";
 import { errorText, translateMessage } from "./i18n/errors";
@@ -42,6 +43,7 @@ import {
   FitWidthIcon,
   FolderIcon,
   GearIcon,
+  HistoryIcon,
   LockIcon,
   MinusIcon,
   PlusIcon,
@@ -316,6 +318,7 @@ export default function App() {
   /** The folder check stays while its dialog is closed to look at a file. */
   const [folderRun, setFolderRun] = useState<FolderRun | null>(null);
   const [folderOpen, setFolderOpen] = useState<{ folder: string | null } | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [theme, setTheme] = useTheme();
   const [sigImage, setSigImage] = useState<PictureInfo | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -890,6 +893,9 @@ export default function App() {
         <button className={`tb-btn ${folderRun?.running ? "on" : ""}`} onClick={() => verifyFolder()} title={t("folder.verifyHint")} aria-label={t("folder.verify")}>
           <ShieldIcon />
         </button>
+        <button className="tb-btn" onClick={() => setHistoryOpen(true)} title={t("history.openHint")} aria-label={t("history.title")}>
+          <HistoryIcon />
+        </button>
         <button className="tb-btn" onClick={() => setSettingsOpen(true)} title={t("common.settings")} aria-label={t("common.settings")}>
           <GearIcon />
         </button>
@@ -933,6 +939,10 @@ export default function App() {
                   <button className="btn ghost empty-folder" onClick={() => verifyFolder()} title={t("folder.verifyHint")}>
                     <ShieldIcon />
                     {t("folder.verify")}
+                  </button>
+                  <button className="btn ghost empty-folder" onClick={() => setHistoryOpen(true)} title={t("history.openHint")}>
+                    <HistoryIcon />
+                    {t("history.title")}
                   </button>
                   {docError && (
                     <p className="inline-error">
@@ -1436,11 +1446,30 @@ export default function App() {
           onWatch={watch.setStatus}
           recentCount={recent.length}
           onClearRecent={clearRecent}
+          onOpenHistory={() => {
+            setSettingsOpen(false);
+            setHistoryOpen(true);
+          }}
           onClose={() => setSettingsOpen(false)}
         />
       )}
 
       {detailsOpen && cert && <CertDetailsDialog cert={cert} onClose={() => setDetailsOpen(false)} />}
+
+      {historyOpen && (
+        <HistoryDialog
+          onOpen={(path) => {
+            setHistoryOpen(false);
+            setBatch(null);
+            openPath(path);
+          }}
+          onSettings={() => {
+            setHistoryOpen(false);
+            setSettingsOpen(true);
+          }}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
 
       {folderOpen && (
         <FolderDialog
@@ -1927,6 +1956,7 @@ function Settings(props: {
   onWatch: (s: api.WatchStatus) => void;
   recentCount: number;
   onClearRecent: () => void;
+  onOpenHistory: () => void;
   onClose: () => void;
 }) {
   const { onClose } = props;
@@ -2112,6 +2142,8 @@ function Settings(props: {
               </button>
             </div>
           </section>
+
+          <HistorySettingsSection onOpenHistory={props.onOpenHistory} />
 
           <section>
             <h3>{t("settings.ltv")}</h3>

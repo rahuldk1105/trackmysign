@@ -1,0 +1,214 @@
+/* Signing history dialog and its Settings section (History.tsx). */
+
+.dialog.history-dialog {
+  width: 900px;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+.history-dialog .dialog-title {
+  padding-right: 12px;
+}
+.history-dialog .dialog-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+.history-off {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.history-off span {
+  flex: 1;
+}
+.history-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.history-filters select {
+  width: auto;
+  margin: 0;
+}
+.history-filters .btn {
+  height: 30px;
+}
+.history-search {
+  flex: 1;
+  min-width: 0;
+}
+label.history-date {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.history-date input {
+  width: 140px;
+}
+.history-count {
+  margin: 10px 0 6px;
+}
+.history-table {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.history-rows {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.history-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 2fr) minmax(0, 1.4fr) minmax(0, 1.2fr) 90px;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  text-align: left;
+}
+.history-rows .history-row:last-child {
+  border-bottom: 0;
+}
+.history-row.head {
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+button.history-row:hover {
+  background: var(--hover);
+}
+button.history-row.on {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.history-row:focus-visible {
+  outline-offset: -2px;
+}
+.history-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-doc {
+  color: var(--text);
+}
+.history-row.note {
+  color: var(--muted);
+}
+.history-outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.history-row.signed .history-outcome {
+  color: var(--ok);
+}
+.history-row.failed .history-outcome {
+  color: var(--bad);
+  font-weight: 500;
+}
+.history-empty {
+  margin: 0;
+  padding: 10px;
+}
+.history-details {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.history-details dl {
+  margin: 0;
+  display: grid;
+  gap: 3px;
+}
+.history-details dl > div {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+  font-size: 12px;
+}
+.history-details dt {
+  color: var(--muted);
+}
+.history-details dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.history-details .hash {
+  font-size: 11px;
+}
+.history-file-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.history-integrity {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+}
+.history-integrity p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-weight: 500;
+}
+.history-integrity.ok p {
+  color: var(--ok);
+}
+.history-integrity.bad {
+  border-color: var(--bad);
+  background: var(--bad-soft);
+}
+.history-integrity.bad p {
+  color: var(--bad);
+}
+.history-integrity ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--text);
+  user-select: text;
+}
+.history-confirm {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--bad);
+  background: var(--bad-soft);
+}
+.history-confirm p {
+  margin: 0 0 8px;
+  color: var(--text);
+}
+.history-confirm .btn.danger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #ffffff;
+}
+.setting-row span.history-folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}

@@ -5401,8 +5401,10 @@ name = "trackmysign"
 version = "0.5.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "ctrlc",
+ "dirs 7.0.0",
  "rpassword",
  "serde_json",
  "tauri-winres",

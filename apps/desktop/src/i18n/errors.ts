@@ -22,6 +22,11 @@ const SENTENCES: Record<string, MessageKey> = {
   "The token is no longer logged in. Enter the PIN again.": "error.tokenLoggedOut",
   "Stop watching to change these settings.": "error.watchLocked",
   "Choose the folder to watch.": "error.watchNoFolder",
+  "This line is not a history entry.": "error.historyBadLine",
+  "The entries before this one were deleted.": "error.historyStartDeleted",
+  "The entry before this one was changed or deleted.": "error.historyChanged",
+  "The record of the newest entry (head.json) is missing.": "error.historyHeadMissing",
+  "Every entry was deleted.": "error.historyAllDeleted",
 };
 
 /** Sentences that end in a detail from elsewhere (a server, the OS), kept as is. */
@@ -29,6 +34,8 @@ const PREFIXES: [string, MessageKey][] = [
   ["Timestamp failed: ", "error.timestamp"],
   ["Could not embed revocation info (LTV): ", "error.ltv"],
   ["Could not load the token driver: ", "error.driverLoad"],
+  ["Entries are missing before this one: ", "error.historyMissing"],
+  ["The newest entries were changed or deleted. Last entry recorded: ", "error.historyNewest"],
 ];
 
 /** `message` in the UI language where the wording is known. */
