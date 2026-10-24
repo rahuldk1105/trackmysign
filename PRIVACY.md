@@ -41,6 +41,14 @@ was deleted right after use, to your user's trusted certificates; *Disable and
 remove* deletes both. A short log of recent portal connections (time, site,
 outcome) is kept in memory while the app runs, never on disk.
 
+**Running in the background (off by default, on with GST portal signing).**
+With *Settings → Background → Keep running in the background* on, closing the
+window leaves the app running in the system tray or menu bar, so the portal
+listener keeps answering; *Quit* there stops it. *Start TrackMySign when I sign
+in* adds a sign-in entry for the app (Windows: the `Run` key of your user
+account; macOS: a LaunchAgent in `~/Library/LaunchAgents`) and nothing else; it
+is removed when you turn either option off. Neither sends anything anywhere.
+
 Clicking a link in the app (for example to this project's website) opens it in
 your browser; the app itself does not load web pages.
 

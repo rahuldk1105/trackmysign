@@ -1,5 +1,6 @@
 //! Tauri backend: thin commands over `signdesk-core`.
 
+mod background;
 mod known;
 mod portal;
 mod verify;
@@ -659,10 +660,7 @@ fn hand_over(app: &AppHandle, files: Vec<String>) {
     } else {
         opened.pending.extend(files);
     }
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.unminimize();
-        let _ = w.set_focus();
-    }
+    background::show(app);
 }
 
 /// Files opened before the window was ready to receive them.
@@ -708,6 +706,7 @@ fn open_website() -> CmdResult<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let cwd = std::env::current_dir().unwrap_or_default();
+    let hidden = background::launched_hidden(std::env::args());
     let opened = Opened {
         ready: false,
         pending: pdf_args(std::env::args().skip(1), &cwd),
@@ -716,19 +715,32 @@ pub fn run() {
     // Must be the first plugin: a second launch hands its files to this one and exits.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        // Launching again shows the window, also when it is in the tray.
+        if !background::launched_hidden(&args) {
+            background::show(app);
+        }
         hand_over(app, pdf_args(args.into_iter().skip(1), Path::new(&cwd)));
     }));
     // In-app updates; the front end decides when to check (settings).
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init());
+        .plugin(tauri_plugin_process::init())
+        // Sign-in entry, named after the product (Run value / LaunchAgent).
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .arg(background::ARG)
+                .build(),
+        );
     builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Mutex::new(opened))
         .manage(portal::PortalState::default())
-        .setup(|app| {
+        .manage(background::BackgroundState::default())
+        .on_window_event(background::on_window_event)
+        .setup(move |app| {
+            background::start(app.handle(), hidden);
             portal::start_if_enabled(app.handle());
             Ok(())
         })
@@ -757,7 +769,10 @@ pub fn run() {
             portal::portal_pending,
             portal::portal_certificates,
             portal::portal_sign,
-            portal::portal_cancel
+            portal::portal_cancel,
+            background::background_status,
+            background::background_set,
+            background::background_set_autostart
         ])
         .build(tauri::generate_context!())
         .expect("error while running TrackMySign")
@@ -765,16 +780,22 @@ pub fn run() {
 }
 
 /// Finder: "Open With", drag onto the Dock icon, double-click when default.
+/// Opening the app again (Finder, Launchpad) shows the window.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 fn on_run_event(app: &AppHandle, event: tauri::RunEvent) {
-    if let tauri::RunEvent::Opened { urls } = event {
-        let files = urls
-            .iter()
-            .filter_map(|u| u.to_file_path().ok())
-            .map(|p| p.to_string_lossy().into_owned())
-            .filter(|p| p.to_lowercase().ends_with(".pdf"))
-            .collect();
-        hand_over(app, files);
+    match event {
+        tauri::RunEvent::Opened { urls } => {
+            let files = urls
+                .iter()
+                .filter_map(|u| u.to_file_path().ok())
+                .map(|p| p.to_string_lossy().into_owned())
+                .filter(|p| p.to_lowercase().ends_with(".pdf"))
+                .collect();
+            hand_over(app, files);
+        }
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Reopen { .. } => background::show(app),
+        _ => {}
     }
 }
 

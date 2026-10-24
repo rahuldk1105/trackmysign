@@ -34,6 +34,9 @@
     DeleteRegValue HKCU "Software\Classes\.pdf\OpenWithProgids" "${TMS_PROGID}"
     DeleteRegKey HKCU "Software\Classes\${TMS_PROGID}"
     DeleteRegKey HKCU "Software\Classes\Applications\${MAINBINARYNAME}.exe"
+    ; "Start TrackMySign when I sign in" (Settings -> Background)
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "${PRODUCTNAME}"
     System::Call "shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)"
   ${EndIf}
 !macroend

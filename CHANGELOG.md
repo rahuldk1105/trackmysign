@@ -6,6 +6,17 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Run in the background: with *Settings → Background → Keep running in the
+  background* (on by default when GST portal signing is on), closing the window
+  keeps TrackMySign in the system tray (Windows) or menu bar (macOS), so the GST
+  portal can sign without the app being opened first. The tray menu shows the
+  portal signing status and has *Open TrackMySign* and *Quit*. *Start
+  TrackMySign when I sign in* starts it there at sign-in, without a window; the
+  Windows uninstaller removes that entry. Launching the app again, or opening a
+  PDF with it, brings the window back.
+
 ## [0.3.0] - 2026-10-24
 
 ### Added

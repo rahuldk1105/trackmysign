@@ -16,6 +16,7 @@ import type {
 } from "./api";
 import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, remindAbout, today, type ReminderDays } from "./expiry";
 import { loadPdf, PdfView, type PageSize, type Placement, type StampImage } from "./PdfView";
+import { BackgroundSettings } from "./Background";
 import { PortalDialog, PortalSettings, PortalStatusItem, usePortal } from "./PortalSigning";
 import { SignaturesPanel } from "./SignaturesPanel";
 import { UpdateBanner } from "./UpdateBanner";
@@ -1757,6 +1758,8 @@ function Settings(props: {
           </section>
 
           <PortalSettings status={props.portal} onStatus={props.onPortal} />
+
+          <BackgroundSettings portalEnabled={props.portal?.enabled} />
 
           <section>
             <h3>Updates</h3>

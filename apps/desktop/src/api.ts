@@ -461,3 +461,31 @@ export async function onPortalClosed(cb: (id: number) => void): Promise<() => vo
   const { listen } = await import("@tauri-apps/api/event");
   return listen<number>("portal-closed", (e) => cb(e.payload));
 }
+
+// ------------------------------------------------------- Background
+
+export interface BackgroundStatus {
+  /** Closing the window keeps the app in the tray (menu bar). */
+  enabled: boolean;
+  /** Starts at sign-in, in the tray. */
+  autostart: boolean;
+}
+
+let mockBackground: BackgroundStatus = { enabled: false, autostart: false };
+
+export async function backgroundStatus(): Promise<BackgroundStatus> {
+  return inTauri ? invoke("background_status") : mockBackground;
+}
+
+/** Turning it off also removes the start at sign-in. */
+export async function backgroundSet(enabled: boolean): Promise<BackgroundStatus> {
+  if (inTauri) return invoke("background_set", { enabled });
+  mockBackground = { enabled, autostart: enabled && mockBackground.autostart };
+  return mockBackground;
+}
+
+export async function backgroundSetAutostart(enabled: boolean): Promise<BackgroundStatus> {
+  if (inTauri) return invoke("background_set_autostart", { enabled });
+  mockBackground = { ...mockBackground, autostart: enabled };
+  return mockBackground;
+}

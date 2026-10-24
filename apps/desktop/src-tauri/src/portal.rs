@@ -199,7 +199,7 @@ async fn start(app: &AppHandle) -> Result<(), String> {
     }
     .await;
     let state = app.state::<PortalState>();
-    match result {
+    let result = match result {
         Ok((running, requests)) => {
             let mut inner = state.lock();
             if let Some(old) = inner.running.replace(running) {
@@ -214,7 +214,9 @@ async fn start(app: &AppHandle) -> Result<(), String> {
             state.lock().error = Some(e.clone());
             Err(e)
         }
-    }
+    };
+    crate::background::sync(app);
+    result
 }
 
 fn stop(state: &PortalState) {
@@ -265,6 +267,7 @@ async fn serve(app: AppHandle, mut requests: Requests) {
 
 /// Brings the window up so the request is not missed behind the browser.
 fn to_front(app: &AppHandle) {
+    crate::background::showing(app);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
@@ -275,6 +278,18 @@ fn to_front(app: &AppHandle) {
         let _ = w.set_always_on_top(false);
         let _ = w.request_user_attention(Some(tauri::UserAttentionType::Critical));
     }
+}
+
+/// Whether portal signing is turned on, and the port while it is running.
+pub fn summary(app: &AppHandle) -> (bool, Option<u16>) {
+    let enabled = dir(app).is_ok_and(|d| load_settings(&d).enabled);
+    let port = app
+        .state::<PortalState>()
+        .lock()
+        .running
+        .as_ref()
+        .map(|r| r.port);
+    (enabled, port)
 }
 
 /// Starts the listener at launch when portal signing is turned on.
@@ -333,6 +348,7 @@ pub async fn portal_disable(app: AppHandle) -> CmdResult<StatusDto> {
     let mut settings = load_settings(&dir);
     settings.enabled = false;
     save_settings(&dir, &settings)?;
+    crate::background::sync(&app);
     let d = dir.clone();
     tauri::async_runtime::spawn_blocking(move || -> CmdResult<()> {
         let store = Store::new(&d);
