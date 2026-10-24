@@ -6,7 +6,7 @@
     <title>TrackMySign</title>
     <meta
       name="description"
-      content="Free, open-source desktop app for Windows and macOS that signs PDFs with your USB DSC token. Adobe-valid signatures; the original file and its existing signatures stay intact."
+      content="Free, open-source desktop app for Windows, macOS and Linux that signs PDFs with your USB DSC token. Adobe-valid signatures; the original file and its existing signatures stay intact."
     />
     <link rel="canonical" href="https://sign.rahuldk.in/" />
     <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
@@ -14,7 +14,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://sign.rahuldk.in/" />
     <meta property="og:title" content="TrackMySign — sign PDFs with your DSC token" />
-    <meta property="og:description" content="Free and open source. Windows and macOS. Adobe-valid signatures, original file untouched." />
+    <meta property="og:description" content="Free and open source. Windows, macOS and Linux. Adobe-valid signatures, original file untouched." />
     <meta property="og:image" content="https://sign.rahuldk.in/assets/app-light.webp" />
     <meta name="twitter:card" content="summary_large_image" />
 
@@ -80,7 +80,7 @@
             <p class="kicker mono"><span class="dot"></span><span data-version>v0.3.0</span> · Free · Open source · MIT</p>
             <h1>Sign PDFs with your DSC&nbsp;token.</h1>
             <p class="lede">
-              A small desktop app for Windows and macOS. Plug in your Class&nbsp;3 token, place the signature, enter
+              A small desktop app for Windows, macOS and Linux. Plug in your Class&nbsp;3 token, place the signature, enter
               your PIN. Adobe Reader shows it as valid, and signatures already on the document stay valid.
             </p>
             <div class="cta">
@@ -91,7 +91,7 @@
               <a class="btn btn-quiet btn-lg" href="https://github.com/rahuldk1105/trackmysign" target="_blank" rel="noopener">View source on GitHub</a>
             </div>
             <dl class="hero-facts">
-              <div><dt>Platforms</dt><dd>Windows 10/11 · macOS 11+</dd></div>
+              <div><dt>Platforms</dt><dd>Windows 10/11 · macOS 11+ · Linux</dd></div>
               <div><dt>Network</dt><dd>Not needed — works offline</dd></div>
               <div><dt>Account</dt><dd>Not needed</dd></div>
             </dl>
@@ -395,7 +395,7 @@
             <li>
               <p class="feat-tag mono">Desktop</p>
               <h3>Right-click to sign, one-click updates</h3>
-              <p>Sign from Explorer, or Open With on macOS, without changing your default PDF viewer. New versions install themselves when you say so.</p>
+              <p>Sign from Explorer, or Open With on macOS and Linux, without changing your default PDF viewer. New versions install themselves when you say so.</p>
             </li>
           </ul>
         </div>
@@ -420,8 +420,8 @@
             <div><dt>Token access</dt><dd>PKCS#11 through the token's own driver; the private key never leaves the token</dd></div>
             <div><dt>Verified in</dt><dd>Adobe Acrobat Reader — “Signature is valid”, trust via AATL</dd></div>
             <div><dt>Tokens</dt><dd>Tested with Hypersecu HyperPKI HYP2003; drivers for ePass2003, ProxKey, mToken, Trust Key, Watchdata, SafeNet, Gemalto, Bit4id and OpenSC detected automatically</dd></div>
-            <div><dt>Platforms</dt><dd>Windows 10/11 x64 · macOS 11+ Apple Silicon and Intel</dd></div>
-            <div><dt>Download</dt><dd><span class="mono">3.0 MB</span> Windows · <span class="mono">7.5 MB</span> macOS</dd></div>
+            <div><dt>Platforms</dt><dd>Windows 10/11 x64 · macOS 11+ Apple Silicon and Intel · Linux x86_64 (glibc 2.35+, e.g. Ubuntu 22.04+)</dd></div>
+            <div><dt>Download</dt><dd><span class="mono">3.0 MB</span> Windows · <span class="mono">7.5 MB</span> macOS · <span class="mono">4.2 MB</span> Linux .deb</dd></div>
             <div><dt>Privacy</dt><dd>Offline by default, no account, no telemetry; the PIN is never stored. Online only for update checks and, if enabled, timestamps and revocation data</dd></div>
             <div><dt>Licence</dt><dd>MIT</dd></div>
             <div><dt>Built with</dt><dd>Rust · Tauri 2 · React · PDF.js (legacy build)</dd></div>
@@ -441,6 +441,7 @@
             <div class="dl-tabs" role="tablist" aria-label="Platform">
               <button role="tab" id="tab-win" aria-controls="pane-win" aria-selected="true" data-tab="win">Windows</button>
               <button role="tab" id="tab-mac" aria-controls="pane-mac" aria-selected="false" data-tab="mac">macOS</button>
+              <button role="tab" id="tab-linux" aria-controls="pane-linux" aria-selected="false" data-tab="linux">Linux</button>
               <button role="tab" id="tab-cli" aria-controls="pane-cli" aria-selected="false" data-tab="cli">Command line</button>
             </div>
 
@@ -472,6 +473,27 @@
               <ol class="dl-steps">
                 <li>Install your token's macOS driver from its vendor.</li>
                 <li>Open the .dmg and drag TrackMySign into Applications.</li>
+              </ol>
+            </div>
+
+            <div class="dl-pane" role="tabpanel" id="pane-linux" aria-labelledby="tab-linux" data-pane="linux" hidden>
+              <div class="dl-file">
+                <a class="btn btn-light btn-lg" href="https://github.com/rahuldk1105/trackmysign/releases/latest/download/TrackMySign-linux-x86_64.AppImage">
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 17h12" /></svg>
+                  Download for Linux
+                </a>
+                <p class="mono dl-meta">TrackMySign-linux-x86_64.AppImage · any distribution, x86_64</p>
+                <p class="mono dl-sum" data-sum="TrackMySign-linux-x86_64.AppImage"></p>
+                <a class="btn btn-light btn-lg" href="https://github.com/rahuldk1105/trackmysign/releases/latest/download/TrackMySign-linux-amd64.deb">
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 17h12" /></svg>
+                  Download .deb
+                </a>
+                <p class="mono dl-meta">TrackMySign-linux-amd64.deb · 4.2 MB · Ubuntu 22.04+, Debian 12+</p>
+                <p class="mono dl-sum" data-sum="TrackMySign-linux-amd64.deb"></p>
+              </div>
+              <ol class="dl-steps">
+                <li>Install your token's Linux driver from its vendor (or OpenSC) and <span class="mono">pcscd</span>.</li>
+                <li>AppImage: make it executable (<span class="mono">chmod +x</span>) and run it. Debian or Ubuntu: <span class="mono">sudo apt install ./TrackMySign-linux-amd64.deb</span>.</li>
               </ol>
             </div>
 

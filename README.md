@@ -9,7 +9,7 @@ Sign PDFs with your USB DSC token (tested design: Hypersecu HyperPKI HYP2003) �
 - Your PIN is never stored. Tokens whose key asks for the PIN on every
   signature work too, batches included, with the PIN entered once.
 
-Status: desktop app for Windows (installer) and macOS (dmg), plus a command-line tool.
+Status: desktop app for Windows (installer), macOS (dmg) and Linux (AppImage, .deb), plus a command-line tool.
 
 ## Install the app
 
@@ -17,13 +17,17 @@ Download from [sign.rahuldk.in](https://sign.rahuldk.in) or the [latest release]
 
 - Windows: `TrackMySign-Setup-windows-x64.exe` — run it (no admin needed). If SmartScreen warns, choose *More info → Run anyway*.
 - macOS: `TrackMySign-macos-universal.dmg` (Apple Silicon and Intel).
+- Linux (x86_64, glibc 2.35+, e.g. Ubuntu 22.04 or Debian 12 and newer):
+  `TrackMySign-linux-x86_64.AppImage` — `chmod +x` it and run it; or on Debian and Ubuntu
+  `sudo apt install ./TrackMySign-linux-amd64.deb`. Install your token's Linux driver (or
+  OpenSC) and `pcscd`.
 
 Open a PDF (or drag it into the window), click where the signature should go, press **Sign document**, enter your PIN. The signed copy is saved next to the original as `name_signed.pdf`.
 
 Forms from banks and government offices often come with empty signature fields. These are
 highlighted on the page and listed in the side panel: click one and the signature fills that field.
 
-You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows and macOS). Your default PDF viewer stays as it is.
+You can also right-click a PDF and choose **Sign with TrackMySign** (Windows), or use **Open With → TrackMySign** (Windows, macOS and Linux). Your default PDF viewer stays as it is.
 
 ### Updates
 
@@ -31,7 +35,8 @@ On launch the app asks GitHub whether a newer release is out (it fetches
 `latest.json` from the latest release; nothing about you or your documents is sent).
 If there is one, a bar offers **Install and restart**: the update is downloaded,
 checked against the signing key built into the app, installed and the app
-reopens. Turn the check off, or check by hand, under *Settings → Updates*.
+reopens (on Linux the AppImage replaces itself; a .deb install asks for your
+password to run `dpkg`). Turn the check off, or check by hand, under *Settings → Updates*.
 
 Releases: CI signs the update files when the `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets are set (public key in
@@ -44,29 +49,36 @@ Install the driver software that came with your token, then plug it in. TrackMyS
 looks for these PKCS#11 drivers, loads every one that is installed and lists the
 certificates from all of them (the settings panel shows which drivers were found):
 
-| Token | Windows (`System32` unless noted) | macOS |
-|---|---|---|
-| Hypersecu HyperPKI | `eps2003csp11v2.dll` | `/usr/local/lib/libcastle_v2*.dylib` |
-| Feitian ePass2003 | `eps2003csp11.dll` | `/usr/local/lib/libcastle.*.dylib` |
-| Watchdata ProxKey | `SignatureP11.dll` | `/usr/local/lib/wdProxKeyUsbKeyTool/libwdpkcs_Proxkey.dylib` |
-| Trust Key | `TRUSTKEYP11_ND_v34.dll` (any version) | — |
-| Longmai mToken CryptoID | `CryptoIDA_pkcs11.dll` | `libcryptoid*_pkcs11.dylib` (CryptoID tools) |
-| Watchdata | `wdpkcs.dll` | — |
-| SafeNet / Thales eToken | `eTPKCS11.dll` | `/usr/local/lib/libeTPkcs11.dylib` |
-| Gemalto IDPrime | `IDPrimePKCS11.dll`, `Program Files\Gemalto\IDGo 800 PKCS#11\IDPrimePKCS1164.dll` | `/usr/local/lib/libIDPrimePKCS11.dylib` |
-| Bit4id | `bit4xpki.dll`, `bit4ipki.dll` | `/Library/bit4id/pkcs11/`, PKIManager app |
-| OpenSC (last resort) | `Program Files\OpenSC Project\OpenSC\pkcs11\opensc-pkcs11.dll` | `/Library/OpenSC/lib/opensc-pkcs11.so` |
+| Token | Windows (`System32` unless noted) | macOS | Linux (`/usr/lib` and the like unless noted) |
+|---|---|---|---|
+| Hypersecu HyperPKI | `eps2003csp11v2.dll` | `/usr/local/lib/libcastle_v2*.dylib` | `libcastle_v2.so.1.0.0` |
+| Feitian ePass2003 | `eps2003csp11.dll` | `/usr/local/lib/libcastle.*.dylib` | `libcastle.so.1.0.0`, `libeps2003csp11.so` |
+| Watchdata ProxKey | `SignatureP11.dll` | `/usr/local/lib/wdProxKeyUsbKeyTool/libwdpkcs_Proxkey.dylib` | `libwdpkcs_*.so`, also in `/usr/lib/WatchData/ProxKey/lib` |
+| Trust Key | `TRUSTKEYP11_ND_v34.dll` (any version) | — | — |
+| Longmai mToken CryptoID | `CryptoIDA_pkcs11.dll` | `libcryptoid*_pkcs11.dylib` (CryptoID tools) | `libcryptoid*_pkcs11.so`, also in `/opt/CryptoIDE/lib` |
+| Watchdata | `wdpkcs.dll` | — | — |
+| SafeNet / Thales eToken | `eTPKCS11.dll` | `/usr/local/lib/libeTPkcs11.dylib` | `libeTPkcs11.so` |
+| Gemalto IDPrime | `IDPrimePKCS11.dll`, `Program Files\Gemalto\IDGo 800 PKCS#11\IDPrimePKCS1164.dll` | `/usr/local/lib/libIDPrimePKCS11.dylib` | `libIDPrimePKCS11.so` |
+| Bit4id | `bit4xpki.dll`, `bit4ipki.dll` | `/Library/bit4id/pkcs11/`, PKIManager app | `/usr/lib/bit4id/libbit4xpki.so`, `libbit4ipki.so` |
+| OpenSC (last resort) | `Program Files\OpenSC Project\OpenSC\pkcs11\opensc-pkcs11.dll` | `/Library/OpenSC/lib/opensc-pkcs11.so` | `opensc-pkcs11.so` |
+| p11-kit proxy (only if nothing else is found) | — | — | `p11-kit-proxy.so` |
+
+On Linux the folders searched are `/usr/lib`, `/usr/lib/x86_64-linux-gnu`, `/usr/lib64`
+and `/usr/local/lib`; most tokens also need `pcscd` running. Some Linux names in the table
+are taken from the vendors' Windows and macOS drivers and are not yet confirmed (see
+`token.rs`); if yours is not found, set `TRACKMYSIGN_PKCS11_MODULE` and please open an issue.
 
 Signing always goes through the driver the chosen certificate was read from. A driver
 that fails to load is skipped. If your token's driver lives elsewhere, point
 `TRACKMYSIGN_PKCS11_MODULE` at it (several paths separated by `;` on Windows, `:` on
-macOS), or pass `--module` to the command-line tool.
+macOS and Linux), or pass `--module` to the command-line tool.
 
 ## Command-line tool (Windows)
 
 1. Download `trackmysign-windows-x64.exe` from the
    [latest release](../../releases/latest), rename it to `trackmysign.exe`
-   and put it in e.g. `Downloads`.
+   and put it in e.g. `Downloads`. (macOS and Linux: `trackmysign-macos-arm64` and
+   `trackmysign-linux-x64`; `chmod +x` and run them as `./trackmysign-linux-x64 certs`.)
 2. Plug in the token, open PowerShell in that folder:
 
 ```powershell
@@ -144,8 +156,11 @@ token:
    vouch for anything else (it is also limited to `127.0.0.1` and `localhost`
    by name constraints). Its certificate is added to your user's trusted
    certificates so the browser accepts the connection: Windows shows a security
-   warning to confirm, macOS asks for your password. The status bar then shows
-   *Portal signing: on (port 1585)*.
+   warning to confirm, macOS asks for your password. Linux has no shared list:
+   the certificate goes into Chrome/Chromium's (`~/.pki/nssdb`) and each
+   Firefox profile's, which needs `certutil` (Debian/Ubuntu: `sudo apt install
+   libnss3-tools`, Fedora: `nss-tools`, Arch: `nss`); restart Firefox
+   afterwards. The status bar then shows *Portal signing: on (port 1585)*.
 2. On the portal, choose to sign with DSC as usual. TrackMySign comes to the
    front and shows which site asks, the PAN and exactly what will be signed
    (your PAN at DSC registration, a hash of the return when filing). It picks
@@ -170,10 +185,13 @@ Browsers:
 - **Firefox** uses its own certificate list. Recent versions also trust
   certificates you added to Windows or macOS; if Firefox still refuses the
   connection, set `security.enterprise_roots.enabled` to `true` in
-  `about:config`.
+  `about:config`. On Linux the certificate is added to the Firefox profiles
+  directly (snap and Flatpak ones included); a profile made later does not
+  have it, so turn portal signing off and on again.
 
 *Disable and remove* stops the listener, removes the certificate from your
-trusted certificates (Windows and macOS ask again) and deletes its files.
+trusted certificates (Windows and macOS ask again; on Linux from the same
+Chrome and Firefox lists) and deletes its files.
 
 MCA21 V3 and the Income Tax portal are **not** supported: they use eMudhra's
 emBridge, whose requests are encrypted with keys licensed to eMudhra. Portal

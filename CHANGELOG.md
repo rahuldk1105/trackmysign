@@ -6,6 +6,17 @@ All notable changes to TrackMySign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Linux (x86_64): the desktop app as an AppImage and a .deb, and the
+  command-line tool as `trackmysign-linux-x64`. Token drivers are found in the
+  usual Linux folders (HyperPKI, ePass2003, ProxKey, mToken CryptoID, SafeNet,
+  IDPrime, Bit4id, OpenSC, and the p11-kit proxy when nothing else is
+  installed). PDFs open with *Open With → TrackMySign* without changing the
+  default viewer, the in-app updater updates the AppImage and the .deb, and
+  GST portal signing adds its certificate to Chrome's and Firefox's
+  certificate lists (needs `certutil` from the NSS tools).
+
 ## [0.3.0] - 2026-10-24
 
 ### Added

@@ -57,6 +57,12 @@ jobs:
             os: macos-latest
             bin: trackmysign
             artifact: trackmysign-macos-arm64
+          # The oldest supported runner: a binary linked against its glibc
+          # also runs on newer distributions, not the other way round.
+          - name: Linux
+            os: ubuntu-22.04
+            bin: trackmysign
+            artifact: trackmysign-linux-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -101,16 +107,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # assets and updater: bundle file (a glob) = release asset name.
         include:
           - name: Windows
             os: windows-latest
             rust-targets: ""
             build-args: --bundles nsis
-            file: target/release/bundle/nsis/*.exe
-            assets: TrackMySign-Setup-windows-x64.exe
+            assets: target/release/bundle/nsis/*.exe=TrackMySign-Setup-windows-x64.exe
             # The updater runs the NSIS installer itself (passive mode).
-            updater-file: target/release/bundle/nsis/*.exe
-            updater-asset: TrackMySign-Setup-windows-x64.exe
+            updater: target/release/bundle/nsis/*.exe=TrackMySign-Setup-windows-x64.exe
           - name: macOS
             os: macos-latest
             # One dmg for Apple Silicon and Intel Macs. Intel also matters on
@@ -119,11 +124,25 @@ jobs:
             rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
             # "app" too: the updater archive (.app.tar.gz) is made from it.
             build-args: --bundles app,dmg --target universal-apple-darwin
-            file: target/universal-apple-darwin/release/bundle/dmg/*.dmg
             # The arm64 name is kept so existing download links keep working.
-            assets: TrackMySign-macos-universal.dmg TrackMySign-macos-arm64.dmg
-            updater-file: target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz
-            updater-asset: TrackMySign-macos-universal.app.tar.gz
+            assets: >-
+              target/universal-apple-darwin/release/bundle/dmg/*.dmg=TrackMySign-macos-universal.dmg
+              target/universal-apple-darwin/release/bundle/dmg/*.dmg=TrackMySign-macos-arm64.dmg
+            updater: target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz=TrackMySign-macos-universal.app.tar.gz
+          - name: Linux
+            # Built against the oldest glibc of the supported runners, so the
+            # AppImage and .deb run on newer distributions too.
+            os: ubuntu-22.04
+            rust-targets: ""
+            build-args: --bundles appimage,deb
+            assets: >-
+              target/release/bundle/appimage/*.AppImage=TrackMySign-linux-x86_64.AppImage
+              target/release/bundle/deb/*.deb=TrackMySign-linux-amd64.deb
+            # A signed plain AppImage (no .tar.gz, which needs the updater's
+            # zip feature); a .deb install updates through dpkg.
+            updater: >-
+              target/release/bundle/appimage/*.AppImage=TrackMySign-linux-x86_64.AppImage
+              target/release/bundle/deb/*.deb=TrackMySign-linux-amd64.deb
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -141,6 +160,14 @@ jobs:
           dir="${RUNNER_TEMP//\\//}/tauri-config"
           mkdir -p "$dir"
           echo "TAURI_CONFIG_DIR=$dir" >> "$GITHUB_ENV"
+
+      # Tauri v2 prerequisites for Linux; patchelf and file for the AppImage.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev build-essential file patchelf
 
       # ---- macOS: Developer ID signing + notarization, only once the secrets exist.
       # Tauri reads these exact variable names. APPLE_PASSWORD is an
@@ -304,19 +331,23 @@ jobs:
               gh release create "$REL" --prerelease --target "$GITHUB_SHA" \
                 --title "TrackMySign test build" --notes "Latest build from ${GITHUB_REF_NAME}. For testing only." || true
           fi
-          for asset in ${{ matrix.assets }}; do
-            cp ${{ matrix.file }} "$asset"
+          for pair in ${{ matrix.assets }}; do
+            asset="${pair#*=}"
+            cp ${pair%%=*} "$asset"
             gh release upload "$REL" "$asset" --clobber
           done
           if [ "$UPDATER_SIGNED" = "1" ]; then
-            u="${{ matrix.updater-asset }}"
-            files=("$u.sig")
-            if [ ! -e "$u" ]; then
-              cp ${{ matrix.updater-file }} "$u"
-              files+=("$u")
-            fi
-            cp ${{ matrix.updater-file }}.sig "$u.sig"
-            gh release upload "$REL" "${files[@]}" --clobber
+            for pair in ${{ matrix.updater }}; do
+              file="${pair%%=*}"
+              u="${pair#*=}"
+              files=("$u.sig")
+              if [ ! -e "$u" ]; then
+                cp $file "$u"
+                files+=("$u")
+              fi
+              cp $file.sig "$u.sig"
+              gh release upload "$REL" "${files[@]}" --clobber
+            done
           fi
 
   # latest.json, which installed apps check for updates. Only for real releases:
@@ -342,12 +373,19 @@ jobs:
           mkdir -p "$dir"
           win=TrackMySign-Setup-windows-x64.exe.sig
           mac=TrackMySign-macos-universal.app.tar.gz.sig
-          gh release download "$REL" --dir "$dir" --clobber --pattern "$win" --pattern "$mac" || true
-          if [ ! -e "$dir/$win" ] || [ ! -e "$dir/$mac" ]; then
-            echo "::warning::Release $REL has no updater signatures (TAURI_SIGNING_PRIVATE_KEY not set?); latest.json not published"
-            exit 0
-          fi
+          appimage=TrackMySign-linux-x86_64.AppImage.sig
+          deb=TrackMySign-linux-amd64.deb.sig
+          gh release download "$REL" --dir "$dir" --clobber \
+            --pattern "$win" --pattern "$mac" --pattern "$appimage" --pattern "$deb" || true
+          for sig in "$win" "$mac" "$appimage" "$deb"; do
+            if [ ! -e "$dir/$sig" ]; then
+              echo "::warning::Release $REL has no $sig (TAURI_SIGNING_PRIVATE_KEY not set?); latest.json not published"
+              exit 0
+            fi
+          done
           gh release view "$REL" --json body --jq .body > "$dir/notes.md"
           node apps/desktop/scripts/updater-manifest.mjs --tag "$REL" --repo "$GITHUB_REPOSITORY" \
-            --windows-sig "$dir/$win" --macos-sig "$dir/$mac" --notes-file "$dir/notes.md" --out latest.json
+            --windows-sig "$dir/$win" --macos-sig "$dir/$mac" \
+            --appimage-sig "$dir/$appimage" --deb-sig "$dir/$deb" \
+            --notes-file "$dir/notes.md" --out latest.json
           gh release upload "$REL" latest.json --clobber
