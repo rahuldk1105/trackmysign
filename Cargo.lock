@@ -3253,7 +3253,7 @@ dependencies = [
 
 [[package]]
 name = "portal-bridge"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "der",
@@ -4108,7 +4108,7 @@ dependencies = [
 
 [[package]]
 name = "signdesk-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -5185,7 +5185,7 @@ dependencies = [
 
 [[package]]
 name = "trackmysign"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5196,7 +5196,7 @@ dependencies = [
 
 [[package]]
 name = "trackmysign-desktop"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "portal-bridge",
