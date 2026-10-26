@@ -1,5 +1,6 @@
 //! TrackMySign core: sign PDFs with a DSC token without disturbing the original.
 
+pub mod autoplace;
 pub mod certdetails;
 pub mod certinfo;
 pub mod cms;
@@ -25,6 +26,7 @@ use chrono::{DateTime, FixedOffset, Local};
 use sha2::{Digest, Sha256};
 
 pub use image::{ImagePosition, StampImage};
+pub use pdf::addfields::{FieldLock, NewField};
 pub use pdf::docmdp::DocMdp;
 pub use pdf::form::{FieldKind, FillValue, Filled, Form, FormField};
 pub use pdf::reader::PdfError;
@@ -158,6 +160,25 @@ pub fn check_permitted_with_password(
     Ok(())
 }
 
+/// Adds empty signature fields for others to sign later, as an
+/// incremental update: signatures already in `input` stay valid. Refused
+/// on a document certified with no changes allowed.
+pub fn add_signature_fields(
+    input: &[u8],
+    password: Option<&str>,
+    fields: &[NewField],
+) -> Result<Vec<u8>, Error> {
+    let doc = pdf::reader::Document::open(input, password)?;
+    if pdf::docmdp::of_document(&doc)? == Some(DocMdp::NoChanges) {
+        return Err(Error::NotPermitted(
+            "The document is certified with no changes allowed. \
+             New signature fields would invalidate the certification."
+                .into(),
+        ));
+    }
+    Ok(pdf::addfields::add(input, password, fields)?)
+}
+
 /// Signs `input` and returns the complete new file.
 pub fn sign_pdf(
     input: &[u8],
@@ -263,6 +284,21 @@ pub struct EmptyField {
     pub page: Option<usize>,
     /// As displayed on `page`; `None` for an invisible field.
     pub rect: Option<DisplayRect>,
+    /// The field's tooltip (`/TU`), often who is to sign it.
+    pub tooltip: Option<String>,
+    /// Place in the intended signing order, when the field has one.
+    pub order: Option<u32>,
+}
+
+/// A signature field, signed or not, as `trackmysign fields list` shows it.
+#[derive(Debug, Clone)]
+pub struct SignatureField {
+    pub field: EmptyField,
+    pub signed: bool,
+    /// What signing it locks.
+    pub lock: Option<FieldLock>,
+    /// It has seed values (`/SV`) for the signature.
+    pub seed_values: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -302,22 +338,7 @@ pub fn inspect_with_password(input: &[u8], password: Option<&str>) -> Result<Pdf
     let empty_fields = fields
         .iter()
         .filter(|f| !f.signed)
-        .map(|f| {
-            let widget = f
-                .widgets
-                .iter()
-                .find(|w| w.visible() && w.page.is_some())
-                .or_else(|| f.widgets.iter().find(|w| w.page.is_some()));
-            let page = widget.and_then(|w| w.page);
-            EmptyField {
-                name: f.name.clone(),
-                page,
-                rect: widget.filter(|w| w.visible()).and_then(|w| {
-                    let p = &page_info[w.page?];
-                    Some(pdf::fields::user_to_display(p, w.rect))
-                }),
-            }
-        })
+        .map(|f| field_place(&doc, &page_info, f))
         .collect();
     Ok(PdfInfo {
         pages,
@@ -327,6 +348,65 @@ pub fn inspect_with_password(input: &[u8], password: Option<&str>) -> Result<Pdf
         certified: pdf::docmdp::of_document(&doc)?,
         empty_fields,
     })
+}
+
+/// Where a field shows, its tooltip and its place in the signing order.
+fn field_place(
+    doc: &pdf::reader::Document,
+    page_info: &[pdf::reader::PageInfo],
+    f: &pdf::fields::SigField,
+) -> EmptyField {
+    let widget = f
+        .widgets
+        .iter()
+        .find(|w| w.visible() && w.page.is_some())
+        .or_else(|| f.widgets.iter().find(|w| w.page.is_some()));
+    let page = widget.and_then(|w| w.page);
+    EmptyField {
+        name: f.name.clone(),
+        page,
+        rect: widget.filter(|w| w.visible()).and_then(|w| {
+            let p = &page_info[w.page?];
+            Some(pdf::fields::user_to_display(p, w.rect))
+        }),
+        tooltip: match f.dict.get("TU").and_then(|t| doc.resolve(t).ok()) {
+            Some(pdf::object::Obj::Str(t)) => Some(pdf::fields::text(&t)),
+            _ => None,
+        },
+        order: f
+            .dict
+            .get(pdf::addfields::ORDER_KEY)
+            .and_then(pdf::object::Obj::as_i64)
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|n| *n > 0),
+    }
+}
+
+/// Every signature field of `input`, signed or not, in document order.
+pub fn signature_fields(
+    input: &[u8],
+    password: Option<&str>,
+) -> Result<Vec<SignatureField>, Error> {
+    let doc = pdf::reader::Document::open(input, password)?;
+    let page_info = doc.pages()?;
+    Ok(pdf::fields::signature_fields(&doc, &page_info)?
+        .iter()
+        .map(|f| SignatureField {
+            field: field_place(&doc, &page_info, f),
+            signed: f.signed,
+            lock: FieldLock::of_field(&doc, &f.dict),
+            seed_values: f.dict.get("SV").is_some(),
+        })
+        .collect())
+}
+
+/// The empty field to sign next, by the signing order the fields were
+/// given: the one with the lowest place; `None` when no field has one.
+pub fn next_to_sign(fields: &[EmptyField]) -> Option<&EmptyField> {
+    fields
+        .iter()
+        .filter(|f| f.order.is_some())
+        .min_by_key(|f| f.order)
 }
 
 /// Parses a page selection such as `all` or `1-3,5` (numbered from 1) into

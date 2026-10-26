@@ -10,6 +10,7 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Context, Result, bail};
 use chrono::{Local, NaiveDate, TimeZone};
 use clap::{Parser, Subcommand, ValueEnum};
+use trackmysign_core::autoplace::{self, Holder};
 use trackmysign_core::certdetails::{
     CertificateDetails, complete_chain, export_file_name, to_p7b, to_pem,
 };
@@ -25,9 +26,10 @@ use trackmysign_core::token::{
 };
 use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
 use trackmysign_core::{
-    DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, FillValue, ImagePosition, PdfError, PdfInfo,
-    SignRequest, Signer, StampImage, StampStyle, check_permitted_with_password, fill_form,
-    inspect_with_password, parse_pages, read_form, sign_pdf, signed_path, watch,
+    DEFAULT_TSA_URL, DisplayRect, DocMdp, EmptyField, Error, FieldLock, FillValue, ImagePosition,
+    NewField, PdfError, PdfInfo, SignRequest, Signer, StampImage, StampStyle, add_signature_fields,
+    check_permitted_with_password, fill_form, inspect_with_password, next_to_sign, parse_pages,
+    read_form, sign_pdf, signature_fields, signed_path, watch,
 };
 use zeroize::Zeroizing;
 
@@ -76,7 +78,14 @@ enum Cmd {
         chain: bool,
     },
     /// Show page count, page sizes, existing signatures and empty signature fields.
-    Info { pdf: PathBuf },
+    Info {
+        pdf: PathBuf,
+        /// Also list the phrases `--position auto` places the box by
+        /// ("Authorised Signatory", "Director", …) with their boxes, in
+        /// points from the top-left of the page.
+        #[arg(long)]
+        anchors: bool,
+    },
     /// List or fill in a PDF's form fields (text boxes, check boxes, radio
     /// buttons, drop-downs, lists).
     Form {
@@ -98,7 +107,10 @@ enum Cmd {
         /// of these) and repeated at the same distance from the nearest corner.
         #[arg(long)]
         pages: Option<String>,
-        /// Where on the page the box goes.
+        /// Where on the page the box goes. `auto` finds where each PDF asks
+        /// for a signature ("Authorised Signatory", "For <organisation>",
+        /// your name, …; see `trackmysign info --anchors`), on --page when
+        /// given, and uses the bottom right where it finds nothing.
         #[arg(long, value_enum, default_value_t = Corner::BottomRight)]
         position: Corner,
         /// Exact box in points from the top-left of the page: x,y,width,height.
@@ -227,6 +239,10 @@ enum Cmd {
         seal: Option<PathBuf>,
         #[arg(long)]
         invisible: bool,
+        /// Put the box where each PDF asks for a signature, as `sign
+        /// --position auto` does; the preset's position where nothing is found.
+        #[arg(long)]
+        auto_place: bool,
         /// Leave originals in FOLDER instead of moving them to FOLDER/done.
         #[arg(long)]
         keep_originals: bool,
@@ -251,6 +267,12 @@ enum Cmd {
     Pages {
         #[command(subcommand)]
         op: PagesCmd,
+    },
+    /// Add empty signature fields for others (co-directors, the auditor, the
+    /// company secretary) to sign later, or list the fields of a PDF.
+    Fields {
+        #[command(subcommand)]
+        op: FieldsCmd,
     },
     /// Check the signatures in a PDF. Exits with status 2 if any signature is
     /// invalid or the content was changed after signing.
@@ -340,7 +362,7 @@ impl Cmd {
         let opt = |o: &Option<PathBuf>| o.iter().cloned().collect::<Vec<_>>();
         Some(match self {
             Cmd::Certs { out, .. } => ("certificates", opt(out), false),
-            Cmd::Info { pdf } => ("info", vec![pdf.clone()], false),
+            Cmd::Info { pdf, .. } => ("info", vec![pdf.clone()], false),
             Cmd::Form { cmd } => ("form", cmd.files(), false),
             Cmd::Sign {
                 pdfs,
@@ -402,6 +424,12 @@ impl Cmd {
                 };
                 ("pages", [pdfs, opt(&out.out)].concat(), false)
             }
+            Cmd::Fields { op } => match op {
+                FieldsCmd::Add { pdf, out, .. } => {
+                    ("fields", [vec![pdf.clone()], opt(out)].concat(), false)
+                }
+                FieldsCmd::List { pdf } => ("fields", vec![pdf.clone()], false),
+            },
             Cmd::Verify { pdf, report, .. } => {
                 ("verify", [vec![pdf.clone()], opt(report)].concat(), false)
             }
@@ -553,6 +581,214 @@ enum PagesCmd {
     },
 }
 
+#[derive(Subcommand)]
+enum FieldsCmd {
+    /// Add empty, named signature fields. Writes a new file (default
+    /// <name>_fields.pdf); signatures already in the PDF stay valid.
+    Add {
+        pdf: PathBuf,
+        /// NAME:PAGE:x,y,width,height — points from the top-left of the page,
+        /// as for `sign --rect`. Repeat for each field.
+        #[arg(long = "field", required = true, value_name = "SPEC", value_parser = parse_field_spec)]
+        fields: Vec<FieldSpec>,
+        /// Tooltip of a field, e.g. "Director=Director — Rahul Dhileep Kumar";
+        /// also shown in its box.
+        #[arg(long, value_name = "NAME=TEXT")]
+        tooltip: Vec<String>,
+        /// Signing the field locks other fields: "NAME=all" or
+        /// "NAME=FIELD,FIELD".
+        #[arg(long, value_name = "NAME=FIELDS")]
+        lock: Vec<String>,
+        /// The fields are to be signed in the order given (kept in the PDF,
+        /// shown by TrackMy Sign).
+        #[arg(long)]
+        in_order: bool,
+        /// Ask signers for adbe.pkcs7.detached signatures with SHA-256
+        /// (seed values).
+        #[arg(long)]
+        seed: bool,
+        /// File to write; never the input.
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
+    /// List the signature fields: signed or empty, page, box, tooltip,
+    /// signing order and lock.
+    List { pdf: PathBuf },
+}
+
+/// `--field` of `fields add`, before the page is checked.
+#[derive(Clone)]
+struct FieldSpec {
+    name: String,
+    /// As given, from 1.
+    page: usize,
+    rect: DisplayRect,
+}
+
+fn parse_field_spec(s: &str) -> Result<FieldSpec, String> {
+    let mut parts = s.rsplitn(3, ':');
+    let (Some(rect), Some(page), Some(name)) = (parts.next(), parts.next(), parts.next()) else {
+        return Err("expected NAME:PAGE:x,y,width,height".into());
+    };
+    let page = match page.trim().parse::<usize>() {
+        Ok(0) => return Err("pages are numbered from 1".into()),
+        Ok(n) => n,
+        Err(_) => return Err(format!("\"{page}\" is not a page number")),
+    };
+    Ok(FieldSpec {
+        name: name.to_string(),
+        page,
+        rect: parse_rect(rect)?,
+    })
+}
+
+/// `invoice.pdf` → `invoice_fields.pdf` (or `_fields_2`, … if taken).
+fn fields_path(input: &Path) -> PathBuf {
+    let stem = input
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "document".into());
+    let dir = input.parent().unwrap_or_else(|| Path::new("."));
+    std::iter::once(dir.join(format!("{stem}_fields.pdf")))
+        .chain((2..).map(|n| dir.join(format!("{stem}_fields_{n}.pdf"))))
+        .find(|p| !p.exists())
+        .unwrap()
+}
+
+fn describe_lock(l: &FieldLock) -> String {
+    match l {
+        FieldLock::All => "locks all fields".into(),
+        FieldLock::Fields(f) => format!("locks {}", f.join(", ")),
+        FieldLock::AllExcept(f) => format!("locks all fields but {}", f.join(", ")),
+    }
+}
+
+fn fields(op: FieldsCmd, password: Option<&str>) -> Result<()> {
+    match op {
+        FieldsCmd::List { pdf } => {
+            let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
+            let (all, _) = with_password(&pdf, password, |pw| signature_fields(&data, pw))?;
+            println!("Signature fields: {}", all.len());
+            for f in &all {
+                let mut parts = vec![if f.signed { "signed" } else { "empty" }.to_string()];
+                parts.push(match (f.field.page, f.field.rect) {
+                    (Some(p), Some(r)) => format!(
+                        "page {}, {:.0},{:.0},{:.0},{:.0}",
+                        p + 1,
+                        r.x,
+                        r.y,
+                        r.w,
+                        r.h
+                    ),
+                    (Some(p), None) => format!("page {}, invisible", p + 1),
+                    _ => "invisible".into(),
+                });
+                if let Some(n) = f.field.order {
+                    parts.push(format!("signing order {n}"));
+                }
+                if let Some(l) = &f.lock {
+                    parts.push(describe_lock(l));
+                }
+                if f.seed_values {
+                    parts.push("seed values".into());
+                }
+                if let Some(t) = &f.field.tooltip {
+                    parts.push(format!("\"{t}\""));
+                }
+                println!("  {}: {}", f.field.name, parts.join("; "));
+            }
+            let empty: Vec<EmptyField> = all
+                .into_iter()
+                .filter(|f| !f.signed)
+                .map(|f| f.field)
+                .collect();
+            if let Some(f) = next_to_sign(&empty) {
+                println!("Waiting for: {}", f.tooltip.as_deref().unwrap_or(&f.name));
+            }
+        }
+        FieldsCmd::Add {
+            pdf,
+            fields,
+            tooltip,
+            lock,
+            in_order,
+            seed,
+            out,
+        } => {
+            let target = out.unwrap_or_else(|| fields_path(&pdf));
+            let same = match (pdf.canonicalize(), target.canonicalize()) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => pdf == target,
+            };
+            if same {
+                bail!(
+                    "{} is the input; the original is never changed (--out)",
+                    pdf.display()
+                );
+            }
+            let by_name = |what: &str, list: &[String]| -> Result<Vec<(String, String)>> {
+                list.iter()
+                    .map(|s| match s.split_once('=') {
+                        Some((n, v)) if fields.iter().any(|f| f.name == n) => {
+                            Ok((n.to_string(), v.to_string()))
+                        }
+                        Some((n, _)) => bail!("--{what} {s:?}: there is no --field named {n:?}"),
+                        None => bail!("--{what} expects NAME=..., got {s:?}"),
+                    })
+                    .collect()
+            };
+            let tooltips = by_name("tooltip", &tooltip)?;
+            let locks = by_name("lock", &lock)?;
+            let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
+            let (info, password) =
+                with_password(&pdf, password, |pw| inspect_with_password(&data, pw))?;
+            let new: Vec<NewField> = fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    if f.page > info.pages.len() {
+                        bail!("{}: the PDF has only {} page(s)", f.name, info.pages.len());
+                    }
+                    let lock = locks.iter().find(|(n, _)| *n == f.name).map(|(_, v)| {
+                        if v.trim().eq_ignore_ascii_case("all") {
+                            FieldLock::All
+                        } else {
+                            FieldLock::Fields(
+                                v.split(',')
+                                    .map(|n| n.trim().to_string())
+                                    .filter(|n| !n.is_empty())
+                                    .collect(),
+                            )
+                        }
+                    });
+                    Ok(NewField {
+                        name: f.name.clone(),
+                        page: f.page - 1,
+                        rect: f.rect,
+                        tooltip: tooltips
+                            .iter()
+                            .find(|(n, _)| *n == f.name)
+                            .map(|(_, t)| t.clone()),
+                        order: in_order.then_some(i as u32 + 1),
+                        lock,
+                        seed,
+                    })
+                })
+                .collect::<Result<_>>()?;
+            let made = add_signature_fields(&data, password.as_deref(), &new)?;
+            std::fs::write(&target, &made)
+                .with_context(|| format!("writing {}", target.display()))?;
+            println!(
+                "Saved: {} ({} empty signature field{})",
+                target.display(),
+                new.len(),
+                if new.len() == 1 { "" } else { "s" }
+            );
+        }
+    }
+    Ok(())
+}
+
 #[derive(clap::Args)]
 struct PagesOut {
     /// File to write. Default: <first input>_prepared.pdf next to it. Never
@@ -571,12 +807,13 @@ enum BlankSize {
     Letter,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum Corner {
     BottomRight,
     BottomLeft,
     TopRight,
     TopLeft,
+    Auto,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -644,6 +881,11 @@ struct Job {
     password: Option<String>,
     /// Fill in fields locked by a signature (the user agreed).
     fill_force: bool,
+    /// Place the box by the document's text once the signer is known
+    /// (`--position auto`); `rect` is the fallback.
+    auto: bool,
+    /// The page --page asked for, which the automatic placement keeps to.
+    asked_page: Option<usize>,
 }
 
 /// Runs `f` on a PDF, asking for its password on the terminal when it has
@@ -717,10 +959,14 @@ fn read_and_place(
             rect: None,
             password,
             fill_force: false,
+            auto: false,
+            asked_page: None,
         });
     }
+    let auto = position == Corner::Auto && rect.is_none() && !invisible;
     let pages = match pages {
         Some(_) if invisible => bail!("--pages needs a visible signature"),
+        Some(_) if auto => bail!("--position auto places one box; leave out --pages"),
         Some(spec) => parse_pages(spec, info.pages.len()).map_err(anyhow::Error::msg)?,
         None => Vec::new(),
     };
@@ -739,7 +985,7 @@ fn read_and_place(
         Some(rect.unwrap_or_else(|| {
             let (w, h, m) = (170.0, 55.0, 36.0);
             let (x, y) = match position {
-                Corner::BottomRight => (p.width - w - m, p.height - h - m),
+                Corner::BottomRight | Corner::Auto => (p.width - w - m, p.height - h - m),
                 Corner::BottomLeft => (m, p.height - h - m),
                 Corner::TopRight => (p.width - w - m, m),
                 Corner::TopLeft => (m, m),
@@ -754,7 +1000,38 @@ fn read_and_place(
         rect,
         password,
         fill_force: false,
+        auto,
+        asked_page: page.map(|n| n - 1),
     })
+}
+
+/// Moves the box of a `--position auto` job to where the PDF asks for
+/// `holder`'s signature, and says where it went.
+fn auto_place(pdf: &Path, job: &mut Job, holder: &Holder) {
+    let Some(r) = job.rect.filter(|_| job.auto) else {
+        return;
+    };
+    let found = autoplace::spots(&job.data, job.password.as_deref(), &[], holder, r.w, r.h)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|s| job.asked_page.is_none_or(|p| s.anchor.page == p));
+    match found {
+        Some(s) => {
+            job.page = s.anchor.page;
+            job.rect = Some(s.rect);
+            println!(
+                "Placed at \"{}\" on page {}: {}",
+                s.anchor.text,
+                s.anchor.page + 1,
+                pdf.display()
+            );
+        }
+        None => println!(
+            "No place to sign found; box at the bottom right of page {}: {}",
+            job.page + 1,
+            pdf.display()
+        ),
+    }
 }
 
 /// Fills the form of a placed PDF as a trial, so a wrong field name or
@@ -1083,6 +1360,7 @@ fn describe_file_check(c: &FileCheck, sig: &Path) -> String {
 /// The watch folder's side of the token: one session for the whole run.
 struct WatchHost {
     signer: TokenSigner,
+    holder: Holder,
     signed: usize,
     history: WatchRecorder,
 }
@@ -1102,6 +1380,9 @@ impl watch::Host for WatchHost {
     }
     fn check(&mut self) -> Result<(), Error> {
         self.signer.check()
+    }
+    fn holder(&self) -> Holder {
+        self.holder.clone()
     }
     fn event(&mut self, event: watch::Event) {
         if let Some(entry) = self.history.event(&event) {
@@ -1226,7 +1507,7 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
         }
-        Cmd::Info { pdf } => {
+        Cmd::Info { pdf, anchors } => {
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
             let (info, password) = with_password(&pdf, cli.password.as_deref(), |pw| {
                 inspect_with_password(&data, pw)
@@ -1288,6 +1569,29 @@ fn run(cli: Cli) -> Result<()> {
                         "; signing not allowed without the owner password"
                     }
                 );
+            }
+            if anchors {
+                // No token here: the holder's name and organisation are
+                // looked for only when signing.
+                let holder = Holder::default();
+                let pw = password.as_deref();
+                let found = autoplace::anchors(&data, pw, &[], &holder)?;
+                if found.is_empty() {
+                    println!("Anchors: none");
+                } else {
+                    println!("Anchors: {}", found.len());
+                }
+                let rect = |r: DisplayRect| format!("{:.0},{:.0},{:.0},{:.0}", r.x, r.y, r.w, r.h);
+                for a in &found {
+                    println!("  page {}, {}: \"{}\"", a.page + 1, rect(a.rect), a.text);
+                }
+                if let Some(s) = autoplace::spots(&data, pw, &[], &holder, 170.0, 55.0)?.first() {
+                    println!(
+                        "Box for --position auto: page {}, {}",
+                        s.anchor.page + 1,
+                        rect(s.rect)
+                    );
+                }
             }
         }
         Cmd::Form { cmd } => form::run(cmd, cli.password.as_deref())?,
@@ -1407,6 +1711,10 @@ fn run(cli: Cli) -> Result<()> {
                 Validity::Valid { .. } => {}
             }
             println!("Signing as: {}", chosen.summary.subject_cn);
+            let holder = Holder::of(&chosen.summary);
+            for (pdf, job) in &mut jobs {
+                auto_place(pdf, job, &holder);
+            }
             let pin = match pin {
                 Some(p) => p,
                 None => rpassword::prompt_password("Token PIN: ")?,
@@ -1671,6 +1979,7 @@ fn run(cli: Cli) -> Result<()> {
             style,
             seal,
             invisible,
+            auto_place,
             keep_originals,
             daily_limit,
             hours,
@@ -1701,6 +2010,7 @@ fn run(cli: Cli) -> Result<()> {
                 preset.location = v;
             }
             preset.invisible |= invisible;
+            preset.auto |= auto_place;
             if timestamp.is_some() {
                 preset.timestamp = timestamp;
             }
@@ -1765,6 +2075,7 @@ fn run(cli: Cli) -> Result<()> {
             );
             let mut host = WatchHost {
                 signer,
+                holder: Holder::of(&chosen.summary),
                 signed: 0,
                 history: WatchRecorder::new(PROGRAM),
             };
@@ -1791,6 +2102,7 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Pages { op } => pages(op, cli.password.as_deref())?,
+        Cmd::Fields { op } => fields(op, cli.password.as_deref())?,
         Cmd::Verify { pdf, report, json } => {
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
             let name = pdf

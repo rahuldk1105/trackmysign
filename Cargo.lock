@@ -5449,6 +5449,10 @@ name = "trackmysign-desktop"
 version = "0.6.0"
 dependencies = [
  "chrono",
+ "gtk",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "portal-bridge",
  "serde",
  "serde_json",
@@ -5462,6 +5466,7 @@ dependencies = [
  "tauri-plugin-updater",
  "trackmysign-core",
  "windows",
+ "windows-collections",
  "zeroize",
 ]
 

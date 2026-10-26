@@ -116,7 +116,8 @@ fn width_units(bytes: &[u8], family: FontFamily, bold: bool) -> f64 {
     bytes.iter().map(|&b| code_width(b, family, bold)).sum()
 }
 
-fn escape(bytes: &[u8]) -> Vec<u8> {
+/// A literal string for a content stream.
+pub(super) fn escape(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len() + 2);
     out.push(b'(');
     for &b in bytes {

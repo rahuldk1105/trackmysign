@@ -8,6 +8,14 @@ All notable changes to TrackMy Sign are listed here. The format follows
 
 ### Added
 
+- Sending the signed copy in one click, from the *Document signed* dialog,
+  the batch results, History and the Recent list: **Email…** opens a new
+  message in the default mail app with the PDF(s) attached (Simple MAPI on
+  Windows, the Compose Email service or Mail on macOS, `xdg-email` on Linux;
+  when the mail app cannot take attachments, the folder opens next to a new
+  message), **Share…** opens the Windows 10/11 Share window or the macOS
+  share menu, and **Copy file** puts the file on the clipboard to paste into
+  WhatsApp Desktop, Teams or an email. Works in the Microsoft Store build.
 - Support report: *Settings → Help & support → Create support report…*
   (also *Report a problem* next to errors) and `trackmysign doctor [--json]
   [--include-names]` put together what a bug report needs: version and build,
@@ -38,6 +46,45 @@ All notable changes to TrackMy Sign are listed here. The format follows
   `trackmysign form list`, `trackmysign form fill --set NAME=VALUE --json FILE`
   and `trackmysign sign --fill-json FILE`; `info` shows the number of form
   fields.
+- Signature fields for others: **Add fields** in the toolbar draws empty, named
+  signature fields on the pages for co-directors, the auditor or the company
+  secretary to sign later (in TrackMy Sign or Acrobat), with presets for the
+  names, an optional tooltip (who signs), signing order (*Waiting for:
+  Director 2*), lock (all fields or the ones named) and seed values
+  (`adbe.pkcs7.detached`, SHA-256). **Save as…** writes a new PDF; **Save and
+  sign … now** adds the fields and signs your own one in the next update. The
+  fields are an incremental update, so earlier signatures stay valid; works on
+  password-protected PDFs and PDFs with object streams; refused on documents
+  certified with no changes allowed. Command line: `trackmysign fields add
+  in.pdf --field "Director:2:40,60,200,60" … -o out.pdf` and `trackmysign
+  fields list`.
+- `tests/manual/tsa_check.sh`: checks real timestamp servers over the
+  internet (raw RFC 3161 request, TSA certificate and chain, signing with
+  `--timestamp` and `--ltv`, validated with pyHanko). The README lists the
+  suggested servers and what they chain to, and why Indian CAs' timestamp
+  services are not among them (offered to subscribers, no free public
+  address).
+
+### Fixed
+
+- Long-term validity with a FreeTSA timestamp failed with "not a CRL": CRLs
+  and issuer certificates served as PEM instead of DER are now read too.
+
+- Automatic placement: when a PDF opens, the box goes where the document
+  asks for a signature, next to "Authorised Signatory", "For
+  <organisation>", the certificate holder's name, "Managing Director",
+  "Company Secretary", "Director", "Signature" or "Signed by", on free space
+  and away from existing signatures; the last pages and the lowest spot come
+  first. The side panel says where (*Placed at "Authorised Signatory"*) and
+  **Show other spots** offers the others; the box drags as usual. *Settings →
+  Automatic placement* turns it off (on by default) and edits the phrases.
+  Presets can place automatically, and batches and the watch folder have
+  *Auto (fallback: preset position)*. A scan without text keeps the usual
+  box. Command line: `sign --position auto`, `watch --auto-place` (or
+  `"auto": true` in the preset JSON) and `info --anchors file.pdf`, which
+  lists the phrases found with their boxes. The page text is read by a new
+  text reader in the core library (standard and embedded fonts, `/ToUnicode`
+  maps, Identity-H, rotated pages).
 
 ### Changed
 

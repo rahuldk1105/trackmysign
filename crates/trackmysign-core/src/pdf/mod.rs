@@ -1,3 +1,4 @@
+pub mod addfields;
 pub mod appearance;
 pub mod assemble;
 pub mod crypt;
@@ -8,4 +9,5 @@ pub mod form;
 pub mod object;
 pub mod reader;
 pub mod sign;
+pub mod text;
 pub mod textdoc;

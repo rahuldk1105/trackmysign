@@ -72,6 +72,27 @@ export interface EmptyField {
   page: number | null;
   /** Points from the top-left of the displayed page; null when invisible. */
   rect: Rect | null;
+  /** Tooltip, often who is to sign it. */
+  tooltip: string | null;
+  /** Place in the intended signing order, from 1. */
+  order: number | null;
+}
+
+/** What signing a new field locks: every field, or the ones named. */
+export type FieldLockArg = { kind: "all" } | { kind: "fields"; fields: string[] };
+
+/** An empty signature field to add for someone else to sign. */
+export interface NewFieldArg {
+  name: string;
+  page: number;
+  /** Points from the top-left of the displayed page. */
+  rect: Rect;
+  tooltip: string | null;
+  /** Place in the signing order, from 1; null when the order does not matter. */
+  order: number | null;
+  lock: FieldLockArg | null;
+  /** Ask for adbe.pkcs7.detached with SHA-256 (seed values). */
+  seed: boolean;
 }
 
 /** Whether the handwritten signature image is shown, and where. */
@@ -106,6 +127,8 @@ export interface SignArgs {
   fill?: FillValue[];
   /** Also fill fields locked by an existing signature, which then breaks. */
   fillBreakLocks?: boolean;
+  /** Empty signature fields to add first; `field` is one of them. */
+  newFields?: NewFieldArg[];
 }
 
 /** Several PDFs, one PIN entry. The box goes on the same page and spot of each. */
@@ -115,6 +138,19 @@ export interface BatchArgs extends Omit<SignArgs, "path" | "page" | "field" | "f
   page: "first" | "last" | number;
   /** Box on every page of each file (otherwise on `pages` that a file has). */
   allPages: boolean;
+  /** Put the box where each file asks for a signature; `rect` where none is found. */
+  auto?: boolean;
+  /** Phrases to look for; the defaults when empty. */
+  anchors?: string[];
+}
+
+/** A place for the box where the PDF asks for a signature. */
+export interface Spot {
+  page: number;
+  /** Points from the top-left of the displayed page. */
+  rect: Rect;
+  /** The phrase as printed, e.g. "Authorised Signatory". */
+  text: string;
 }
 
 export type BatchProgress =
@@ -146,7 +182,7 @@ export interface PinStatus {
 }
 
 export interface ApiError {
-  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "password" | "permission" | "io" | "timestamp" | "ltv" | "expired" | "other";
+  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "password" | "permission" | "io" | "timestamp" | "ltv" | "expired" | "share" | "other";
   message: string;
 }
 
@@ -218,8 +254,8 @@ export async function pdfInfo(path: string, password?: string): Promise<PdfInfo>
     encrypted: false,
     signingAllowed: true,
     emptyFields: [
-      { name: "Director", page: 0, rect: { x: 340, y: 700, w: 200, h: 60 } },
-      { name: "approvals.cfo", page: 0, rect: { x: 60, y: 700, w: 200, h: 60 } },
+      { name: "Director", page: 0, rect: { x: 340, y: 700, w: 200, h: 60 }, tooltip: "Director — Rahul Dhileep Kumar", order: 2 },
+      { name: "approvals.cfo", page: 0, rect: { x: 60, y: 700, w: 200, h: 60 }, tooltip: null, order: 1 },
     ],
   };
 }
@@ -340,6 +376,26 @@ export async function saveFilled(path: string, password: string | null, values: 
   await new Promise((r) => setTimeout(r, 400));
   const output = path.replace(/\.pdf$/i, "_filled.pdf");
   return { output, name: output.split(/[\\/]/).pop() ?? output, warnings: [] };
+}
+
+/**
+ * Spots for a `w` × `h` box next to `anchors` in the PDF, the best first;
+ * `name` and `organisation` of the certificate fill in {name} and {organisation}.
+ */
+export async function findSpots(
+  path: string,
+  password: string | undefined,
+  anchors: string[],
+  name: string | null,
+  organisation: string | null,
+  w: number,
+  h: number,
+): Promise<Spot[]> {
+  if (inTauri) return invoke("find_spots", { path, password: password ?? null, anchors, name, organisation, w, h });
+  return [
+    { page: 0, rect: { x: 360, y: 640, w, h }, text: "Authorised Signatory" },
+    { page: 0, rect: { x: 60, y: 640, w, h }, text: "Director" },
+  ];
 }
 
 export async function readPdf(path: string): Promise<ArrayBuffer> {
@@ -511,6 +567,36 @@ export async function openFile(path: string): Promise<void> {
 
 export async function revealFile(path: string): Promise<void> {
   if (inTauri) await invoke("reveal_file", { path });
+}
+
+/** Ways to pass a signed copy on that this computer has. */
+export interface ShareAbilities {
+  email: boolean;
+  share: boolean;
+  copy: boolean;
+}
+
+export async function shareAbilities(): Promise<ShareAbilities> {
+  return inTauri ? invoke("share_abilities") : { email: true, share: true, copy: true };
+}
+
+/**
+ * A new email in the default mail app with the files attached; "attachByHand"
+ * when the mail app cannot take them and the folder opened instead.
+ */
+export async function shareEmail(paths: string[]): Promise<"composed" | "attachByHand"> {
+  return inTauri ? invoke("share_email", { paths }) : "composed";
+}
+
+/** The system share sheet; on macOS it points at `anchor` (the button). */
+export async function shareSheet(paths: string[], anchor?: DOMRect): Promise<void> {
+  const a = anchor && { x: anchor.x, y: anchor.y, width: anchor.width, height: anchor.height };
+  if (inTauri) await invoke("share_sheet", { paths, anchor: a });
+}
+
+/** The files on the clipboard, to paste into a chat or an email. */
+export async function shareCopy(paths: string[]): Promise<void> {
+  if (inTauri) await invoke("share_copy", { paths });
 }
 
 /** PKCS#11 drivers installed on this computer, preferred first. */
@@ -790,6 +876,29 @@ export async function assemblePages(sources: { path: string; password: string | 
   return r.notices;
 }
 
+// ------------------------------------------------------ signature fields
+
+/** `contract.pdf` → `contract_fields.pdf`, next to it. */
+export function fieldsPath(path: string): string {
+  return path.replace(/\.pdf$/i, "") + "_fields.pdf";
+}
+
+/** Asks where to save the PDF with the new fields; null when cancelled. */
+export async function pickFieldsPath(path: string): Promise<string | null> {
+  if (!inTauri) return fieldsPath(path);
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return save({ defaultPath: fieldsPath(path), filters: [{ name: t("dialog.pdfs"), extensions: ["pdf"] }] });
+}
+
+/** Writes the PDF with `fields` added to `output`; the original is only read. */
+export async function addSignatureFields(path: string, password: string | null, fields: NewFieldArg[], output: string): Promise<string> {
+  if (!inTauri) {
+    await new Promise((r) => setTimeout(r, 400));
+    return output;
+  }
+  return invoke("add_fields", { args: { path, password, fields, output } });
+}
+
 // ---------------------------------------------------------- folder check
 
 export type FolderStatus = "allValid" | "invalid" | "changed" | "unsigned" | "unreadable" | "password";
@@ -1012,6 +1121,10 @@ export interface WatchPreset {
   /** RFC 3161 server, or null for none. */
   timestamp: string | null;
   ltv: boolean;
+  /** Put the box where each file asks for a signature; `placement` where none is found. */
+  auto?: boolean;
+  /** Phrases to look for when `auto`; the defaults when empty. */
+  anchors?: string[];
 }
 
 export interface WatchConfig {

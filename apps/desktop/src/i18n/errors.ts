@@ -28,10 +28,14 @@ const SENTENCES: Record<string, MessageKey> = {
   "The record of the newest entry (head.json) is missing.": "error.historyHeadMissing",
   "Every entry was deleted.": "error.historyAllDeleted",
   "Save the new PDF under another name: the original is never changed.": "error.pagesSameFile",
+  "Save the PDF with the fields under another name: the original is never changed.": "error.fieldsSameFile",
+  "The document is certified with no changes allowed. New signature fields would invalidate the certification.": "error.fieldsCertified",
   "The signature is detached: the file is not inside it.": "error.notAttached",
   "XFA forms aren't supported: this PDF's form exists only as XFA, which TrackMy Sign cannot fill in.": "error.formXfa",
   "The document is certified with no changes allowed. Filling in its form would invalidate the certification.": "error.formCertified",
   "This PDF's security settings do not allow filling in its form; enter its owner (permissions) password.": "error.formProtected",
+  "No file to share.": "error.shareNoFile",
+  "The clipboard did not take the file.": "error.clipboard",
 };
 
 /** Sentences that end in a detail from elsewhere (a server, the OS), kept as is. */
@@ -41,6 +45,7 @@ const PREFIXES: [string, MessageKey][] = [
   ["Could not load the token driver: ", "error.driverLoad"],
   ["Entries are missing before this one: ", "error.historyMissing"],
   ["The newest entries were changed or deleted. Last entry recorded: ", "error.historyNewest"],
+  ["The signed copy is no longer at ", "error.shareGone"],
 ];
 
 /** `message` in the UI language where the wording is known. */

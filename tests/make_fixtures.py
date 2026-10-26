@@ -252,7 +252,72 @@ raw_pdf(P("field-rotated.pdf"), {
 # ... and one in a password-protected PDF
 subprocess.run(["qpdf", "--encrypt", "user", "own", "256", "--", P("field-nested.pdf"), P("field-enc.pdf")], check=True)
 
-# 13. fillable forms: every field type (reportlab), nested names, a font
+# 13. where a signature is asked for (--position auto): "Authorised Signatory"
+# on page 2 of 2, on a page turned with /Rotate, a scan (an image, no text) and
+# the signer's own name. anchors.json says where each phrase was drawn, as
+# displayed (points from the top-left), for tests/check_autoplace.py.
+import json
+
+from reportlab.pdfbase.pdfmetrics import stringWidth
+
+anchors = {}
+
+
+def anchor(name, page, text, x, baseline_from_top, size=11):
+    anchors[name] = {"page": page, "rect": [x, baseline_from_top - size * 0.72, stringWidth(text, "Helvetica", size), size]}
+
+
+c = canvas.Canvas(P("anchor-p2.pdf"), pagesize=A4)
+text_page(c, "Agreement - page 1")
+c.showPage()
+text_page(c, "Agreement - page 2", 8)
+c.setFont("Helvetica", 11)
+c.drawString(360, 230, "For TrackMyTech Private Limited")
+c.drawString(380, 140, "Authorised Signatory")
+c.drawString(72, 150, "Place: Chennai")
+c.drawString(72, 135, "Date: 26 Oct 2026")
+c.showPage()
+c.save()
+anchor("anchor-p2", 2, "Authorised Signatory", 380, A4[1] - 140)
+
+# reportlab turns the media box for /Rotate 90, so the page shows as A4
+# portrait; the text is drawn turned with it, upright to the reader.
+c = canvas.Canvas(P("anchor-rotated.pdf"), pagesize=A4)
+c.setPageRotation(90)
+c.translate(A4[1], 0)
+c.rotate(90)
+text_page(c, "Rotated page", 10)
+c.setFont("Helvetica", 11)
+c.drawString(330, 160, "Authorised Signatory")
+c.showPage()
+c.save()
+anchor("anchor-rotated", 1, "Authorised Signatory", 330, A4[1] - 160)
+
+scan = Image.new("L", (595, 842), 245)
+draw = ImageDraw.Draw(scan)
+for i in range(30):
+    draw.rectangle((72, 80 + i * 22, 520, 90 + i * 22), fill=60)
+scan.save(P("scan.png"))
+c = canvas.Canvas(P("anchor-scan.pdf"), pagesize=A4)
+c.drawImage(P("scan.png"), 0, 0, A4[0], A4[1])
+c.showPage()
+c.save()
+anchors["anchor-scan"] = {"page": 1, "fallback": [A4[0] - 170 - 36, A4[1] - 55 - 36, 170, 55]}
+
+c = canvas.Canvas(P("anchor-name.pdf"), pagesize=A4)
+text_page(c, "Undertaking", 6)
+c.setFont("Helvetica", 11)
+c.drawString(72, 560, "We confirm the above with our signature below and accept the terms.")
+c.drawString(72, 200, "______________________")
+c.drawString(72, 185, "RAHUL TEST DIRECTOR")
+c.drawString(72, 170, "Director")
+c.showPage()
+c.save()
+anchor("anchor-name", 1, "RAHUL TEST DIRECTOR", 72, A4[1] - 185)
+with open(P("anchors.json"), "w") as f:
+    json.dump(anchors, f, indent=1)
+
+# 14. fillable forms: every field type (reportlab), nested names, a font
 # that cannot be reused and /NeedAppearances (hand-written), XFA only,
 # certified allowing form filling / no changes, a signature locking a field
 # (pyHanko), and encrypted

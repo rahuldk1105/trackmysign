@@ -163,9 +163,9 @@ pub fn text_string(s: &str) -> Obj {
     }
 }
 
-type Objects = BTreeMap<u32, (u16, Obj)>;
+pub(super) type Objects = BTreeMap<u32, (u16, Obj)>;
 
-fn take(next: &mut u32) -> u32 {
+pub(super) fn take(next: &mut u32) -> u32 {
     let id = *next;
     *next += 1;
     id
@@ -288,8 +288,8 @@ fn appearance_obj(stamp: &Stamp, w: f64, h: f64, rotate: i32) -> Obj {
 
 /// Lists each widget in its page's `/Annots`. An indirect `/Annots` array
 /// is updated in place and the page left alone; pages sharing one array get
-/// all their widgets added to it.
-fn add_to_annots(
+/// all their widgets added to it, as does a page with several widgets.
+pub(super) fn add_to_annots(
     doc: &Document,
     widgets: &[(&PageInfo, u32, u16)],
     objs: &mut Objects,
@@ -297,7 +297,11 @@ fn add_to_annots(
     let mut annot_arrays: BTreeMap<u32, (u16, Vec<Obj>)> = BTreeMap::new();
     for (target, id, gn) in widgets {
         let widget_ref = Obj::Ref(*id, *gn);
-        let mut page_dict = target.dict.clone();
+        // Several widgets on one page: build on the page as already updated.
+        let mut page_dict = match objs.get(&target.id.0) {
+            Some((_, Obj::Dict(d))) => d.clone(),
+            _ => target.dict.clone(),
+        };
         match page_dict.get("Annots").cloned() {
             Some(Obj::Ref(aid, agen)) => {
                 if let Some((_, a)) = annot_arrays.get_mut(&aid) {
@@ -800,18 +804,10 @@ pub(super) fn write_objects(
     }
 }
 
-/// Appends `objs` and a cross-reference section for them to the document:
-/// an incremental update without a signature. `next` is one past the
-/// highest object id used.
-pub(super) fn append_update(
-    doc: &Document,
-    objs: &BTreeMap<u32, (u16, Obj)>,
-    next: u32,
-) -> Vec<u8> {
-    let (cat_id, cat_gen) = match doc.trailer.get("Root") {
-        Some(Obj::Ref(id, gn)) => (*id, *gn),
-        _ => (0, 0),
-    };
+/// Appends `objs` to the document as an incremental update without a
+/// signature (validation data, new fields); `next` is the first unused id.
+pub(super) fn append_update(doc: &Document, objs: &Objects, next: u32) -> Result<Vec<u8>> {
+    let (cat_id, cat_gen) = doc.catalog_ref()?;
     let mut out = doc.data.to_vec();
     if !matches!(out.last(), Some(b'\n') | Some(b'\r')) {
         out.push(b'\n');
@@ -852,7 +848,7 @@ pub(super) fn append_update(
         }
     }
     out.extend_from_slice(format!("startxref\n{xref_pos}\n%%EOF\n").as_bytes());
-    out
+    Ok(out)
 }
 
 /// Consecutive runs of object ids, for xref subsections / `/Index`.

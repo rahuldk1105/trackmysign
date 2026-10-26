@@ -1751,7 +1751,7 @@ pub fn fill(
             }
         }
     }
-    let data = append_update(&doc, &up.objs, up.next);
+    let data = append_update(&doc, &up.objs, up.next)?;
     Ok(Filled {
         data,
         warnings: up.warnings,
@@ -1980,6 +1980,39 @@ mod tests {
         let xfa = form_pdf("/XFA 16 0 R ");
         let form = read(&Document::parse(&xfa).unwrap()).unwrap();
         assert!(form.xfa && form.blocked.is_none());
+    }
+
+    /// Filled in, then new signature fields added (as the app does before
+    /// signing one of them): both updates keep the other's changes.
+    #[test]
+    fn fields_added_after_filling() {
+        use crate::pdf::addfields::NewField;
+        let pdf = form_pdf("");
+        let filled = fill(&pdf, None, &[set("name", &["Rahul DK"])], false).unwrap();
+        let both = crate::add_signature_fields(
+            &filled.data,
+            None,
+            &[NewField {
+                name: "Director".into(),
+                page: 0,
+                rect: DisplayRect {
+                    x: 300.0,
+                    y: 600.0,
+                    w: 200.0,
+                    h: 60.0,
+                },
+                tooltip: None,
+                order: None,
+                lock: None,
+                seed: false,
+            }],
+        )
+        .unwrap();
+        assert!(both.starts_with(&filled.data));
+        let doc = Document::parse(&both).unwrap();
+        assert_eq!(field(&read(&doc).unwrap(), "name").value, ["Rahul DK"]);
+        let sigs = signature_fields(&doc, &doc.pages().unwrap()).unwrap();
+        assert!(sigs.iter().any(|f| f.name == "Director" && !f.signed));
     }
 
     #[test]
