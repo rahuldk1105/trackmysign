@@ -6,5 +6,7 @@
 	<string>TrackMy Sign</string>
 	<key>LSHasLocalizedDisplayName</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>TrackMy Sign opens a new Mail message with the signed PDF attached.</string>
 </dict>
 </plist>

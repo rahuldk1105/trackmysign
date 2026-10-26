@@ -154,6 +154,7 @@ Other options:
 .\trackmysign.exe watch C:\Scans                      # sign every PDF put into a folder (see Watch folder)
 .\trackmysign.exe history --since 2026-10-01          # what was signed on this computer (see Signing history)
 .\trackmysign.exe pages merge a.pdf b.pdf -o out.pdf  # merge, reorder, turn, delete pages (see Preparing pages)
+.\trackmysign.exe doctor                              # support report for a bug report (see Reporting a problem)
 ```
 
 Long-term validity is off by default, so signing works fully offline. `--timestamp`
@@ -542,6 +543,29 @@ also `pages`, `image` with `--image`, `invisible`, `timestamp`, `ltv`,
 `--keep-originals`, `--daily-limit N` (0 for none) and `--hours` work as in
 the app.
 
+## Sending the signed copy
+
+The *Document signed* dialog, the batch results, an entry in **History** and
+the share button next to a signed file under **Recent** pass the signed copy
+on in one click:
+
+- **Email…** opens a new message in your mail app with the signed PDF (or
+  every PDF of a batch) attached, the subject "Signed: *file name*" and a
+  short line naming the file. Windows uses Simple MAPI, which classic Outlook,
+  Thunderbird and most desktop mail programs take; macOS uses its Compose
+  Email service (Mail through AppleScript when that is not available; macOS
+  asks once whether TrackMy Sign may control Mail); Linux uses `xdg-email`.
+  When the mail app cannot take attachments this way (the new Outlook, a mail
+  service in the browser), the folder opens with the file selected next to a
+  new message, to drag the file into.
+- **Share…** opens the system share sheet: the Share window of Windows 10/11
+  (WhatsApp, Teams, Mail, Nearby Share and other apps that take files) or the
+  macOS share menu (Mail, Messages, AirDrop, WhatsApp, …). Not on Linux.
+- **Copy file** puts the file itself on the clipboard, to paste into WhatsApp
+  Desktop, Teams, an email or a folder.
+
+All of it works in the Microsoft Store version too.
+
 ## Signing history
 
 TrackMy Sign keeps a private log of every signature it makes on your computer:
@@ -555,7 +579,8 @@ source (single, batch, watch folder, GST portal) and outcome, and click an
 entry for its details: both files' paths and SHA-256 hashes, the
 certificate's issuer, serial number and fingerprint, the pages, reason,
 location, certification level, timestamp and LTV, or why it failed, with
-*Open signed copy* and *Show in folder*. *Export PDF…* and *Export CSV…* save
+*Open signed copy*, *Show in folder* and the
+[sharing buttons](#sending-the-signed-copy). *Export PDF…* and *Export CSV…* save
 the entries shown; the PDF is an A4 "Signing history" for auditors and
 includes the integrity check.
 
@@ -676,6 +701,33 @@ filings, so there is nothing left to connect to. Portal
 signing is an independent, interoperable implementation of the local protocol
 the GST portal's own JavaScript uses; TrackMy Sign is not affiliated with or
 endorsed by GSTN, the GST Council or eMudhra.
+
+## Reporting a problem
+
+When something does not work, a support report tells us what we need:
+*Settings → Help & support → Create support report…* in the app (or
+*Report a problem* next to an error), or on the command line, also on a server:
+
+```
+trackmysign doctor                    # Markdown, with the same data as JSON at the end
+trackmysign doctor --json             # only the JSON
+trackmysign doctor --include-names    # also holder names, organisations and certificate serials
+```
+
+It lists the version and build (direct download or Microsoft Store), the
+operating system, WebView version and language, the token drivers found and
+whether each loaded (with the error when not), the connected tokens (maker,
+model, label, PIN locked or attempts running low), the certificates (holder's
+initials, issuer, validity, key, the first 8 characters of the fingerprint),
+a settings summary, the GST portal listener's status, the last update check,
+the last signing failure and the recent errors the app and the command-line
+tool keep in the app's data folder (`support-log.json`, last 200). Your home
+folder is shown as `~`, and email addresses, PAN-like codes and long hex
+strings are replaced; names, token serial numbers (`--include-serials`) and
+folder paths (`--include-paths`) only go in when you tick them. The app shows
+the exact text first and sends nothing: copy or save it, then *Open GitHub
+issue* opens the bug report form with the version filled in for you to paste
+it into. See [PRIVACY.md](PRIVACY.md).
 
 ## Development
 

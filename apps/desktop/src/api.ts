@@ -155,7 +155,7 @@ export interface PinStatus {
 }
 
 export interface ApiError {
-  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "password" | "permission" | "io" | "timestamp" | "ltv" | "expired" | "other";
+  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "password" | "permission" | "io" | "timestamp" | "ltv" | "expired" | "share" | "other";
   message: string;
 }
 
@@ -422,6 +422,36 @@ export async function openFile(path: string): Promise<void> {
 
 export async function revealFile(path: string): Promise<void> {
   if (inTauri) await invoke("reveal_file", { path });
+}
+
+/** Ways to pass a signed copy on that this computer has. */
+export interface ShareAbilities {
+  email: boolean;
+  share: boolean;
+  copy: boolean;
+}
+
+export async function shareAbilities(): Promise<ShareAbilities> {
+  return inTauri ? invoke("share_abilities") : { email: true, share: true, copy: true };
+}
+
+/**
+ * A new email in the default mail app with the files attached; "attachByHand"
+ * when the mail app cannot take them and the folder opened instead.
+ */
+export async function shareEmail(paths: string[]): Promise<"composed" | "attachByHand"> {
+  return inTauri ? invoke("share_email", { paths }) : "composed";
+}
+
+/** The system share sheet; on macOS it points at `anchor` (the button). */
+export async function shareSheet(paths: string[], anchor?: DOMRect): Promise<void> {
+  const a = anchor && { x: anchor.x, y: anchor.y, width: anchor.width, height: anchor.height };
+  if (inTauri) await invoke("share_sheet", { paths, anchor: a });
+}
+
+/** The files on the clipboard, to paste into a chat or an email. */
+export async function shareCopy(paths: string[]): Promise<void> {
+  if (inTauri) await invoke("share_copy", { paths });
 }
 
 /** PKCS#11 drivers installed on this computer, preferred first. */
@@ -1162,4 +1192,80 @@ export async function onHistoryChanged(cb: () => void): Promise<() => void> {
   if (!inTauri) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen("history-changed", () => cb());
+}
+
+// ---------------------------------------------------------------- support
+
+/** What the user chose to put in the support report beyond the defaults. */
+export interface SupportInclude {
+  names: boolean;
+  serials: boolean;
+  paths: boolean;
+}
+
+/** Settings only the window knows, for the support report. */
+export interface SupportArgs {
+  include: SupportInclude;
+  timestamp: boolean;
+  tsaUrl: string;
+  ltv: boolean;
+  outDir: string;
+  autoUpdate: boolean;
+  /** The last update check, in English; null in the Store build. */
+  updater: string | null;
+  locale: string;
+  language: string;
+}
+
+/** The support report exactly as it will be shared: Markdown with a JSON block. */
+export async function supportReport(args: SupportArgs): Promise<string> {
+  if (inTauri) return invoke("support_report", { args });
+  await new Promise((r) => setTimeout(r, 300));
+  const subject = args.include.names ? "DK RAHUL" : "D. R.";
+  return [
+    "# TrackMy Sign support report",
+    "",
+    "## App and system",
+    `- TrackMy Sign ${__APP_VERSION__} (desktop)`,
+    "- OS: Microsoft Windows [Version 10.0.22631.4317], windows x86_64",
+    `- Locale: ${args.locale}, app language: ${args.language}`,
+    "",
+    "## Certificates",
+    `- ${subject}, issued by Verasys Sub CA 2022, valid 12 Dec 2024 to 11 Dec 2026 (valid), RSA 2048, fingerprint 1a2b3c4d, on HYP2003`,
+    "",
+    "## Updates",
+    `- ${args.updater ?? "Updated by the Microsoft Store"}`,
+  ].join("\n");
+}
+
+/** Asks where to save the report; null when cancelled. */
+export async function pickSupportPath(): Promise<string | null> {
+  const name = `trackmysign-support-${new Date().toISOString().slice(0, 10)}.md`;
+  if (!inTauri) return name;
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return save({ defaultPath: name, filters: [{ name: t("support.fileType"), extensions: ["md", "txt"] }] });
+}
+
+export async function supportSave(path: string, text: string): Promise<void> {
+  if (inTauri) await invoke("support_save", { path, text });
+}
+
+/** Opens a new GitHub issue with the version filled in (not the report). */
+export async function supportOpenIssue(): Promise<void> {
+  if (inTauri) await invoke("support_open_issue");
+  else window.open(`https://github.com/rahuldk1105/trackmysign/issues/new?template=bug_report.yml&version=v${__APP_VERSION__}`, "_blank");
+}
+
+/** Keeps an error the window showed, for the report; `files` are left out of it. */
+export function supportNote(area: string, message: string, files: string[] = []): void {
+  if (inTauri) invoke("support_note", { area, message, files }).catch(() => {});
+}
+
+/** Errors kept for the report. */
+export async function supportLogCount(): Promise<number> {
+  return inTauri ? invoke("support_log_count") : 2;
+}
+
+export async function supportClearLog(): Promise<void> {
+  if (inTauri) await invoke("support_clear_log");
 }
