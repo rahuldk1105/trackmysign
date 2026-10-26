@@ -153,6 +153,7 @@ Other options:
 .\trackmysign.exe history --since 2026-10-01          # what was signed on this computer (see Signing history)
 .\trackmysign.exe pages merge a.pdf b.pdf -o out.pdf  # merge, reorder, turn, delete pages (see Preparing pages)
 .\trackmysign.exe fields add in.pdf --field "Director:2:40,60,200,60" -o out.pdf  # empty fields for others (see Signature fields for others)
+.\trackmysign.exe doctor                              # support report for a bug report (see Reporting a problem)
 ```
 
 Long-term validity is off by default, so signing works fully offline. `--timestamp`
@@ -689,6 +690,33 @@ filings, so there is nothing left to connect to. Portal
 signing is an independent, interoperable implementation of the local protocol
 the GST portal's own JavaScript uses; TrackMy Sign is not affiliated with or
 endorsed by GSTN, the GST Council or eMudhra.
+
+## Reporting a problem
+
+When something does not work, a support report tells us what we need:
+*Settings → Help & support → Create support report…* in the app (or
+*Report a problem* next to an error), or on the command line, also on a server:
+
+```
+trackmysign doctor                    # Markdown, with the same data as JSON at the end
+trackmysign doctor --json             # only the JSON
+trackmysign doctor --include-names    # also holder names, organisations and certificate serials
+```
+
+It lists the version and build (direct download or Microsoft Store), the
+operating system, WebView version and language, the token drivers found and
+whether each loaded (with the error when not), the connected tokens (maker,
+model, label, PIN locked or attempts running low), the certificates (holder's
+initials, issuer, validity, key, the first 8 characters of the fingerprint),
+a settings summary, the GST portal listener's status, the last update check,
+the last signing failure and the recent errors the app and the command-line
+tool keep in the app's data folder (`support-log.json`, last 200). Your home
+folder is shown as `~`, and email addresses, PAN-like codes and long hex
+strings are replaced; names, token serial numbers (`--include-serials`) and
+folder paths (`--include-paths`) only go in when you tick them. The app shows
+the exact text first and sends nothing: copy or save it, then *Open GitHub
+issue* opens the bug report form with the version filled in for you to paste
+it into. See [PRIVACY.md](PRIVACY.md).
 
 ## Development
 

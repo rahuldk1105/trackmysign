@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use trackmysign_core::history::{Action, Entry, PortalRef, Source};
 use trackmysign_core::portal::{self, Request, frame};
+use trackmysign_core::support::PortalInfo;
 use trackmysign_core::token::{Token, Tokens};
 
 use super::{CertDto, CmdResult, CommandError, TOKEN_LOCK, cert_dto, history, not_expired, watch};
@@ -295,6 +296,19 @@ pub fn summary(app: &AppHandle) -> (bool, Option<u16>) {
         .as_ref()
         .map(|r| r.port);
     (enabled, port)
+}
+
+/// The listener as the support report describes it.
+pub fn support_info(app: &AppHandle) -> Option<PortalInfo> {
+    let s = status(app, &app.state::<PortalState>()).ok()?;
+    Some(PortalInfo {
+        enabled: s.enabled,
+        port: s.port,
+        taken: s.taken,
+        error: s.error,
+        ca_installed: Store::new(dir(app).ok()?).ca().is_some(),
+        certificate_valid_until: s.valid_until,
+    })
 }
 
 /// Starts the listener at launch when portal signing is turned on.

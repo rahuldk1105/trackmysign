@@ -289,6 +289,19 @@ pub struct PinStatus {
     pub locked: bool,
 }
 
+/// A token as its driver describes it (no PIN needed).
+#[derive(Debug, Clone, Default)]
+pub struct TokenInfo {
+    pub slot: u64,
+    pub label: String,
+    pub manufacturer: String,
+    pub model: String,
+    pub serial: String,
+    pub initialized: bool,
+    pub pin: PinStatus,
+    pub pin_to_be_changed: bool,
+}
+
 pub struct Token {
     ctx: Pkcs11,
     pub driver: Driver,
@@ -312,6 +325,31 @@ impl Token {
 
     pub fn pin_status(&self, slot: Slot) -> Result<PinStatus, Error> {
         pin_status(&self.ctx, slot)
+    }
+
+    /// Every connected token, initialised or not.
+    pub fn tokens(&self) -> Result<Vec<TokenInfo>, Error> {
+        let mut out = Vec::new();
+        for slot in self.ctx.get_slots_with_token().map_err(ck)? {
+            let Ok(info) = self.ctx.get_token_info(slot) else {
+                continue;
+            };
+            out.push(TokenInfo {
+                slot: slot.id(),
+                label: info.label().trim().to_string(),
+                manufacturer: info.manufacturer_id().trim().to_string(),
+                model: info.model().trim().to_string(),
+                serial: info.serial_number().trim().to_string(),
+                initialized: info.token_initialized(),
+                pin: PinStatus {
+                    count_low: info.user_pin_count_low(),
+                    final_try: info.user_pin_final_try(),
+                    locked: info.user_pin_locked(),
+                },
+                pin_to_be_changed: info.user_pin_to_be_changed(),
+            });
+        }
+        Ok(out)
     }
 
     /// All X.509 certificates on all connected tokens (no PIN needed).
