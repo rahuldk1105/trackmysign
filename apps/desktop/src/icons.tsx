@@ -27,6 +27,15 @@ export const FolderIcon = (p: P) => (
   </Svg>
 );
 
+export const ShareIcon = (p: P) => (
+  <Svg {...p}>
+    <circle cx="17.5" cy="5.5" r="2.5" />
+    <circle cx="6.5" cy="12" r="2.5" />
+    <circle cx="17.5" cy="18.5" r="2.5" />
+    <path d="M8.7 10.7l6.6-3.9M8.7 13.3l6.6 3.9" />
+  </Svg>
+);
+
 export const GearIcon = (p: P) => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="3" />

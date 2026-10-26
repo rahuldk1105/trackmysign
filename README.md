@@ -560,6 +560,29 @@ also `pages`, `image` with `--image`, `invisible`, `timestamp`, `ltv`, and
 `--ctc-style` and `--ctc-pages`); `--keep-originals`, `--daily-limit N` (0 for none) and `--hours` work as in
 the app.
 
+## Sending the signed copy
+
+The *Document signed* dialog, the batch results, an entry in **History** and
+the share button next to a signed file under **Recent** pass the signed copy
+on in one click:
+
+- **Email…** opens a new message in your mail app with the signed PDF (or
+  every PDF of a batch) attached, the subject "Signed: *file name*" and a
+  short line naming the file. Windows uses Simple MAPI, which classic Outlook,
+  Thunderbird and most desktop mail programs take; macOS uses its Compose
+  Email service (Mail through AppleScript when that is not available; macOS
+  asks once whether TrackMy Sign may control Mail); Linux uses `xdg-email`.
+  When the mail app cannot take attachments this way (the new Outlook, a mail
+  service in the browser), the folder opens with the file selected next to a
+  new message, to drag the file into.
+- **Share…** opens the system share sheet: the Share window of Windows 10/11
+  (WhatsApp, Teams, Mail, Nearby Share and other apps that take files) or the
+  macOS share menu (Mail, Messages, AirDrop, WhatsApp, …). Not on Linux.
+- **Copy file** puts the file itself on the clipboard, to paste into WhatsApp
+  Desktop, Teams, an email or a folder.
+
+All of it works in the Microsoft Store version too.
+
 ## Signing history
 
 TrackMy Sign keeps a private log of every signature it makes on your computer:
@@ -573,7 +596,8 @@ source (single, batch, watch folder, GST portal) and outcome, and click an
 entry for its details: both files' paths and SHA-256 hashes, the
 certificate's issuer, serial number and fingerprint, the pages, reason,
 location, certification level, timestamp and LTV, or why it failed, with
-*Open signed copy* and *Show in folder*. *Export PDF…* and *Export CSV…* save
+*Open signed copy*, *Show in folder* and the
+[sharing buttons](#sending-the-signed-copy). *Export PDF…* and *Export CSV…* save
 the entries shown; the PDF is an A4 "Signing history" for auditors and
 includes the integrity check.
 

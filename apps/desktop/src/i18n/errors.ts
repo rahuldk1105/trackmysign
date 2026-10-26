@@ -33,6 +33,8 @@ const SENTENCES: Record<string, MessageKey> = {
     "error.ctcCertified",
   "Certified true copy stamps cannot be added when signing into an existing signature field. Place a signature box instead.": "error.ctcField",
   "None of the pages chosen for the certified true copy stamp are in this PDF.": "error.ctcPages",
+  "No file to share.": "error.shareNoFile",
+  "The clipboard did not take the file.": "error.clipboard",
 };
 
 /** Sentences that end in a detail from elsewhere (a server, the OS), kept as is. */
@@ -42,6 +44,7 @@ const PREFIXES: [string, MessageKey][] = [
   ["Could not load the token driver: ", "error.driverLoad"],
   ["Entries are missing before this one: ", "error.historyMissing"],
   ["The newest entries were changed or deleted. Last entry recorded: ", "error.historyNewest"],
+  ["The signed copy is no longer at ", "error.shareGone"],
 ];
 
 /** `message` in the UI language where the wording is known. */
