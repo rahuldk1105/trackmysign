@@ -38,7 +38,7 @@ import { UpdateBanner } from "./UpdateBanner";
 import { useWatch, WatchSettings, WatchStatusItem } from "./Watch";
 import { useUpdater, type UpdateState } from "./updater";
 import { useTheme, type ThemePref } from "./theme";
-import { activePreset, describePage, fromPresetPlacement, pageChoice, toPresetPlacement, type Preset } from "./presets";
+import { activePreset, DEFAULT_ANCHORS, describePage, fromPresetPlacement, pageChoice, toPresetPlacement, type Preset } from "./presets";
 import {
   AlertIcon,
   CheckIcon,
@@ -89,6 +89,10 @@ interface Saved {
   recentOn: boolean;
   /** Folder for signed copies; empty for next to the original. */
   outDir: string;
+  /** Put the box where an opened PDF asks for a signature. */
+  autoPlace: boolean;
+  /** Phrases to look for, with {name} and {organisation} from the certificate. */
+  anchors: string[];
 }
 
 const KEY = "trackmysign.settings.v1";
@@ -117,12 +121,15 @@ const defaults: Saved = {
   language: "system",
   recentOn: true,
   outDir: "",
+  autoPlace: true,
+  anchors: DEFAULT_ANCHORS,
 };
 
 function loadSaved(): Saved {
   try {
     const s: Saved = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
     if (!Array.isArray(s.presets)) s.presets = [];
+    if (!Array.isArray(s.anchors) || !s.anchors.every((a) => typeof a === "string")) s.anchors = DEFAULT_ANCHORS;
     if (!REMINDER_CHOICES.includes(s.expiryReminder)) s.expiryReminder = defaults.expiryReminder;
     if (!isLangPref(s.language)) s.language = defaults.language;
     return s;
@@ -302,6 +309,12 @@ export default function App() {
   const [docError, setDocError] = useState<string | null>(null);
   const [unlock, setUnlock] = useState<Unlock | null>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
+  /** Where the document asks for a signature, found when it opened; `index` is the one shown. */
+  const [spots, setSpots] = useState<{ list: api.Spot[]; index: number } | null>(null);
+  const [spotsOpen, setSpotsOpen] = useState(false);
+  /** The box was placed by hand (or a field or preset chosen) since the document opened. */
+  const placedByHand = useRef(false);
+  const [batchAuto, setBatchAuto] = useState(() => loadSaved().autoPlace);
   /** Empty signature field to sign into instead of a free box. */
   const [field, setField] = useState<EmptyField | null>(null);
   /** Signature fields being drawn for others to sign; null outside that mode. */
@@ -505,6 +518,9 @@ export default function App() {
       setZoom(1);
       setPage(0);
       setPlacement(initialPlacement(sizes, loadSaved()));
+      placedByHand.current = false;
+      setSpots(null);
+      setSpotsOpen(false);
       setField(null);
       setDrafts(null);
       setPending(null);
@@ -646,6 +662,8 @@ export default function App() {
   const place = (p: Placement) => {
     setPlacement(p);
     setField(null);
+    placedByHand.current = true;
+    setSpots(null);
     if (!doc) return;
     const s = doc.sizes[p.page];
     update({
@@ -655,13 +673,54 @@ export default function App() {
 
   // The box snaps to the field and stays there; the last free box is not overwritten.
   const pickField = (f: EmptyField) => {
+    placedByHand.current = true;
     setField(f);
     if (f.page !== null && f.rect) setPlacement({ page: f.page, ...f.rect });
   };
 
   const leaveField = () => {
     setField(null);
-    if (doc) setPlacement(initialPlacement(doc.sizes, loadSaved()));
+    const spot = spots?.list[spots.index];
+    if (spot) setPlacement({ page: spot.page, ...spot.rect });
+    else if (doc) setPlacement(initialPlacement(doc.sizes, loadSaved()));
+  };
+
+  // ---- automatic placement: the box goes where the document asks for a
+  // signature, until it is placed by hand. Looked for again when the
+  // certificate (its name and organisation) or the phrases change.
+  const certName = certs?.[certIndex]?.name ?? null;
+  const certOrg = certs?.[certIndex]?.organization ?? null;
+  const findSpots = (d: Doc, box: { w: number; h: number }, fallback?: Placement) => {
+    const s = loadSaved();
+    return api.findSpots(d.info.path, d.password, s.anchors, certName, certOrg, box.w, box.h).then(
+      (list) => {
+        if (placedByHand.current || docNow.current?.info.path !== d.info.path) return;
+        setSpots({ list, index: 0 });
+        setSpotsOpen(false);
+        if (list[0]) setPlacement({ page: list[0].page, ...list[0].rect });
+        else if (fallback) setPlacement(fallback);
+      },
+      () => {},
+    );
+  };
+  const findRef = useRef(findSpots);
+  findRef.current = findSpots;
+  const docNow = useRef(doc);
+  docNow.current = doc;
+  const anchorsKey = saved.anchors.join("\n");
+  useEffect(() => {
+    const d = docNow.current;
+    if (!d || !saved.autoPlace || placedByHand.current) return;
+    findRef.current(d, initialPlacement(d.sizes, loadSaved()));
+  }, [doc?.info.path, doc?.password, saved.autoPlace, anchorsKey, certName, certOrg]);
+
+  const showSpot = (index: number) => {
+    const spot = spots?.list[index];
+    if (!spot) return;
+    setSpots({ list: spots.list, index });
+    setPlacement({ page: spot.page, ...spot.rect });
+    setField(null);
+    goPage(spot.page);
   };
 
   // ---- signature fields for others
@@ -709,7 +768,13 @@ export default function App() {
 
   const applyPreset = (p: Preset) => {
     update({ reason: p.reason, location: p.location, ...(p.image && { image: p.image }), ...(p.style !== undefined && { style: p.style }) });
-    if (doc && p.placement) {
+    if (doc && p.auto) {
+      // The preset's box (or the current one) is the size, and the place where nothing is found.
+      const fallback = p.placement ? fromPresetPlacement(p.placement, doc.sizes) : (placement ?? initialPlacement(doc.sizes, loadSaved()));
+      placedByHand.current = false;
+      setField(null);
+      findSpots(doc, fallback, fallback);
+    } else if (doc && p.placement) {
       const pl = fromPresetPlacement(p.placement, doc.sizes);
       place(pl);
       goPage(pl.page);
@@ -717,7 +782,8 @@ export default function App() {
   };
 
   const savePreset = (name: string) => {
-    const preset: Preset = { name, ...current };
+    // A box that was placed automatically makes an automatic preset.
+    const preset: Preset = { name, ...current, ...(spots?.list.length && !placedByHand.current && { auto: true }) };
     const exists = saved.presets.some((p) => p.name === name);
     update({ presets: exists ? saved.presets.map((p) => (p.name === name ? preset : p)) : [...saved.presets, preset] });
   };
@@ -815,6 +881,8 @@ export default function App() {
           password: doc.password ?? null,
           certify,
           outDir: saved.outDir || null,
+          auto: batchAuto && !targetPages,
+          anchors: saved.anchors,
         },
         (p) => {
           if (!started) {
@@ -1362,6 +1430,7 @@ export default function App() {
                     </div>
                   </>
                 )}
+                {spots && !field && <SpotsHint spots={spots} open={spotsOpen} onToggle={() => setSpotsOpen((o) => !o)} onPick={showSpot} />}
                 <label id="pages-label">{t("common.pages")}</label>
                 <div className="segmented" role="radiogroup" aria-labelledby="pages-label">
                   {PAGE_MODES.map((m) => (
@@ -1411,6 +1480,15 @@ export default function App() {
                             : describePage(pageChoice(placement.page, pages)).toLowerCase(),
                     })}
                   </p>
+                )}
+                {batch && placement && !targetPages && (
+                  <>
+                    <label className="check-row">
+                      <input type="checkbox" checked={batchAuto} onChange={(e) => setBatchAuto(e.target.checked)} />
+                      {t("batch.auto")}
+                    </label>
+                    {batchAuto && <p className="muted small">{t("batch.autoHint")}</p>}
+                  </>
                 )}
                 {field ? (
                   <p className="muted small">{t("placement.fieldHint")}</p>
@@ -2239,12 +2317,15 @@ function Settings(props: {
                     preset={p}
                     taken={(n) => props.saved.presets.some((o) => o !== p && o.name === n)}
                     onRename={(name) => props.update({ presets: props.saved.presets.map((o) => (o === p ? { ...o, name } : o)) })}
+                    onAuto={(auto) => props.update({ presets: props.saved.presets.map((o) => (o === p ? { ...o, auto } : o)) })}
                     onDelete={() => props.update({ presets: props.saved.presets.filter((o) => o !== p) })}
                   />
                 ))}
               </ul>
             )}
           </section>
+
+          <AutoPlaceSettings saved={props.saved} update={props.update} />
 
           <section>
             <h3>{t("settings.position")}</h3>
@@ -2592,7 +2673,86 @@ function PresetPicker(props: { presets: Preset[]; active?: string; onApply: (p: 
   );
 }
 
-function PresetRow(props: { preset: Preset; taken: (name: string) => boolean; onRename: (name: string) => void; onDelete: () => void }) {
+function AutoPlaceSettings(props: { saved: Saved; update: (p: Partial<Saved>) => void }) {
+  const [text, setText] = useState(props.saved.anchors.join("\n"));
+  const lines = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
+  const isDefault = props.saved.anchors.join("\n") === DEFAULT_ANCHORS.join("\n");
+  return (
+    <section>
+      <h3>{t("settings.autoPlace")}</h3>
+      <label className="check-row">
+        <input type="checkbox" checked={props.saved.autoPlace} onChange={(e) => props.update({ autoPlace: e.target.checked })} />
+        {t("settings.autoPlaceOn")}
+      </label>
+      <p className="muted small">{t("settings.autoPlaceHint")}</p>
+      <label htmlFor="s-anchors">{t("settings.anchors")}</label>
+      <textarea
+        id="s-anchors"
+        className="anchors"
+        rows={6}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          const list = lines(text);
+          props.update({ anchors: list.length ? list : DEFAULT_ANCHORS });
+          if (!list.length) setText(DEFAULT_ANCHORS.join("\n"));
+        }}
+        spellCheck={false}
+      />
+      <p className="muted small">{t("settings.anchorsHint")}</p>
+      <button
+        className="link"
+        onClick={() => {
+          props.update({ anchors: DEFAULT_ANCHORS });
+          setText(DEFAULT_ANCHORS.join("\n"));
+        }}
+        disabled={isDefault}
+      >
+        {t("settings.anchorsReset")}
+      </button>
+    </section>
+  );
+}
+
+/** Where the box was placed automatically, and the other spots found. */
+function SpotsHint(props: { spots: { list: api.Spot[]; index: number }; open: boolean; onToggle: () => void; onPick: (index: number) => void }) {
+  const { list, index } = props.spots;
+  if (!list.length) return <p className="muted small spots-hint">{t("auto.none")}</p>;
+  return (
+    <>
+      <p className="muted small spots-hint">
+        {t("auto.placedAt", { text: list[index].text })}
+        {list.length > 1 && (
+          <>
+            {" · "}
+            <button className="link" onClick={props.onToggle} aria-expanded={props.open}>
+              {props.open ? t("auto.hideSpots") : t("auto.otherSpots")}
+            </button>
+          </>
+        )}
+      </p>
+      {props.open && (
+        <ul className="spot-list">
+          {list.map((s, i) => (
+            <li key={i}>
+              <button onClick={() => props.onPick(i)} aria-current={i === index}>
+                {t("auto.spot", { text: s.text, page: s.page + 1 })}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function PresetRow(props: {
+  preset: Preset;
+  taken: (name: string) => boolean;
+  onRename: (name: string) => void;
+  onAuto: (auto: boolean) => void;
+  onDelete: () => void;
+}) {
   const { preset } = props;
   const [name, setName] = useState(preset.name);
   const commit = () => {
@@ -2605,6 +2765,7 @@ function PresetRow(props: { preset: Preset; taken: (name: string) => boolean; on
     preset.reason.trim() || t("preset.noReason"),
     preset.location.trim(),
     pl && `${describePage(pl.page)}, ${pl.w.toFixed(1)} × ${pl.h.toFixed(1)} mm`,
+    preset.auto && t("preset.autoSummary"),
   ].filter(Boolean);
   return (
     <li className="preset-row">
@@ -2623,6 +2784,10 @@ function PresetRow(props: { preset: Preset; taken: (name: string) => boolean; on
           aria-label={t("preset.namePlaceholder")}
         />
         <span className="muted small">{summary.join(" · ")}</span>
+        <label className="check-row">
+          <input type="checkbox" checked={!!preset.auto} onChange={(e) => props.onAuto(e.target.checked)} />
+          {t("preset.auto")}
+        </label>
       </div>
       <button className="btn ghost" onClick={props.onDelete} title={t("preset.deleteTitle", { name: preset.name })}>
         {t("common.delete")}

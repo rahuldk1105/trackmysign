@@ -134,6 +134,19 @@ export interface BatchArgs extends Omit<SignArgs, "path" | "page" | "field"> {
   page: "first" | "last" | number;
   /** Box on every page of each file (otherwise on `pages` that a file has). */
   allPages: boolean;
+  /** Put the box where each file asks for a signature; `rect` where none is found. */
+  auto?: boolean;
+  /** Phrases to look for; the defaults when empty. */
+  anchors?: string[];
+}
+
+/** A place for the box where the PDF asks for a signature. */
+export interface Spot {
+  page: number;
+  /** Points from the top-left of the displayed page. */
+  rect: Rect;
+  /** The phrase as printed, e.g. "Authorised Signatory". */
+  text: string;
 }
 
 export type BatchProgress =
@@ -241,6 +254,26 @@ export async function pdfInfo(path: string, password?: string): Promise<PdfInfo>
       { name: "approvals.cfo", page: 0, rect: { x: 60, y: 700, w: 200, h: 60 }, tooltip: null, order: 1 },
     ],
   };
+}
+
+/**
+ * Spots for a `w` × `h` box next to `anchors` in the PDF, the best first;
+ * `name` and `organisation` of the certificate fill in {name} and {organisation}.
+ */
+export async function findSpots(
+  path: string,
+  password: string | undefined,
+  anchors: string[],
+  name: string | null,
+  organisation: string | null,
+  w: number,
+  h: number,
+): Promise<Spot[]> {
+  if (inTauri) return invoke("find_spots", { path, password: password ?? null, anchors, name, organisation, w, h });
+  return [
+    { page: 0, rect: { x: 360, y: 640, w, h }, text: "Authorised Signatory" },
+    { page: 0, rect: { x: 60, y: 640, w, h }, text: "Director" },
+  ];
 }
 
 export async function readPdf(path: string): Promise<ArrayBuffer> {
@@ -966,6 +999,10 @@ export interface WatchPreset {
   /** RFC 3161 server, or null for none. */
   timestamp: string | null;
   ltv: boolean;
+  /** Put the box where each file asks for a signature; `placement` where none is found. */
+  auto?: boolean;
+  /** Phrases to look for when `auto`; the defaults when empty. */
+  anchors?: string[];
 }
 
 export interface WatchConfig {

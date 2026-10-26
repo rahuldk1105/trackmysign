@@ -97,6 +97,7 @@ function samePreset(a: api.WatchPreset, p: Preset): boolean {
     a.location === p.location &&
     (p.image === undefined || a.image === p.image) &&
     (p.style === undefined || sameStyle(a.style, p.style)) &&
+    (!p.auto || !!a.auto) &&
     JSON.stringify(a.placement) === JSON.stringify(p.placement)
   );
 }
@@ -105,7 +106,7 @@ export function WatchSettings(props: {
   status: WatchStatus | null;
   onStatus: (s: WatchStatus) => void;
   presets: Preset[];
-  defaults: { reason: string; location: string; image: ImageChoice; style: StampStyle | null; tsaUrl: string };
+  defaults: { reason: string; location: string; image: ImageChoice; style: StampStyle | null; tsaUrl: string; anchors: string[] };
   /** The certificate a session would sign with. */
   cert?: Cert;
 }) {
@@ -143,8 +144,8 @@ export function WatchSettings(props: {
   };
   const choosePreset = (name: string) => {
     const preset = props.presets.find((p) => p.name === name) ?? null;
-    const { pages, timestamp, ltv } = draft.preset;
-    save({ preset: toWatchPreset(preset, props.defaults, { pages, timestamp, ltv }) });
+    const { pages, timestamp, ltv, auto } = draft.preset;
+    save({ preset: toWatchPreset(preset, props.defaults, { pages, timestamp, ltv, auto }) });
   };
   const stop = async () => {
     setBusy(true);
@@ -238,6 +239,23 @@ export function WatchSettings(props: {
             {[p.reason || t("watch.noReason"), p.location, box].filter(Boolean).join(" · ")}
             {p.name && (!listed || !samePreset(p, listed)) && <> {t("watch.presetCopy", { name: p.name })}</>}
           </p>
+
+          <label>{t("watch.placement")}</label>
+          <div className="segmented" role="radiogroup" aria-label={t("watch.placement")}>
+            <button role="radio" aria-checked={!p.auto} className={!p.auto ? "on" : ""} onClick={() => save({ preset: { ...p, auto: false } })} disabled={locked}>
+              {t("watch.placementPreset")}
+            </button>
+            <button
+              role="radio"
+              aria-checked={!!p.auto}
+              className={p.auto ? "on" : ""}
+              onClick={() => save({ preset: { ...p, auto: true, anchors: props.defaults.anchors } })}
+              disabled={locked}
+            >
+              {t("watch.placementAuto")}
+            </button>
+          </div>
+          {p.auto && <p className="muted small">{t("watch.placementAutoHint")}</p>}
 
           <label htmlFor="watch-pages">{t("watch.pages")}</label>
           <input

@@ -508,6 +508,49 @@ else
   grep -q "can only go to its \"signed\" folder" "$W/err" && echo "PASS watch refuses an output folder inside the watched one" \
     || { echo "FAIL: $(cat "$W/err")"; fail=1; }
 fi
+# --position auto: the box goes where the PDF asks for a signature ("Authorised
+# Signatory" on page 2, on a rotated page, the signer's name) or, with no text
+# to read (a scan), bottom right; also in a batch and a watch folder.
+autoplace() { python3 -W ignore "$ROOT/tests/check_autoplace.py" "$1" "$W/fx/anchors.json" "$2" || fail=1; }
+for f in anchor-p2 anchor-rotated anchor-scan anchor-name; do
+  "$BIN" sign "$W/fx/$f.pdf" --position auto --reason Approved --out "$W/signed/$f.pdf" >"$W/$f.out"
+  check "$W/fx/$f.pdf" "$W/signed/$f.pdf"
+  vcheck "$W/signed/$f.pdf" valid
+  autoplace "$W/signed/$f.pdf" $f
+done
+"$BIN" info --anchors "$W/fx/anchor-p2.pdf" >"$W/anchors.out"
+if grep -q '^  page 2, 380,693,102,11: "Authorised Signatory"$' "$W/anchors.out" \
+   && grep -q '^Placed at "RAHUL TEST DIRECTOR" on page 1' "$W/anchor-name.out" \
+   && grep -q '^Placed at "Authorised Signatory" on page 2' "$W/anchor-p2.out" \
+   && grep -q '^No place to sign found; box at the bottom right of page 1' "$W/anchor-scan.out"; then
+  echo "PASS info --anchors and --position auto say where the box went"
+else
+  echo "FAIL --position auto: $(cat "$W/anchors.out" "$W"/anchor-*.out)"; fail=1
+fi
+mkdir -p "$W/batch-auto"
+for f in anchor-p2 anchor-scan; do cp "$W/fx/$f.pdf" "$W/batch-auto/"; done
+"$BIN" sign "$W/batch-auto/anchor-p2.pdf" "$W/batch-auto/anchor-scan.pdf" --position auto >/dev/null || fail=1
+for f in anchor-p2 anchor-scan; do
+  check "$W/fx/$f.pdf" "$W/batch-auto/${f}_signed.pdf"
+  autoplace "$W/batch-auto/${f}_signed.pdf" $f
+done
+expect_fail "--position auto with --pages refused" "places one box" \
+  "$BIN" sign "$W/fx/anchor-p2.pdf" --position auto --pages all
+WA=$W/watch-auto
+mkdir -p "$WA/in"
+"$BIN" watch "$WA/in" --auto-place --reason Approved >"$WA/out" 2>"$WA/err" &
+WATCH_PID=$!
+trap 'kill $SVC_PID $WATCH_PID 2>/dev/null' EXIT
+for _ in $(seq 100); do grep -q "^Anyone who can write" "$WA/out" && break; sleep 0.1; done
+cp "$W/fx/anchor-p2.pdf" "$W/fx/anchor-scan.pdf" "$WA/in/"
+for _ in $(seq 300); do [ "$(ls "$WA/in/done" 2>/dev/null | wc -l)" = 2 ] && break; sleep 0.1; done
+kill -INT $WATCH_PID
+wait $WATCH_PID || true
+trap 'kill $SVC_PID 2>/dev/null' EXIT
+for f in anchor-p2 anchor-scan; do
+  check "$W/fx/$f.pdf" "$WA/in/signed/${f}_signed.pdf"
+  autoplace "$WA/in/signed/${f}_signed.pdf" $f
+done
 # Signature styles (--style, --seal): the appearance's fonts, images and opacity,
 # and the rendered page (the box found as the pixels that changed).
 style() { python3 -W ignore "$ROOT/tests/check_style.py" "$@" || fail=1; }

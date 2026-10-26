@@ -20,6 +20,7 @@ use notify_debouncer_mini::new_debouncer;
 use notify_debouncer_mini::notify::RecursiveMode;
 use serde::{Deserialize, Serialize};
 
+use crate::autoplace::{self, Holder};
 use crate::pdf::reader::PdfError;
 use crate::{
     DisplayRect, Error, ImagePosition, PdfInfo, SignRequest, StampImage, StampStyle,
@@ -267,6 +268,11 @@ pub struct Preset {
     pub ltv: bool,
     /// How the box looks; the usual box when unset.
     pub style: Option<StampStyle>,
+    /// Put the box where each document asks for a signature (see
+    /// [`autoplace`]); the placement above where none is found.
+    pub auto: bool,
+    /// Phrases to look for when `auto`; the defaults when empty.
+    pub anchors: Vec<String>,
 }
 
 impl Preset {
@@ -547,6 +553,10 @@ pub trait Host {
     /// Ok while the token session can sign.
     fn check(&mut self) -> Result<(), Error>;
     fn event(&mut self, event: Event);
+    /// Who signs, for a preset that places the box automatically.
+    fn holder(&self) -> Holder {
+        Holder::default()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -646,7 +656,10 @@ fn sign_file(
     if let Err(e) = check_permitted(&data, None) {
         return Outcome::Failed(e.to_string());
     }
-    let req = preset.request(&info, image, seal);
+    let mut req = preset.request(&info, image, seal);
+    if preset.auto && req.pages.is_empty() {
+        autoplace::place(&mut req, &data, &preset.anchors, &host.holder(), None);
+    }
     let signed = match host.sign(&data, &req) {
         Ok(s) => s,
         Err(e @ (Error::WrongPin { .. } | Error::PinLocked | Error::Token(_))) => {
@@ -1044,6 +1057,10 @@ mod tests {
         assert_eq!(p.request(&info(2), None, None).page, 1);
         assert!(p.validate().is_ok());
         assert_eq!(req.style, StampStyle::default());
+        assert!(!p.auto && p.anchors.is_empty());
+        let p: Preset =
+            serde_json::from_str(r#"{"auto":true,"anchors":["Partner","{name}"]}"#).unwrap();
+        assert!(p.auto && p.anchors == ["Partner", "{name}"]);
     }
 
     #[test]

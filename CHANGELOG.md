@@ -55,6 +55,22 @@ All notable changes to TrackMy Sign are listed here. The format follows
 - Long-term validity with a FreeTSA timestamp failed with "not a CRL": CRLs
   and issuer certificates served as PEM instead of DER are now read too.
 
+- Automatic placement: when a PDF opens, the box goes where the document
+  asks for a signature, next to "Authorised Signatory", "For
+  <organisation>", the certificate holder's name, "Managing Director",
+  "Company Secretary", "Director", "Signature" or "Signed by", on free space
+  and away from existing signatures; the last pages and the lowest spot come
+  first. The side panel says where (*Placed at "Authorised Signatory"*) and
+  **Show other spots** offers the others; the box drags as usual. *Settings →
+  Automatic placement* turns it off (on by default) and edits the phrases.
+  Presets can place automatically, and batches and the watch folder have
+  *Auto (fallback: preset position)*. A scan without text keeps the usual
+  box. Command line: `sign --position auto`, `watch --auto-place` (or
+  `"auto": true` in the preset JSON) and `info --anchors file.pdf`, which
+  lists the phrases found with their boxes. The page text is read by a new
+  text reader in the core library (standard and embedded fonts, `/ToUnicode`
+  maps, Identity-H, rotated pages).
+
 ### Changed
 
 - Website: the features section is grouped (signing, documents and files,
