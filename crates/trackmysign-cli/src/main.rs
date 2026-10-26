@@ -383,6 +383,12 @@ impl Cmd {
                 };
                 ("pages", [pdfs, opt(&out.out)].concat(), false)
             }
+            Cmd::Fields { op } => match op {
+                FieldsCmd::Add { pdf, out, .. } => {
+                    ("fields", [vec![pdf.clone()], opt(out)].concat(), false)
+                }
+                FieldsCmd::List { pdf } => ("fields", vec![pdf.clone()], false),
+            },
             Cmd::Verify { pdf, report, .. } => {
                 ("verify", [vec![pdf.clone()], opt(report)].concat(), false)
             }
