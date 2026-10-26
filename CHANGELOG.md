@@ -8,6 +8,20 @@ All notable changes to TrackMy Sign are listed here. The format follows
 
 ### Added
 
+- Support report: *Settings → Help & support → Create support report…*
+  (also *Report a problem* next to errors) and `trackmysign doctor [--json]
+  [--include-names]` put together what a bug report needs: version and build,
+  operating system, WebView and language, token drivers (loaded or the error),
+  tokens and their PIN status, certificates (initials, issuer, validity, key,
+  short fingerprint), a settings summary, the GST portal listener, the last
+  update check, the last signing failure and recent errors. The home folder,
+  email addresses, PAN-like codes and long hex strings are redacted; names,
+  token serials and folder paths only when ticked. The app shows the exact
+  text, then copies or saves it; *Open GitHub issue* opens the bug report form
+  with the version filled in. Nothing is sent automatically. The last 200
+  errors are kept for it in the app's data folder (`support-log.json`, without
+  document paths, PINs or passwords; *Clear* empties it). The bug report form
+  asks for the report.
 - TrackMy Sign is on the [Microsoft Store](https://apps.microsoft.com/detail/9NV4G85VML2K). The website and README now point Windows users there first; the direct installer stays available.
 - Certified true copies: *Signature type → Certified true copy* adds a stamp
   to every page (or chosen pages), signed with the document: "CERTIFIED TRUE

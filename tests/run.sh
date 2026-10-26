@@ -804,4 +804,37 @@ printf '{"enabled": false, "retention": "forever"}' >"$HIST/settings.json"
   || { echo "FAIL signing history recorded while turned off"; fail=1; }
 rm "$HIST/settings.json"
 
+# Support report: driver, token and certificate are listed; no PIN, home
+# folder, document name or PAN, also after a failure that named them.
+D=$W/doctor-home
+mkdir -p "$D"
+if HOME=$D "$BIN" sign "$D/ABCDE1234F invoice.pdf" 2>/dev/null; then
+  echo "FAIL signed a file that does not exist"; fail=1
+fi
+if HOME=$D "$BIN" doctor >"$W/doctor.md" 2>/dev/null && grep -q '^# TrackMy Sign support report' "$W/doctor.md" \
+  && grep -q '^```json' "$W/doctor.md"; then
+  echo "PASS doctor prints the report"
+else
+  echo "FAIL doctor report"; fail=1
+fi
+HOME=$D "$BIN" doctor --json >"$W/doctor.json" || { echo "FAIL doctor --json"; fail=1; }
+python3 - "$W/doctor.json" "$D" "$W" <<'PY' || fail=1
+import json, sys
+text = open(sys.argv[1]).read()
+r = json.loads(text)
+ok = True
+def need(c, what):
+    global ok
+    print(("PASS" if c else "FAIL"), "doctor:", what)
+    ok = ok and c
+need(any("softhsm" in d["path"] and d["loaded"] for d in r["drivers"]), "SoftHSM driver loaded")
+need(any(t["label"] == "HYP2003 TEST" and "serial" not in t for t in r["tokens"]), "token listed, no serial")
+need(any(c["subject"] == "R. T. D." and c["key"] == "RSA 2048" and len(c["fingerprint"]) == 8 for c in r["certificates"]), "certificate by initials")
+f = r.get("lastSigningFailure") or {}
+need(f.get("area") == "sign" and "[document]" in f.get("message", ""), "last signing failure without the document")
+for secret in ["12345678", "00000000", "RAHUL TEST DIRECTOR", "ABCDE1234F", "invoice", sys.argv[2], sys.argv[3]]:
+    need(secret not in text, "nothing of " + secret)
+sys.exit(0 if ok else 1)
+PY
+
 [ $fail = 0 ] && echo "ALL PASSED" || { echo "SOME TESTS FAILED"; exit 1; }

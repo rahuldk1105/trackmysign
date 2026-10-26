@@ -357,6 +357,11 @@ fn status(app: &AppHandle) -> StatusDto {
     }
 }
 
+/// A session is signing what arrives.
+pub fn watching(app: &AppHandle) -> bool {
+    app.state::<WatchState>().lock().session.is_some()
+}
+
 /// Tells the window, and the tray, that something changed.
 fn changed(app: &AppHandle, tray: bool) {
     if app.state::<WatchState>().lock().quitting {
