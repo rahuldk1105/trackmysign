@@ -6,6 +6,10 @@ All notable changes to TrackMy Sign are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- TrackMy Sign is on the [Microsoft Store](https://apps.microsoft.com/detail/9NV4G85VML2K). The website and README now point Windows users there first; the direct installer stays available.
+
 ### Changed
 
 - Website: the features section is grouped (signing, documents and files,

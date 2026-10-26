@@ -133,11 +133,12 @@
   });
   if (os && !mobile) {
     selectTab(os);
-    var pane = $('[data-pane="' + os + '"] a.btn');
+    var pane = $('[data-pane="' + os + '"] ' + (os === "win" ? "a[data-store]" : "a.btn"));
     var primary = $("[data-dl-primary]");
     if (pane && primary) {
       primary.href = pane.href;
-      $("[data-dl-label]").textContent = { win: "Download for Windows", mac: "Download for macOS", linux: "Download for Linux" }[os];
+      if (os === "win") { primary.target = "_blank"; primary.rel = "noopener"; }
+      $("[data-dl-label]").textContent = { win: "Download from Microsoft Store", mac: "Download for macOS", linux: "Download for Linux" }[os];
     }
   }
 

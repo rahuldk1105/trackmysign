@@ -83,7 +83,7 @@
             "operatingSystem": "Windows, macOS, Linux",
             "softwareVersion": "0.6.0",
             "downloadUrl": "https://github.com/rahuldk1105/trackmysign/releases/latest",
-            "installUrl": "https://sign.rahuldk.in/#download",
+            "installUrl": "https://apps.microsoft.com/detail/9NV4G85VML2K",
             "license": "https://opensource.org/licenses/MIT",
             "isAccessibleForFree": true,
             "offers": {
@@ -154,7 +154,7 @@
                 "name": "Why does Windows warn me during install?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "The Windows installer isn't code-signed yet, so SmartScreen doesn't recognise the publisher: choose More info, then Run anyway. Every release is built in public by GitHub Actions from the source in the repository, and the macOS app is signed and notarized by Apple."
+                  "text": "Only the direct installer warns: it isn't code-signed yet, so SmartScreen doesn't recognise the publisher (choose More info, then Run anyway). Install from the Microsoft Store instead and there is no warning, because Microsoft signs the Store version. Every release is built in public by GitHub Actions, and the macOS app is signed and notarized by Apple."
                 }
               }
             ]
@@ -1156,17 +1156,23 @@
 
             <div class="dl-pane" role="tabpanel" id="pane-win" aria-labelledby="tab-win" data-pane="win">
               <div class="dl-file">
-                <a class="btn btn-light btn-lg" href="https://github.com/rahuldk1105/trackmysign/releases/latest/download/TrackMySign-Setup-windows-x64.exe">
+                <a class="store-badge" data-store href="https://apps.microsoft.com/detail/9NV4G85VML2K?cid=sign-website" target="_blank" rel="noopener" aria-label="Download TrackMy Sign from the Microsoft Store">
+                  <img src="assets/ms-store-badge-light.svg" width="206" height="56" alt="Download from the Microsoft Store" />
+                </a>
+                <p class="mono dl-meta">Recommended · signed by Microsoft · installs and updates automatically</p>
+                <p class="dl-alt">Or download the installer directly:</p>
+                <a class="btn btn-quiet" data-direct href="https://github.com/rahuldk1105/trackmysign/releases/latest/download/TrackMySign-Setup-windows-x64.exe">
                   <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 17h12" /></svg>
-                  Download for Windows
+                  Download installer (.exe)
                 </a>
                 <p class="mono dl-meta">TrackMySign-Setup-windows-x64.exe · 3.0 MB</p>
                 <p class="mono dl-sum" data-sum="TrackMySign-Setup-windows-x64.exe"></p>
               </div>
               <ol class="dl-steps">
                 <li>Install your token's driver if it isn't installed yet (it comes with the token).</li>
-                <li>Run the installer. It installs for your user only and needs no admin rights.</li>
-                <li>If SmartScreen says “Windows protected your PC”, choose <b>More info → Run anyway</b>.</li>
+                <li>Microsoft Store: click <b>Get</b> (or <b>Install</b>). No warnings, and updates come through the Store.</li>
+                <li>Direct installer: it installs for your user only and needs no admin rights. If SmartScreen says “Windows protected your PC”, choose <b>More info → Run anyway</b>.</li>
+                <li>The right-click “Sign with TrackMy Sign” menu in Explorer comes with the direct installer; the Store version offers <b>Open with</b>.</li>
               </ol>
             </div>
 
@@ -1223,11 +1229,8 @@ Token PIN: ********
             </div>
           </div>
 
-          <!-- Microsoft Store badge goes here once the listing is live (Store ID 9NV4G85VML2K):
-               link to https://apps.microsoft.com/detail/9NV4G85VML2K with Microsoft's official badge image. -->
-
-          <p class="dl-sign">
-            macOS app signed and notarized by Apple · Windows installer not code-signed yet ·
+                    <p class="dl-sign">
+            Microsoft Store version signed by Microsoft · macOS app signed and notarized by Apple · direct Windows installer not code-signed yet ·
             <a href="code-signing/">Code signing policy</a>
           </p>
 
@@ -1274,7 +1277,7 @@ Token PIN: ********
             </details>
             <details>
               <summary>Why does Windows warn me during install?</summary>
-              <p>The Windows installer isn't code-signed yet, so SmartScreen doesn't recognise the publisher: choose More info, then Run anyway. Every release is built in public by GitHub Actions from the source in the repository, and the macOS app is signed and notarized by Apple.</p>
+              <p>Only the direct installer warns: it isn't code-signed yet, so SmartScreen doesn't recognise the publisher (choose More info, then Run anyway). Install from the Microsoft Store instead and there is no warning, because Microsoft signs the Store version. Every release is built in public by GitHub Actions, and the macOS app is signed and notarized by Apple.</p>
             </details>
           </div>
         </div>

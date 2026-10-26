@@ -17,7 +17,8 @@ Status: desktop app for Windows (installer), macOS (dmg) and Linux (AppImage, .d
 
 Download from [sign.rahuldk.in](https://sign.rahuldk.in) or the [latest release](../../releases/latest):
 
-- Windows: `TrackMySign-Setup-windows-x64.exe` — run it (no admin needed). If SmartScreen warns, choose *More info → Run anyway*.
+- Windows: **[Get it from the Microsoft Store](https://apps.microsoft.com/detail/9NV4G85VML2K)** (recommended: signed by Microsoft, updates automatically).
+  Or download `TrackMySign-Setup-windows-x64.exe` and run it (no admin needed); it isn't code-signed yet, so if SmartScreen warns, choose *More info → Run anyway*.
 - macOS: `TrackMySign-macos-universal.dmg` (Apple Silicon and Intel).
 - Linux (x86_64, glibc 2.35+, e.g. Ubuntu 22.04 or Debian 12 and newer):
   `TrackMySign-linux-x86_64.AppImage` — `chmod +x` it and run it; or on Debian and Ubuntu
