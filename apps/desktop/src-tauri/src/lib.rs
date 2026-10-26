@@ -14,6 +14,7 @@ mod recent;
 mod share;
 #[cfg(all(windows, feature = "store"))]
 mod store;
+mod support;
 mod verify;
 mod watch;
 
@@ -123,8 +124,12 @@ fn cert_dto(c: &TokenCert) -> CertDto {
 async fn list_certificates(app: AppHandle) -> CmdResult<Vec<CertDto>> {
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let tokens = Tokens::open_installed()?;
-        let certs = tokens.signing_certificates()?;
+        let certs = Tokens::open_installed().and_then(|t| t.signing_certificates());
+        let certs = certs.map_err(|e| {
+            let e = CommandError::from(e);
+            support::record(&app, "certificates", &e, &[], false);
+            e
+        })?;
         known::remember(&app, &certs);
         Ok(certs.iter().map(cert_dto).collect())
     })
@@ -1026,7 +1031,13 @@ pub fn run() {
             watch::watch_status,
             watch::watch_save,
             watch::watch_start,
-            watch::watch_stop
+            watch::watch_stop,
+            support::support_report,
+            support::support_save,
+            support::support_open_issue,
+            support::support_note,
+            support::support_log_count,
+            support::support_clear_log
         ])
         .build(tauri::generate_context!())
         .expect("error while running TrackMy Sign")

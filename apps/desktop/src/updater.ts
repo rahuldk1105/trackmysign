@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Update } from "@tauri-apps/plugin-updater";
-import { inTauri } from "./api";
+import { inTauri, supportNote } from "./api";
 import { t } from "./i18n";
 
 export interface AvailableUpdate {
@@ -23,6 +23,11 @@ export type UpdateState =
   | { kind: "error"; message: string; update?: AvailableUpdate };
 
 let pending: Update | null = null;
+
+/** The last check or install since the app started, in English, for the support report. */
+let last: string | null = null;
+export const lastUpdateCheck = () => last;
+const stamp = () => new Date().toISOString().slice(0, 19) + "Z";
 
 async function fetchUpdate(): Promise<AvailableUpdate | null> {
   if (!inTauri) {
@@ -72,8 +77,11 @@ export function useUpdater(auto: boolean) {
     setState({ kind: "checking", manual });
     try {
       const update = await fetchUpdate();
+      last = update ? `Version ${update.version} available (checked ${stamp()})` : `Up to date (checked ${stamp()})`;
       setState(update ? { kind: "available", update, dismissed: false } : manual ? { kind: "latest" } : { kind: "idle" });
     } catch (e) {
+      last = `Check failed (${stamp()}): ${message(e)}`;
+      supportNote("update", message(e));
       // Offline at launch is normal; only a manual check reports it.
       setState(manual ? { kind: "error", message: message(e) } : { kind: "idle" });
     } finally {
@@ -91,6 +99,8 @@ export function useUpdater(auto: boolean) {
     try {
       await install((progress) => setState({ kind: "installing", update, progress }));
     } catch (e) {
+      last = `Installing ${update.version} failed (${stamp()}): ${message(e)}`;
+      supportNote("update", message(e));
       setState({ kind: "error", message: message(e), update });
     }
   }, []);

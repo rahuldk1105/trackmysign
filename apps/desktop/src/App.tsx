@@ -31,6 +31,7 @@ import { BackgroundSettings } from "./Background";
 import { ShareActions, ShareMenu } from "./Share";
 import { PortalDialog, PortalSettings, PortalStatusItem, usePortal } from "./PortalSigning";
 import { SignaturesPanel } from "./SignaturesPanel";
+import { HelpSettings, ReportProblemLink, SupportDialog, useSupportReport } from "./Support";
 import { UpdateBanner } from "./UpdateBanner";
 import { useWatch, WatchSettings, WatchStatusItem } from "./Watch";
 import { useUpdater, type UpdateState } from "./updater";
@@ -325,6 +326,7 @@ export default function App() {
   const [folderRun, setFolderRun] = useState<FolderRun | null>(null);
   const [folderOpen, setFolderOpen] = useState<{ folder: string | null } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useSupportReport();
   const [theme, setTheme] = useTheme();
   const [sigImage, setSigImage] = useState<PictureInfo | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -512,6 +514,7 @@ export default function App() {
       } else {
         setUnlock(null);
         setDocError(errorText(err));
+        api.supportNote("open", err.message, [path]);
       }
     } finally {
       setLoading(false);
@@ -715,7 +718,7 @@ export default function App() {
       : [];
   const dismissReminders = () => update({ reminderDismissed: today() });
   const dialogOpen =
-    step.kind !== "idle" || settingsOpen || detailsOpen || designOpen || pagesOpen || !!folderOpen || !!unlock || !!portal.request || !!otherFiles;
+    step.kind !== "idle" || settingsOpen || detailsOpen || designOpen || pagesOpen || !!folderOpen || !!unlock || !!portal.request || !!otherFiles || supportOpen;
 
   /** Opens the folder check; a finished check of another folder makes way for `folder`. */
   const verifyFolder = (folder?: string) => {
@@ -988,7 +991,7 @@ export default function App() {
                   </button>
                   {docError && (
                     <p className="inline-error">
-                      <AlertIcon size={14} /> {docError}
+                      <AlertIcon size={14} /> {docError} <ReportProblemLink />
                     </p>
                   )}
                   {saved.recentOn && recent.length > 0 && <RecentList files={recent} disabled={loading} onOpen={(p) => openFiles([p])} />}
@@ -1639,6 +1642,20 @@ export default function App() {
         </Modal>
       )}
 
+      {supportOpen && (
+        <SupportDialog
+          settings={{
+            timestamp: saved.timestamp,
+            tsaUrl: saved.tsaUrl,
+            ltv: saved.ltv,
+            outDir: saved.outDir,
+            autoUpdate: saved.autoUpdate,
+            language: saved.language,
+          }}
+          onClose={() => setSupportOpen(false)}
+        />
+      )}
+
       {/* Last, so it shows above any other dialog. */}
       {portal.request && <PortalDialog key={portal.request.id} request={portal.request} onDone={portal.done} />}
     </div>
@@ -1874,6 +1891,7 @@ export function PinDialog(props: {
         {props.error ? (
           <p className="inline-error">
             <AlertIcon size={14} /> {errorText(props.error)}
+            {props.error.kind !== "wrongPin" && <ReportProblemLink />}
           </p>
         ) : warning ? (
           <p className="inline-error">
@@ -2352,6 +2370,8 @@ function Settings(props: {
             </section>
           )}
 
+          <HelpSettings />
+
           <section>
             <h3>{t("settings.about")}</h3>
             <div className="about">
@@ -2413,7 +2433,7 @@ function BatchDialog(props: { files: BatchItem[]; running: boolean; error?: stri
       </ul>
       {props.error && (
         <p className="inline-error">
-          <AlertIcon size={14} /> {props.error}
+          <AlertIcon size={14} /> {props.error} <ReportProblemLink />
         </p>
       )}
       {!props.running && <ShareActions paths={done.flatMap((f) => (f.output ? [f.output] : []))} />}
