@@ -339,7 +339,7 @@ impl Cmd {
         let opt = |o: &Option<PathBuf>| o.iter().cloned().collect::<Vec<_>>();
         Some(match self {
             Cmd::Certs { out, .. } => ("certificates", opt(out), false),
-            Cmd::Info { pdf } => ("info", vec![pdf.clone()], false),
+            Cmd::Info { pdf, .. } => ("info", vec![pdf.clone()], false),
             Cmd::Sign {
                 pdfs,
                 out,
