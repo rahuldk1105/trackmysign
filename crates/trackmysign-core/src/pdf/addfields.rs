@@ -75,8 +75,9 @@ pub struct NewField {
     pub seed: bool,
 }
 
-/// Checks a field name: something, without `.`, no longer than readers show.
-pub fn check_name(name: &str) -> std::result::Result<(), String> {
+/// Checks a field name: not empty, no spaces around it, no `.`, at most 100
+/// characters.
+fn check_name(name: &str) -> std::result::Result<(), String> {
     if name.trim().is_empty() {
         return Err("A signature field needs a name.".into());
     }

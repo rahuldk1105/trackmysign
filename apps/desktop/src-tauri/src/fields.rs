@@ -95,3 +95,29 @@ pub async fn add_fields(args: AddFieldsArgs) -> CmdResult<String> {
         message: e.to_string(),
     })?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// As `api.ts` sends them.
+    #[test]
+    fn fields_from_the_front_end() {
+        let args: Vec<FieldArg> = serde_json::from_str(
+            r#"[
+                {"name": " Director ", "page": 1, "rect": {"x": 40, "y": 60, "w": 200, "h": 60},
+                 "tooltip": "Director (Rahul)", "order": 1, "lock": {"kind": "all"}, "seed": true},
+                {"name": "Auditor", "page": 0, "rect": {"x": 1, "y": 2, "w": 3, "h": 4},
+                 "tooltip": " ", "order": null, "lock": {"kind": "fields", "fields": ["Director"]}, "seed": false}
+            ]"#,
+        )
+        .unwrap();
+        let f = new_fields(args);
+        assert_eq!(f[0].name, "Director");
+        assert_eq!((f[0].page, f[0].rect.w, f[0].order), (1, 200.0, Some(1)));
+        assert_eq!(f[0].lock, Some(FieldLock::All));
+        assert!(f[0].seed);
+        assert_eq!(f[1].tooltip, None);
+        assert_eq!(f[1].lock, Some(FieldLock::Fields(vec!["Director".into()])));
+    }
+}
