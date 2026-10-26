@@ -7,7 +7,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use trackmysign_core::history::{self, Entry, History, Integrity, Settings};
 
-use super::{CmdResult, CommandError};
+use super::{CmdResult, CommandError, support};
 
 /// How entries made here name the program.
 pub const PROGRAM: &str = concat!("desktop ", env!("CARGO_PKG_VERSION"));
@@ -27,6 +27,7 @@ fn store(app: &AppHandle) -> CmdResult<History> {
 /// Adds `entry` unless the history is turned off. A history that cannot be
 /// written never stops signing.
 pub fn record(app: &AppHandle, entry: Entry) {
+    support::record_failure(app, &entry);
     match store(app).map(|h| h.record(entry)) {
         Ok(Ok(true)) => {
             let _ = app.emit("history-changed", ());
