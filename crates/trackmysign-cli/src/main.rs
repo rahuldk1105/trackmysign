@@ -1,5 +1,7 @@
 //! `trackmysign` command-line tool — the test-phase front end for the core library.
 
+mod form;
+
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -20,9 +22,9 @@ use trackmysign_core::report::Report;
 use trackmysign_core::token::{Driver, TokenCert, TokenSigner, Tokens, driver_name};
 use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
 use trackmysign_core::{
-    DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, ImagePosition, PdfError, PdfInfo, SignRequest,
-    Signer, StampImage, StampStyle, check_permitted_with_password, inspect_with_password,
-    parse_pages, sign_pdf, signed_path, watch,
+    DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, FillValue, ImagePosition, PdfError, PdfInfo,
+    SignRequest, Signer, StampImage, StampStyle, check_permitted_with_password, fill_form,
+    inspect_with_password, parse_pages, read_form, sign_pdf, signed_path, watch,
 };
 use zeroize::Zeroizing;
 
@@ -72,6 +74,12 @@ enum Cmd {
     },
     /// Show page count, page sizes, existing signatures and empty signature fields.
     Info { pdf: PathBuf },
+    /// List or fill in a PDF's form fields (text boxes, check boxes, radio
+    /// buttons, drop-downs, lists).
+    Form {
+        #[command(subcommand)]
+        cmd: form::FormCmd,
+    },
     /// Sign one or more PDFs with one PIN entry. Writes <name>_signed.pdf
     /// next to each unless --out is given (single PDF only).
     Sign {
@@ -134,6 +142,14 @@ enum Cmd {
         /// afterwards: nothing, form filling and signing, or also comments.
         #[arg(long, value_enum, value_name = "ALLOWED")]
         certify: Option<Certify>,
+        /// Fill in form fields before signing, from a JSON file such as
+        /// {"Name": "Rahul", "Agree": true}; the signature covers the values.
+        #[arg(long, value_name = "FILE")]
+        fill_json: Option<PathBuf>,
+        /// With --fill-json: go ahead without asking when a field is locked
+        /// by an existing signature (that signature will no longer be valid).
+        #[arg(long, requires = "fill_json")]
+        yes: bool,
         /// PIN (for scripted tests only; normally you are prompted).
         #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
         pin: Option<String>,
@@ -515,6 +531,8 @@ struct Job {
     pages: Vec<usize>,
     rect: Option<DisplayRect>,
     password: Option<String>,
+    /// Fill in fields locked by a signature (the user agreed).
+    fill_force: bool,
 }
 
 /// Runs `f` on a PDF, asking for its password on the terminal when it has
@@ -587,6 +605,7 @@ fn read_and_place(
             pages: Vec::new(),
             rect: None,
             password,
+            fill_force: false,
         });
     }
     let pages = match pages {
@@ -623,7 +642,24 @@ fn read_and_place(
         pages,
         rect,
         password,
+        fill_force: false,
     })
+}
+
+/// Fills the form of a placed PDF as a trial, so a wrong field name or
+/// value shows before the PIN prompt; asks about fields locked by a
+/// signature.
+fn check_fill(mut job: Job, fill: &[FillValue], yes: bool) -> Result<Job> {
+    if fill.is_empty() {
+        return Ok(job);
+    }
+    let form = read_form(&job.data, job.password.as_deref())?;
+    job.fill_force = form::confirm_locks(&form, fill, yes)?;
+    let filled = fill_form(&job.data, job.password.as_deref(), fill, job.fill_force)?;
+    for w in &filled.warnings {
+        eprintln!("Warning: {w}");
+    }
+    Ok(job)
 }
 
 fn open_tokens(module: &Option<PathBuf>) -> Result<Tokens> {
@@ -1073,7 +1109,7 @@ fn run() -> Result<()> {
         }
         Cmd::Info { pdf } => {
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
-            let (info, _) = with_password(&pdf, cli.password.as_deref(), |pw| {
+            let (info, password) = with_password(&pdf, cli.password.as_deref(), |pw| {
                 inspect_with_password(&data, pw)
             })?;
             println!("Pages: {}", info.pages.len());
@@ -1091,6 +1127,14 @@ fn run() -> Result<()> {
                 );
             }
             println!("Existing signatures: {}", info.signatures);
+            if let Ok(form) = read_form(&data, password.as_deref())
+                && !form.fields.is_empty()
+            {
+                println!(
+                    "Form fields: {} (see `trackmysign form list`)",
+                    form.fields.len()
+                );
+            }
             if !info.empty_fields.is_empty() {
                 println!("Empty signature fields: {}", info.empty_fields.len());
             }
@@ -1127,6 +1171,7 @@ fn run() -> Result<()> {
                 );
             }
         }
+        Cmd::Form { cmd } => form::run(cmd, cli.password.as_deref())?,
         Cmd::Sign {
             pdfs,
             out,
@@ -1147,9 +1192,15 @@ fn run() -> Result<()> {
             ltv,
             allow_expired,
             certify,
+            fill_json,
+            yes,
             pin,
         } => {
             let certify = certify.map(DocMdp::from);
+            let fill = match &fill_json {
+                Some(path) => form::read_values(path)?,
+                None => Vec::new(),
+            };
             if out.is_some() && pdfs.len() > 1 {
                 bail!("--out works with a single PDF; signed copies go next to each original");
             }
@@ -1201,6 +1252,7 @@ fn run() -> Result<()> {
                         invisible,
                         field.as_deref(),
                     )
+                    .and_then(|job| check_fill(job, &fill, yes))
                 }) {
                     Ok(job) => jobs.push((pdf, job)),
                     Err(e) => report(pdf, e)?,
@@ -1263,6 +1315,8 @@ fn run() -> Result<()> {
                 field: field.clone(),
                 password: job.password.clone(),
                 certify,
+                fill: fill.clone(),
+                fill_break_locks: job.fill_force,
                 ..Default::default()
             };
             let entry = |pdf: &Path, job: &Job, req: &SignRequest| {

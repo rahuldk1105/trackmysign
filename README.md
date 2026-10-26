@@ -152,6 +152,8 @@ Other options:
 .\trackmysign.exe watch C:\Scans                      # sign every PDF put into a folder (see Watch folder)
 .\trackmysign.exe history --since 2026-10-01          # what was signed on this computer (see Signing history)
 .\trackmysign.exe pages merge a.pdf b.pdf -o out.pdf  # merge, reorder, turn, delete pages (see Preparing pages)
+.\trackmysign.exe form list form.pdf                  # fillable form fields (see Filling in forms)
+.\trackmysign.exe sign form.pdf --fill-json values.json  # fill in the form, then sign
 ```
 
 Long-term validity is off by default, so signing works fully offline. `--timestamp`
@@ -209,6 +211,48 @@ Existing signatures cannot survive changes to the pages: the new file does not
 contain them. When a source is signed, the app warns before saving and asks
 again, and the command line asks (or needs `--yes`). Use the page tools to
 prepare a document for signing, not to edit one that is already signed.
+
+## Filling in forms
+
+When a PDF has a form (AcroForm), the app shows its fields on the page as
+boxes to type into, check boxes, radio buttons, drop-downs and lists, sized
+with the zoom; *Form* in the side panel lists them in the form's tab order
+(Tab moves to the next field), with required fields that are still empty in
+red. **Sign** saves what you typed first and then signs, in two incremental
+updates, so the signature covers the values; **Save filled copy** writes
+`name_filled.pdf` without signing. The fields stay fillable: nothing is
+flattened. The command line does the same:
+
+```powershell
+.\trackmysign.exe form list form.pdf                       # fields, values, choices, flags (--json for scripts)
+.\trackmysign.exe form fill form.pdf --set "Name=Rahul" --set "Agree=Yes" -o out.pdf
+.\trackmysign.exe form fill form.pdf --json values.json     # writes form_filled.pdf
+.\trackmysign.exe sign form.pdf --fill-json values.json     # fill in, then sign
+```
+
+`values.json` maps field names (fully qualified, e.g. `applicant.name`) to
+values: `{"Name": "Rahul", "Agree": true, "Gender": "Female", "Languages":
+["Hindi", "Tamil"]}`. Check boxes take their export value, `Yes`/`true` or
+`Off`/`false`; radio buttons the export value of one button; drop-downs and
+lists an option's value or the text shown; give `--set` again for several
+choices of a list.
+
+TrackMy Sign draws each filled field itself, from the field's font, size
+(also "auto"), colour and alignment, and turns `/NeedAppearances` off, so the
+values look the same in every reader. The standard PDF fonts are used: a
+field set in an embedded or other font is shown in Helvetica (with a note),
+and letters those fonts cannot show (Devanagari, Tamil and so on) are shown
+transliterated, as in the signature box, while the field keeps the text as
+typed. Read-only fields cannot be filled in. Password-protected PDFs keep their
+password.
+
+Signatures already in the document stay valid when its certification allows
+form filling (or it is not certified): they then report that the form was
+filled in. A document certified with no changes allowed cannot be filled in.
+A field locked by an existing signature (FieldMDP) is only filled in after a
+warning that the signature will become invalid (the command line asks, or
+needs `--yes`). Forms that exist only as XFA are not supported; a PDF that
+also has the AcroForm version is filled in through that.
 
 ## Signature box design
 

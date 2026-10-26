@@ -37,6 +37,9 @@ pub enum PdfError {
     /// An existing signature field that cannot be signed as asked.
     #[error("{0}")]
     Field(String),
+    /// Form fields that cannot be filled in as asked.
+    #[error("{0}")]
+    Form(String),
 }
 
 impl From<super::object::SyntaxError> for PdfError {

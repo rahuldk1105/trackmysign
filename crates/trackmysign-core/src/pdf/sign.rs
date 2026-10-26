@@ -18,7 +18,7 @@ use crate::stamp::{StampLine, StampStyle, StampValues, stamp_lines};
 /// Rectangle on the page as the user sees it: points, origin at the top-left
 /// of the displayed (cropped and rotated) page — the same space as a PDF.js
 /// viewport at scale 1.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct DisplayRect {
     pub x: f64,
     pub y: f64,
@@ -798,6 +798,61 @@ pub(super) fn write_objects(
         }
         out.extend_from_slice(b"\nendobj\n");
     }
+}
+
+/// Appends `objs` and a cross-reference section for them to the document:
+/// an incremental update without a signature. `next` is one past the
+/// highest object id used.
+pub(super) fn append_update(
+    doc: &Document,
+    objs: &BTreeMap<u32, (u16, Obj)>,
+    next: u32,
+) -> Vec<u8> {
+    let (cat_id, cat_gen) = match doc.trailer.get("Root") {
+        Some(Obj::Ref(id, gn)) => (*id, *gn),
+        _ => (0, 0),
+    };
+    let mut out = doc.data.to_vec();
+    if !matches!(out.last(), Some(b'\n') | Some(b'\r')) {
+        out.push(b'\n');
+    }
+    let mut offsets: BTreeMap<u32, (usize, u16)> = BTreeMap::new();
+    write_objects(&mut out, doc, objs, &mut offsets);
+
+    let mut trailer = Dict::new();
+    trailer.set("Root", Obj::Ref(cat_id, cat_gen));
+    for key in ["Info", "ID", "Encrypt"] {
+        if let Some(v) = doc.trailer.get(key) {
+            trailer.set(key, v.clone());
+        }
+    }
+    let mut entries: BTreeMap<u32, XrefEntry> = offsets
+        .iter()
+        .map(|(id, (off, gn))| (*id, XrefEntry::Offset(*off, *gn)))
+        .collect();
+    let xref_pos = out.len();
+    if doc.repaired {
+        // The previous section could not be read: write a complete one.
+        let mut all = doc.sorted_xref();
+        all.append(&mut entries);
+        let size = next.max(all.keys().max().map(|m| m + 1).unwrap_or(1));
+        if doc.has_compressed_objects() {
+            all.insert(next, XrefEntry::Offset(xref_pos, 0));
+            write_xref_stream(&mut out, next, &all, size + 1, trailer, true);
+        } else {
+            write_xref_table(&mut out, &all, size, trailer, true);
+        }
+    } else {
+        trailer.set("Prev", Obj::int(doc.startxref as i64));
+        if doc.xref_is_stream {
+            entries.insert(next, XrefEntry::Offset(xref_pos, 0));
+            write_xref_stream(&mut out, next, &entries, next + 1, trailer, false);
+        } else {
+            write_xref_table(&mut out, &entries, next, trailer, false);
+        }
+    }
+    out.extend_from_slice(format!("startxref\n{xref_pos}\n%%EOF\n").as_bytes());
+    out
 }
 
 /// Consecutive runs of object ids, for xref subsections / `/Index`.

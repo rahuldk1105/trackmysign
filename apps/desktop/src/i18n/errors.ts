@@ -29,6 +29,9 @@ const SENTENCES: Record<string, MessageKey> = {
   "Every entry was deleted.": "error.historyAllDeleted",
   "Save the new PDF under another name: the original is never changed.": "error.pagesSameFile",
   "The signature is detached: the file is not inside it.": "error.notAttached",
+  "XFA forms aren't supported: this PDF's form exists only as XFA, which TrackMy Sign cannot fill in.": "error.formXfa",
+  "The document is certified with no changes allowed. Filling in its form would invalidate the certification.": "error.formCertified",
+  "This PDF's security settings do not allow filling in its form; enter its owner (permissions) password.": "error.formProtected",
 };
 
 /** Sentences that end in a detail from elsewhere (a server, the OS), kept as is. */

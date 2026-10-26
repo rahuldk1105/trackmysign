@@ -102,10 +102,14 @@ export interface SignArgs {
   certify?: CertifyLevel | null;
   /** Folder for the signed copy; next to the original when null. */
   outDir?: string | null;
+  /** Form fields to fill in first; the signature covers them. */
+  fill?: FillValue[];
+  /** Also fill fields locked by an existing signature, which then breaks. */
+  fillBreakLocks?: boolean;
 }
 
 /** Several PDFs, one PIN entry. The box goes on the same page and spot of each. */
-export interface BatchArgs extends Omit<SignArgs, "path" | "page" | "field"> {
+export interface BatchArgs extends Omit<SignArgs, "path" | "page" | "field" | "fill" | "fillBreakLocks"> {
   paths: string[];
   /** "first", "last" or a page number (1 = first). */
   page: "first" | "last" | number;
@@ -218,6 +222,124 @@ export async function pdfInfo(path: string, password?: string): Promise<PdfInfo>
       { name: "approvals.cfo", page: 0, rect: { x: 60, y: 700, w: 200, h: 60 } },
     ],
   };
+}
+
+export type FieldKind = "text" | "checkbox" | "radio" | "combo" | "list";
+
+/** One place a form field shows on a page. */
+export interface FormWidget {
+  page: number | null;
+  /** Points from the top-left of the displayed page; null when hidden. */
+  rect: Rect | null;
+  /** Check boxes and radio buttons: the value this one stands for. */
+  on: string | null;
+  /** 0 = fit the box. */
+  fontSize: number;
+  /** 0 left, 1 centre, 2 right. */
+  align: number;
+}
+
+/** A field of the PDF's form that can be filled in. */
+export interface FormField {
+  /** Fully qualified name, e.g. `applicant.name`. */
+  name: string;
+  kind: FieldKind;
+  /** The tooltip, which readers show as the field's label. */
+  label: string | null;
+  /** Text; chosen options; a check box's or radio group's chosen value. Empty when unset. */
+  value: string[];
+  options: { value: string; label: string }[];
+  readOnly: boolean;
+  required: boolean;
+  multiline: boolean;
+  password: boolean;
+  comb: boolean;
+  maxLen: number | null;
+  /** A drop-down that also takes typed text. */
+  editable: boolean;
+  multiSelect: boolean;
+  /** Signatures that lock this field: filling it in breaks them. */
+  lockedBy: string[];
+  widgets: FormWidget[];
+}
+
+export interface Form {
+  /** In tab order. */
+  fields: FormField[];
+  xfa: boolean;
+  /** Why the form cannot be filled in, when it cannot. */
+  blocked: string | null;
+}
+
+export interface FillValue {
+  name: string;
+  value: string[];
+}
+
+export interface Filled extends Signed {
+  /** A font replaced, text shown transliterated. */
+  warnings: string[];
+}
+
+export async function formFields(path: string, password?: string): Promise<Form> {
+  if (inTauri) return invoke("form_fields", { path, password: password ?? null });
+  const w = (page: number, x: number, y: number, wd: number, h: number, on: string | null = null): FormWidget => ({
+    page,
+    rect: { x, y, w: wd, h },
+    on,
+    fontSize: 10,
+    align: 0,
+  });
+  const field = (f: Partial<FormField> & Pick<FormField, "name" | "kind" | "widgets">): FormField => ({
+    label: null,
+    value: [],
+    options: [],
+    readOnly: false,
+    required: false,
+    multiline: false,
+    password: false,
+    comb: false,
+    maxLen: null,
+    editable: false,
+    multiSelect: false,
+    lockedBy: [],
+    ...f,
+  });
+  return {
+    xfa: false,
+    blocked: null,
+    fields: [
+      field({ name: "applicant.name", kind: "text", label: "Full name", required: true, widgets: [w(0, 160, 90, 250, 20)] }),
+      field({ name: "address", kind: "text", multiline: true, widgets: [w(0, 160, 130, 250, 60)] }),
+      field({ name: "pan", kind: "text", comb: true, maxLen: 10, widgets: [w(0, 160, 210, 200, 20)] }),
+      field({ name: "agree", kind: "checkbox", options: [{ value: "Yes", label: "Yes" }], widgets: [w(0, 160, 250, 16, 16, "Yes")] }),
+      field({
+        name: "gender",
+        kind: "radio",
+        options: ["Male", "Female"].map((v) => ({ value: v, label: v })),
+        widgets: [w(0, 160, 280, 16, 16, "Male"), w(0, 220, 280, 16, 16, "Female")],
+      }),
+      field({
+        name: "state",
+        kind: "combo",
+        value: ["TN"],
+        options: [
+          { value: "TN", label: "Tamil Nadu" },
+          { value: "KA", label: "Karnataka" },
+        ],
+        widgets: [w(0, 160, 310, 150, 20)],
+      }),
+      field({ name: "ref", kind: "text", readOnly: true, value: ["REF-001"], lockedBy: ["Director"], widgets: [w(0, 160, 345, 150, 20)] }),
+    ],
+  };
+}
+
+/** Saves `<name>_filled.pdf`, not signed; the original is unchanged. */
+export async function saveFilled(path: string, password: string | null, values: FillValue[], breakLocks: boolean, outDir: string | null): Promise<Filled> {
+  if (inTauri) return invoke("save_filled", { path, password, values, breakLocks, outDir });
+  await new Promise((r) => setTimeout(r, 400));
+  const output = path.replace(/\.pdf$/i, "_filled.pdf");
+  return { output, name: output.split(/[\\/]/).pop() ?? output, warnings: [] };
 }
 
 export async function readPdf(path: string): Promise<ArrayBuffer> {

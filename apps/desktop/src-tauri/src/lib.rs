@@ -4,6 +4,7 @@ mod background;
 mod certs;
 mod filesign;
 mod folder;
+mod form;
 mod history;
 mod incoming;
 mod known;
@@ -31,8 +32,8 @@ use trackmysign_core::history::{Entry, Source};
 use trackmysign_core::stamp;
 use trackmysign_core::token::{Token, TokenCert, Tokens, installed_drivers};
 use trackmysign_core::{
-    DisplayRect, DocMdp, Error, ImagePosition, PdfError, SignRequest, StampImage, StampStyle,
-    inspect_with_password, sign_pdf,
+    DisplayRect, DocMdp, Error, FillValue, ImagePosition, PdfError, SignRequest, StampImage,
+    StampStyle, inspect_with_password, sign_pdf,
 };
 
 /// PKCS#11 drivers are process-global; never let two commands use one at once.
@@ -305,6 +306,12 @@ struct SignArgs {
     /// Folder for the signed copy; next to the original when none.
     #[serde(default)]
     out_dir: Option<String>,
+    /// Form fields to fill in before signing.
+    #[serde(default)]
+    fill: Vec<FillValue>,
+    /// Also fill fields locked by an existing signature (the user agreed).
+    #[serde(default)]
+    fill_break_locks: bool,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -350,6 +357,8 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             field: args.field,
             password: args.password,
             certify: args.certify.map(|p| DocMdp::from_level(p.into())),
+            fill: args.fill,
+            fill_break_locks: args.fill_break_locks,
             ..Default::default()
         };
         let mut entry = Entry::signing(Source::Manual, history::PROGRAM, &input, &req);
@@ -972,6 +981,8 @@ pub fn run() {
             recent::recent_clear,
             pdf_info,
             read_pdf,
+            form::form_fields,
+            form::save_filled,
             sign,
             sign_batch,
             pin_status,

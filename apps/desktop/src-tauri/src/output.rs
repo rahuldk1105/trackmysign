@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use trackmysign_core::write_signed_in;
+use trackmysign_core::{write_copy_in, write_signed_in};
 
 use super::{CmdResult, CommandError};
 
@@ -30,6 +30,13 @@ fn target_dir(input: &Path, folder: Option<&str>) -> CmdResult<PathBuf> {
 pub fn write_signed(input: &Path, folder: Option<&str>, data: &[u8]) -> CmdResult<PathBuf> {
     let dir = target_dir(input, folder)?;
     Ok(write_signed_in(input, &dir, data)?)
+}
+
+/// Writes a filled-in form, not signed, as `<name>_filled.pdf` where a
+/// signed copy would go.
+pub fn write_filled(input: &Path, folder: Option<&str>, data: &[u8]) -> CmdResult<PathBuf> {
+    let dir = target_dir(input, folder)?;
+    Ok(write_copy_in(input, &dir, "filled", data)?)
 }
 
 #[cfg(test)]

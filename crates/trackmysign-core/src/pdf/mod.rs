@@ -4,6 +4,7 @@ pub mod crypt;
 pub mod docmdp;
 pub mod dss;
 pub mod fields;
+pub mod form;
 pub mod object;
 pub mod reader;
 pub mod sign;

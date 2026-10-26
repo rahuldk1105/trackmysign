@@ -8,6 +8,9 @@ import type {
   CertifyLevel,
   Driver,
   EmptyField,
+  FillValue,
+  Filled,
+  Form,
   ImageChoice,
   KnownCert,
   PdfInfo,
@@ -18,6 +21,8 @@ import type {
 import { CertDetailsDialog } from "./CertDetails";
 import { FileSignDialog } from "./FileSigning";
 import { FolderDialog, type FolderRun } from "./FolderVerify";
+import { fieldSelector, isEmpty, valueOf, type FormState } from "./FormLayer";
+import { FormPanel } from "./FormPanel";
 import { HistoryDialog, HistorySettingsSection } from "./History";
 import { daysLeftText, expiryText, expiryTone, REMINDER_CHOICES, reminderLabel, remindAbout, today, type ReminderDays } from "./expiry";
 import { currentLang, isLangPref, LANGUAGE_NAMES, t, tx, useLanguage, type LangPref, type MessageKey } from "./i18n";
@@ -275,6 +280,13 @@ interface BatchItem {
   message?: string;
 }
 
+/** Two values of a form field are the same (empty text counts as no value). */
+function sameValue(a: string[], b: string[]): boolean {
+  const x = a.filter(Boolean);
+  const y = b.filter(Boolean);
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+}
+
 type Step =
   | { kind: "idle" }
   | { kind: "pin"; error?: ApiError }
@@ -296,6 +308,12 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [unlock, setUnlock] = useState<Unlock | null>(null);
+  /** The PDF's fillable form, and what was typed into it (by field name). */
+  const [form, setForm] = useState<Form | null>(null);
+  const [formValues, setFormValues] = useState<Record<string, string[]>>({});
+  /** Fields that a signature locks were filled in: confirm, then sign or save. */
+  const [breakAsk, setBreakAsk] = useState<"sign" | "save" | null>(null);
+  const [filling, setFilling] = useState<"saving" | Filled | { error: string } | null>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
   /** Empty signature field to sign into instead of a free box. */
   const [field, setField] = useState<EmptyField | null>(null);
@@ -497,6 +515,9 @@ export default function App() {
       setPagesMode("this");
       setPagesSpec("");
       setCertify(null);
+      setFormValues({});
+      setForm(null);
+      api.formFields(path, password).then(setForm, () => setForm(null));
       setLastFolder(dirName(path));
       if (loadSaved().recentOn)
         api
@@ -527,6 +548,7 @@ export default function App() {
         return;
       }
       setDoc({ ...doc, info: { ...info, pages: doc.info.pages }, password });
+      api.formFields(doc.info.path, password).then(setForm, () => {});
       setUnlock(null);
     } catch (e) {
       const err = api.errorOf(e);
@@ -713,7 +735,42 @@ export default function App() {
       ? (certs.length ? certs : known).filter((k) => remindAbout(k.daysLeft, saved.expiryReminder))
       : [];
   const dismissReminders = () => update({ reminderDismissed: today() });
+  // Filling in the form: what changed goes into the signed (or filled) copy.
+  const formFields = batch ? [] : (form?.fields ?? []);
+  const fillValues: FillValue[] = formFields
+    .filter((f) => f.name in formValues && !sameValue(formValues[f.name], f.value))
+    .map((f) => ({ name: f.name, value: formValues[f.name] }));
+  const locking = formFields.filter((f) => f.lockedBy.length && fillValues.some((v) => v.name === f.name));
+  const requiredLeft = formFields.filter((f) => f.required && !f.readOnly && isEmpty(valueOf(f, formValues))).length;
+  const formState: FormState | null = formFields.length
+    ? {
+        fields: formFields,
+        values: formValues,
+        disabled: !!form?.blocked || step.kind === "signing" || filling === "saving",
+        showMissing: fillValues.length > 0,
+        onChange: (name, value) => setFormValues((v) => ({ ...v, [name]: value })),
+      }
+    : null;
+  const pickFormField = (name: string, page: number | null) => {
+    const el = document.querySelector<HTMLElement>(fieldSelector(name));
+    if (el) {
+      el.scrollIntoView({ block: "center" });
+      el.focus({ preventScroll: true });
+    } else if (page !== null) goPage(page);
+  };
+  const saveFilled = async () => {
+    if (!doc) return;
+    setFilling("saving");
+    try {
+      setFilling(await api.saveFilled(doc.info.path, doc.password ?? null, fillValues, locking.length > 0, saved.outDir || null));
+    } catch (e) {
+      setFilling({ error: errorText(api.errorOf(e)) });
+    }
+  };
+  const startSign = () => (locking.length ? setBreakAsk("sign") : setStep({ kind: "pin" }));
+
   const dialogOpen =
+    !!breakAsk || (!!filling && filling !== "saving") ||
     step.kind !== "idle" || settingsOpen || detailsOpen || designOpen || pagesOpen || !!folderOpen || !!unlock || !!portal.request || !!otherFiles;
 
   /** Opens the folder check; a finished check of another folder makes way for `folder`. */
@@ -832,6 +889,8 @@ export default function App() {
         password: doc.password ?? null,
         certify,
         outDir: saved.outDir || null,
+        fill: fillValues,
+        fillBreakLocks: locking.length > 0,
       });
       update({ certName: cert.name });
       setStep({ kind: "done", result });
@@ -960,6 +1019,7 @@ export default function App() {
                 fields={emptyFields.filter((f) => f.name !== field?.name)}
                 onPickField={pickField}
                 field={field?.name}
+                form={formState}
               />
               {hover && <div className="drop-overlay">{t("empty.dropToOpen")}</div>}
             </>
@@ -1037,6 +1097,19 @@ export default function App() {
                     {t("batch.addFiles")}
                   </button>
                 </section>
+              )}
+
+              {formFields.length > 0 && (
+                <FormPanel
+                  fields={formFields}
+                  values={formValues}
+                  blocked={form?.blocked ?? null}
+                  changed={fillValues.length}
+                  saving={filling === "saving"}
+                  onPick={(f) => pickFormField(f.name, f.widgets.find((w) => w.page !== null)?.page ?? null)}
+                  onReset={() => setFormValues({})}
+                  onSave={() => (locking.length ? setBreakAsk("save") : saveFilled())}
+                />
               )}
 
               <section>
@@ -1372,7 +1445,8 @@ export default function App() {
             </div>
 
             <div className="insp-foot">
-              <button className="btn primary block" disabled={!canSign} onClick={() => setStep({ kind: "pin" })}>
+              {requiredLeft > 0 && fillValues.length > 0 && <p className="small form-missing">{t("form.requiredLeft", { n: requiredLeft })}</p>}
+              <button className="btn primary block" disabled={!canSign} onClick={startSign}>
                 {batch ? t("foot.signN", { n: batch.length }) : t("foot.signDoc")}
               </button>
               <p className="muted small" title={saved.outDir || undefined}>
@@ -1632,6 +1706,80 @@ export default function App() {
             </button>
             <button className="btn primary" autoFocus onClick={() => api.openFile(step.result.output)}>
               {t("common.open")}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {breakAsk && (
+        <Modal title={t("form.breakTitle")} icon={<AlertIcon size={16} />} onClose={() => setBreakAsk(null)}>
+          <p>
+            {t("form.breakBody", {
+              fields: locking.map((f) => f.label ?? f.name).join(", "),
+              names: [...new Set(locking.flatMap((f) => f.lockedBy))].join(", "),
+            })}
+          </p>
+          <div className="dialog-actions">
+            <button className="btn ghost" onClick={() => setBreakAsk(null)}>
+              {t("common.cancel")}
+            </button>
+            <div className="spacer" />
+            <button
+              className="btn primary"
+              autoFocus
+              onClick={() => {
+                setBreakAsk(null);
+                if (breakAsk === "sign") setStep({ kind: "pin" });
+                else saveFilled();
+              }}
+            >
+              {t("form.breakGo")}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {filling && filling !== "saving" && "error" in filling && (
+        <Modal title={t("form.saveFailed")} icon={<AlertIcon size={16} />} onClose={() => setFilling(null)}>
+          <p>{filling.error}</p>
+          <div className="dialog-actions">
+            <div className="spacer" />
+            <button className="btn primary" autoFocus onClick={() => setFilling(null)}>
+              {t("common.close")}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {filling && filling !== "saving" && "output" in filling && (
+        <Modal title={t("form.savedTitle")} icon={<CheckIcon size={16} />} tone="ok" onClose={() => setFilling(null)}>
+          <p>{saved.outDir ? t("form.savedBodyFolder") : t("form.savedBody")}</p>
+          <div className="file-row mono" title={filling.output}>
+            <FileIcon size={14} />
+            <span>{filling.name}</span>
+          </div>
+          {filling.warnings.length > 0 && (
+            <ul className="form-warnings">
+              {filling.warnings.map((w, i) => (
+                <li key={i}>{translateMessage(w)}</li>
+              ))}
+            </ul>
+          )}
+          <div className="dialog-actions">
+            <button className="btn" onClick={() => api.revealFile(filling.output)}>
+              {t("common.showInFolder")}
+            </button>
+            <div className="spacer" />
+            <button
+              className="btn primary"
+              autoFocus
+              onClick={() => {
+                const out = filling.output;
+                setFilling(null);
+                openFiles([out]);
+              }}
+            >
+              {t("form.signCopy")}
             </button>
           </div>
         </Modal>
