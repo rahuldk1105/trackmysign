@@ -6,6 +6,7 @@
 //! signature can be checked after the certificates expire or the CA's
 //! servers go away.
 
+use base64::Engine;
 use cms::content_info::ContentInfo;
 use cms::signed_data::{CertificateSet, SignedData};
 use const_oid::db::{rfc5280, rfc6960};
@@ -121,8 +122,50 @@ fn uri(name: &GeneralName) -> Option<String> {
     }
 }
 
-/// A caIssuers download: one DER certificate, or a PKCS#7 "certs-only" bundle.
+/// The DER inside each `-----BEGIN ...-----` block. Some CAs (FreeTSA among
+/// them) serve their CRLs and issuer certificates as PEM, whatever the
+/// address or content type says.
+fn pem_blocks(data: &[u8]) -> Vec<Vec<u8>> {
+    let Ok(text) = std::str::from_utf8(data) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut b64: Option<String> = None;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with("-----BEGIN ") {
+            b64 = Some(String::new());
+        } else if line.starts_with("-----END ") {
+            if let Some(Ok(der)) = b64
+                .take()
+                .map(|b| base64::engine::general_purpose::STANDARD.decode(b))
+            {
+                out.push(der);
+            }
+        } else if let Some(b) = b64.as_mut() {
+            b.push_str(line);
+        }
+    }
+    out
+}
+
+/// A CRL download as DER (it may come PEM-armoured).
+fn crl_der(data: Vec<u8>) -> Vec<u8> {
+    if data.first() == Some(&0x30) {
+        return data;
+    }
+    pem_blocks(&data).into_iter().next().unwrap_or(data)
+}
+
+/// A caIssuers download: one DER certificate, a PKCS#7 "certs-only" bundle,
+/// or PEM certificates.
 fn parse_issuer_download(data: &[u8]) -> Vec<Vec<u8>> {
+    let pem = pem_blocks(data);
+    if !pem.is_empty() {
+        return pem
+            .into_iter()
+            .flat_map(|der| parse_issuer_download(&der))
+            .collect();
+    }
     if Certificate::from_der(data).is_ok() {
         return vec![data.to_vec()];
     }
@@ -319,6 +362,7 @@ pub fn collect(cms_der: &[u8]) -> Result<ValidationData, Error> {
         if status.is_none() {
             for url in cert.crl_urls() {
                 let res = crate::http::get(&url)
+                    .map(crl_der)
                     .and_then(|data| check_crl(&data, cert).map(|s| (data, s)));
                 match res {
                     Ok((data, s)) => {
@@ -407,5 +451,44 @@ mod tests {
             .err()
             .unwrap();
         assert!(e.contains("TryLater"));
+    }
+
+    // FreeTSA serves its root certificate and CRL as PEM.
+    const FREETSA_ROOT: &[u8] = include_bytes!("../testdata/freetsa-cacert.pem");
+    const FREETSA_CRL: &[u8] = include_bytes!("../testdata/freetsa-root-ca.crl");
+
+    #[test]
+    fn pem_crl_is_read_as_der() {
+        let root = Cert::parse(parse_issuer_download(FREETSA_ROOT).remove(0)).unwrap();
+        assert!(root.self_issued());
+        let der = crl_der(FREETSA_CRL.to_vec());
+        assert_eq!(der[0], 0x30);
+        assert!(CertificateList::from_der(&der).is_ok());
+        assert!(matches!(check_crl(&der, &root), Ok(Status::Good)));
+        // Without unwrapping, the PEM text is no CRL at all.
+        assert_eq!(
+            check_crl(FREETSA_CRL, &root).err().as_deref(),
+            Some("not a CRL")
+        );
+        // DER and anything unreadable pass through untouched.
+        assert_eq!(crl_der(der.clone()), der);
+        assert_eq!(crl_der(b"<html>".to_vec()), b"<html>");
+    }
+
+    #[test]
+    fn issuer_download_formats() {
+        let rsa = include_bytes!("../testdata/rsa-cert.der").to_vec();
+        let ec = include_bytes!("../testdata/ec-cert.der").to_vec();
+        assert_eq!(parse_issuer_download(&rsa), vec![rsa.clone()]);
+        let pem = format!(
+            "{}{}",
+            crate::certdetails::to_pem(&rsa),
+            crate::certdetails::to_pem(&ec)
+        );
+        assert_eq!(parse_issuer_download(pem.as_bytes()), vec![rsa, ec]);
+        // Windows line endings.
+        let crlf = pem.replace('\n', "\r\n");
+        assert_eq!(parse_issuer_download(crlf.as_bytes()).len(), 2);
+        assert!(parse_issuer_download(b"<html>").is_empty());
     }
 }

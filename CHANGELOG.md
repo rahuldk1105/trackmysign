@@ -9,6 +9,17 @@ All notable changes to TrackMy Sign are listed here. The format follows
 ### Added
 
 - TrackMy Sign is on the [Microsoft Store](https://apps.microsoft.com/detail/9NV4G85VML2K). The website and README now point Windows users there first; the direct installer stays available.
+- `tests/manual/tsa_check.sh`: checks real timestamp servers over the
+  internet (raw RFC 3161 request, TSA certificate and chain, signing with
+  `--timestamp` and `--ltv`, validated with pyHanko). The README lists the
+  suggested servers and what they chain to, and why Indian CAs' timestamp
+  services are not among them (offered to subscribers, no free public
+  address).
+
+### Fixed
+
+- Long-term validity with a FreeTSA timestamp failed with "not a CRL": CRLs
+  and issuer certificates served as PEM instead of DER are now read too.
 
 ### Changed
 
