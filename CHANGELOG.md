@@ -31,6 +31,18 @@ All notable changes to TrackMy Sign are listed here. The format follows
   document paths, PINs or passwords; *Clear* empties it). The bug report form
   asks for the report.
 - TrackMy Sign is on the [Microsoft Store](https://apps.microsoft.com/detail/9NV4G85VML2K). The website and README now point Windows users there first; the direct installer stays available.
+- Signature fields for others: **Add fields** in the toolbar draws empty, named
+  signature fields on the pages for co-directors, the auditor or the company
+  secretary to sign later (in TrackMy Sign or Acrobat), with presets for the
+  names, an optional tooltip (who signs), signing order (*Waiting for:
+  Director 2*), lock (all fields or the ones named) and seed values
+  (`adbe.pkcs7.detached`, SHA-256). **Save as…** writes a new PDF; **Save and
+  sign … now** adds the fields and signs your own one in the next update. The
+  fields are an incremental update, so earlier signatures stay valid; works on
+  password-protected PDFs and PDFs with object streams; refused on documents
+  certified with no changes allowed. Command line: `trackmysign fields add
+  in.pdf --field "Director:2:40,60,200,60" … -o out.pdf` and `trackmysign
+  fields list`.
 - `tests/manual/tsa_check.sh`: checks real timestamp servers over the
   internet (raw RFC 3161 request, TSA certificate and chain, signing with
   `--timestamp` and `--ltv`, validated with pyHanko). The README lists the

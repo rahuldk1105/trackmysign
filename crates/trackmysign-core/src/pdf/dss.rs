@@ -10,8 +10,8 @@ use std::io::Write as _;
 use sha1::{Digest, Sha1};
 
 use super::object::{Dict, Obj};
-use super::reader::{Document, Result, XrefEntry, decode_stream};
-use super::sign::{write_objects, write_xref_stream, write_xref_table};
+use super::reader::{Document, Result, decode_stream};
+use super::sign::append_update;
 
 /// What goes into the store for one signature.
 pub struct Validation<'a> {
@@ -127,48 +127,7 @@ pub fn append_with_password(
         }
     }
 
-    // --- write ----------------------------------------------------------
-    let mut out = input.to_vec();
-    if !matches!(out.last(), Some(b'\n') | Some(b'\r')) {
-        out.push(b'\n');
-    }
-    let mut offsets: BTreeMap<u32, (usize, u16)> = BTreeMap::new();
-    write_objects(&mut out, &doc, &objs, &mut offsets);
-
-    let mut trailer = Dict::new();
-    trailer.set("Root", Obj::Ref(cat_id, cat_gen));
-    for key in ["Info", "ID", "Encrypt"] {
-        if let Some(v) = doc.trailer.get(key) {
-            trailer.set(key, v.clone());
-        }
-    }
-    let mut entries: BTreeMap<u32, XrefEntry> = offsets
-        .iter()
-        .map(|(id, (off, gn))| (*id, XrefEntry::Offset(*off, *gn)))
-        .collect();
-    let xref_pos = out.len();
-    if doc.repaired {
-        // The previous section could not be read: write a complete one.
-        let mut all = doc.sorted_xref();
-        all.append(&mut entries);
-        let size = next.max(all.keys().max().map(|m| m + 1).unwrap_or(1));
-        if doc.has_compressed_objects() {
-            all.insert(next, XrefEntry::Offset(xref_pos, 0));
-            write_xref_stream(&mut out, next, &all, size + 1, trailer, true);
-        } else {
-            write_xref_table(&mut out, &all, size, trailer, true);
-        }
-    } else {
-        trailer.set("Prev", Obj::int(doc.startxref as i64));
-        if doc.xref_is_stream {
-            entries.insert(next, XrefEntry::Offset(xref_pos, 0));
-            write_xref_stream(&mut out, next, &entries, next + 1, trailer, false);
-        } else {
-            write_xref_table(&mut out, &entries, next, trailer, false);
-        }
-    }
-    out.extend_from_slice(format!("startxref\n{xref_pos}\n%%EOF\n").as_bytes());
-    Ok(out)
+    append_update(&doc, &objs, next)
 }
 
 #[cfg(test)]

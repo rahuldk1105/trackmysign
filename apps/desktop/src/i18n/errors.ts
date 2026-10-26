@@ -28,6 +28,8 @@ const SENTENCES: Record<string, MessageKey> = {
   "The record of the newest entry (head.json) is missing.": "error.historyHeadMissing",
   "Every entry was deleted.": "error.historyAllDeleted",
   "Save the new PDF under another name: the original is never changed.": "error.pagesSameFile",
+  "Save the PDF with the fields under another name: the original is never changed.": "error.fieldsSameFile",
+  "The document is certified with no changes allowed. New signature fields would invalidate the certification.": "error.fieldsCertified",
   "The signature is detached: the file is not inside it.": "error.notAttached",
   "No file to share.": "error.shareNoFile",
   "The clipboard did not take the file.": "error.clipboard",

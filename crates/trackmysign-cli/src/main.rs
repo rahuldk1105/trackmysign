@@ -23,9 +23,10 @@ use trackmysign_core::token::{
 };
 use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
 use trackmysign_core::{
-    DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, ImagePosition, PdfError, PdfInfo, SignRequest,
-    Signer, StampImage, StampStyle, check_permitted_with_password, inspect_with_password,
-    parse_pages, sign_pdf, signed_path, watch,
+    DEFAULT_TSA_URL, DisplayRect, DocMdp, EmptyField, Error, FieldLock, ImagePosition, NewField,
+    PdfError, PdfInfo, SignRequest, Signer, StampImage, StampStyle, add_signature_fields,
+    check_permitted_with_password, inspect_with_password, next_to_sign, parse_pages, sign_pdf,
+    signature_fields, signed_path, watch,
 };
 use zeroize::Zeroizing;
 
@@ -236,6 +237,12 @@ enum Cmd {
         #[command(subcommand)]
         op: PagesCmd,
     },
+    /// Add empty signature fields for others (co-directors, the auditor, the
+    /// company secretary) to sign later, or list the fields of a PDF.
+    Fields {
+        #[command(subcommand)]
+        op: FieldsCmd,
+    },
     /// Check the signatures in a PDF. Exits with status 2 if any signature is
     /// invalid or the content was changed after signing.
     Verify {
@@ -376,6 +383,12 @@ impl Cmd {
                 };
                 ("pages", [pdfs, opt(&out.out)].concat(), false)
             }
+            Cmd::Fields { op } => match op {
+                FieldsCmd::Add { pdf, out, .. } => {
+                    ("fields", [vec![pdf.clone()], opt(out)].concat(), false)
+                }
+                FieldsCmd::List { pdf } => ("fields", vec![pdf.clone()], false),
+            },
             Cmd::Verify { pdf, report, .. } => {
                 ("verify", [vec![pdf.clone()], opt(report)].concat(), false)
             }
@@ -525,6 +538,214 @@ enum PagesCmd {
         #[command(flatten)]
         out: PagesOut,
     },
+}
+
+#[derive(Subcommand)]
+enum FieldsCmd {
+    /// Add empty, named signature fields. Writes a new file (default
+    /// <name>_fields.pdf); signatures already in the PDF stay valid.
+    Add {
+        pdf: PathBuf,
+        /// NAME:PAGE:x,y,width,height — points from the top-left of the page,
+        /// as for `sign --rect`. Repeat for each field.
+        #[arg(long = "field", required = true, value_name = "SPEC", value_parser = parse_field_spec)]
+        fields: Vec<FieldSpec>,
+        /// Tooltip of a field, e.g. "Director=Director — Rahul Dhileep Kumar";
+        /// also shown in its box.
+        #[arg(long, value_name = "NAME=TEXT")]
+        tooltip: Vec<String>,
+        /// Signing the field locks other fields: "NAME=all" or
+        /// "NAME=FIELD,FIELD".
+        #[arg(long, value_name = "NAME=FIELDS")]
+        lock: Vec<String>,
+        /// The fields are to be signed in the order given (kept in the PDF,
+        /// shown by TrackMy Sign).
+        #[arg(long)]
+        in_order: bool,
+        /// Ask signers for adbe.pkcs7.detached signatures with SHA-256
+        /// (seed values).
+        #[arg(long)]
+        seed: bool,
+        /// File to write; never the input.
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
+    /// List the signature fields: signed or empty, page, box, tooltip,
+    /// signing order and lock.
+    List { pdf: PathBuf },
+}
+
+/// `--field` of `fields add`, before the page is checked.
+#[derive(Clone)]
+struct FieldSpec {
+    name: String,
+    /// As given, from 1.
+    page: usize,
+    rect: DisplayRect,
+}
+
+fn parse_field_spec(s: &str) -> Result<FieldSpec, String> {
+    let mut parts = s.rsplitn(3, ':');
+    let (Some(rect), Some(page), Some(name)) = (parts.next(), parts.next(), parts.next()) else {
+        return Err("expected NAME:PAGE:x,y,width,height".into());
+    };
+    let page = match page.trim().parse::<usize>() {
+        Ok(0) => return Err("pages are numbered from 1".into()),
+        Ok(n) => n,
+        Err(_) => return Err(format!("\"{page}\" is not a page number")),
+    };
+    Ok(FieldSpec {
+        name: name.to_string(),
+        page,
+        rect: parse_rect(rect)?,
+    })
+}
+
+/// `invoice.pdf` → `invoice_fields.pdf` (or `_fields_2`, … if taken).
+fn fields_path(input: &Path) -> PathBuf {
+    let stem = input
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "document".into());
+    let dir = input.parent().unwrap_or_else(|| Path::new("."));
+    std::iter::once(dir.join(format!("{stem}_fields.pdf")))
+        .chain((2..).map(|n| dir.join(format!("{stem}_fields_{n}.pdf"))))
+        .find(|p| !p.exists())
+        .unwrap()
+}
+
+fn describe_lock(l: &FieldLock) -> String {
+    match l {
+        FieldLock::All => "locks all fields".into(),
+        FieldLock::Fields(f) => format!("locks {}", f.join(", ")),
+        FieldLock::AllExcept(f) => format!("locks all fields but {}", f.join(", ")),
+    }
+}
+
+fn fields(op: FieldsCmd, password: Option<&str>) -> Result<()> {
+    match op {
+        FieldsCmd::List { pdf } => {
+            let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
+            let (all, _) = with_password(&pdf, password, |pw| signature_fields(&data, pw))?;
+            println!("Signature fields: {}", all.len());
+            for f in &all {
+                let mut parts = vec![if f.signed { "signed" } else { "empty" }.to_string()];
+                parts.push(match (f.field.page, f.field.rect) {
+                    (Some(p), Some(r)) => format!(
+                        "page {}, {:.0},{:.0},{:.0},{:.0}",
+                        p + 1,
+                        r.x,
+                        r.y,
+                        r.w,
+                        r.h
+                    ),
+                    (Some(p), None) => format!("page {}, invisible", p + 1),
+                    _ => "invisible".into(),
+                });
+                if let Some(n) = f.field.order {
+                    parts.push(format!("signing order {n}"));
+                }
+                if let Some(l) = &f.lock {
+                    parts.push(describe_lock(l));
+                }
+                if f.seed_values {
+                    parts.push("seed values".into());
+                }
+                if let Some(t) = &f.field.tooltip {
+                    parts.push(format!("\"{t}\""));
+                }
+                println!("  {}: {}", f.field.name, parts.join("; "));
+            }
+            let empty: Vec<EmptyField> = all
+                .into_iter()
+                .filter(|f| !f.signed)
+                .map(|f| f.field)
+                .collect();
+            if let Some(f) = next_to_sign(&empty) {
+                println!("Waiting for: {}", f.tooltip.as_deref().unwrap_or(&f.name));
+            }
+        }
+        FieldsCmd::Add {
+            pdf,
+            fields,
+            tooltip,
+            lock,
+            in_order,
+            seed,
+            out,
+        } => {
+            let target = out.unwrap_or_else(|| fields_path(&pdf));
+            let same = match (pdf.canonicalize(), target.canonicalize()) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => pdf == target,
+            };
+            if same {
+                bail!(
+                    "{} is the input; the original is never changed (--out)",
+                    pdf.display()
+                );
+            }
+            let by_name = |what: &str, list: &[String]| -> Result<Vec<(String, String)>> {
+                list.iter()
+                    .map(|s| match s.split_once('=') {
+                        Some((n, v)) if fields.iter().any(|f| f.name == n) => {
+                            Ok((n.to_string(), v.to_string()))
+                        }
+                        Some((n, _)) => bail!("--{what} {s:?}: there is no --field named {n:?}"),
+                        None => bail!("--{what} expects NAME=..., got {s:?}"),
+                    })
+                    .collect()
+            };
+            let tooltips = by_name("tooltip", &tooltip)?;
+            let locks = by_name("lock", &lock)?;
+            let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
+            let (info, password) =
+                with_password(&pdf, password, |pw| inspect_with_password(&data, pw))?;
+            let new: Vec<NewField> = fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    if f.page > info.pages.len() {
+                        bail!("{}: the PDF has only {} page(s)", f.name, info.pages.len());
+                    }
+                    let lock = locks.iter().find(|(n, _)| *n == f.name).map(|(_, v)| {
+                        if v.trim().eq_ignore_ascii_case("all") {
+                            FieldLock::All
+                        } else {
+                            FieldLock::Fields(
+                                v.split(',')
+                                    .map(|n| n.trim().to_string())
+                                    .filter(|n| !n.is_empty())
+                                    .collect(),
+                            )
+                        }
+                    });
+                    Ok(NewField {
+                        name: f.name.clone(),
+                        page: f.page - 1,
+                        rect: f.rect,
+                        tooltip: tooltips
+                            .iter()
+                            .find(|(n, _)| *n == f.name)
+                            .map(|(_, t)| t.clone()),
+                        order: in_order.then_some(i as u32 + 1),
+                        lock,
+                        seed,
+                    })
+                })
+                .collect::<Result<_>>()?;
+            let made = add_signature_fields(&data, password.as_deref(), &new)?;
+            std::fs::write(&target, &made)
+                .with_context(|| format!("writing {}", target.display()))?;
+            println!(
+                "Saved: {} ({} empty signature field{})",
+                target.display(),
+                new.len(),
+                if new.len() == 1 { "" } else { "s" }
+            );
+        }
+    }
+    Ok(())
 }
 
 #[derive(clap::Args)]
@@ -1727,6 +1948,7 @@ fn run(cli: Cli) -> Result<()> {
             }
         }
         Cmd::Pages { op } => pages(op, cli.password.as_deref())?,
+        Cmd::Fields { op } => fields(op, cli.password.as_deref())?,
         Cmd::Verify { pdf, report, json } => {
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
             let name = pdf

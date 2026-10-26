@@ -2,6 +2,7 @@
 
 mod background;
 mod certs;
+mod fields;
 mod filesign;
 mod folder;
 mod history;
@@ -34,7 +35,7 @@ use trackmysign_core::stamp;
 use trackmysign_core::token::{Token, TokenCert, Tokens, installed_drivers};
 use trackmysign_core::{
     DisplayRect, DocMdp, Error, ImagePosition, PdfError, SignRequest, StampImage, StampStyle,
-    inspect_with_password, sign_pdf,
+    add_signature_fields, inspect_with_password, sign_pdf,
 };
 
 /// PKCS#11 drivers are process-global; never let two commands use one at once.
@@ -199,6 +200,10 @@ struct FieldDto {
     page: Option<usize>,
     /// Points from the top-left of the displayed page; none when invisible.
     rect: Option<RectDto>,
+    /// Tooltip, often who is to sign it.
+    tooltip: Option<String>,
+    /// Place in the intended signing order.
+    order: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -249,6 +254,8 @@ fn pdf_info(path: String, password: Option<String>) -> CmdResult<PdfDto> {
                     w: r.w,
                     h: r.h,
                 }),
+                tooltip: f.tooltip,
+                order: f.order,
             })
             .collect(),
         encrypted: info.encrypted,
@@ -311,6 +318,10 @@ struct SignArgs {
     /// Folder for the signed copy; next to the original when none.
     #[serde(default)]
     out_dir: Option<String>,
+    /// Empty signature fields to add first (one update), one of them
+    /// `field`, which the signature then fills (the next update).
+    #[serde(default)]
+    new_fields: Vec<fields::FieldArg>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -359,9 +370,13 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             ..Default::default()
         };
         let mut entry = Entry::signing(Source::Manual, history::PROGRAM, &input, &req);
+        let new_fields = fields::new_fields(args.new_fields);
         let result = (|| -> CmdResult<(PathBuf, Vec<u8>)> {
-            let data = std::fs::read(&input)?;
+            let mut data = std::fs::read(&input)?;
             entry.input_data(&data);
+            if !new_fields.is_empty() {
+                data = add_signature_fields(&data, req.password.as_deref(), &new_fields)?;
+            }
             let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
             let token = Token::open(Path::new(&args.driver_path))?;
             let certs = token.signing_certificates()?;
@@ -1001,6 +1016,7 @@ pub fn run() {
             open_website,
             pages::pages_source,
             pages::assemble_pages,
+            fields::add_fields,
             verify::verify_pdf,
             filesign::file_info,
             filesign::sign_files,

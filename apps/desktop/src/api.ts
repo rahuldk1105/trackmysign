@@ -72,6 +72,27 @@ export interface EmptyField {
   page: number | null;
   /** Points from the top-left of the displayed page; null when invisible. */
   rect: Rect | null;
+  /** Tooltip, often who is to sign it. */
+  tooltip: string | null;
+  /** Place in the intended signing order, from 1. */
+  order: number | null;
+}
+
+/** What signing a new field locks: every field, or the ones named. */
+export type FieldLockArg = { kind: "all" } | { kind: "fields"; fields: string[] };
+
+/** An empty signature field to add for someone else to sign. */
+export interface NewFieldArg {
+  name: string;
+  page: number;
+  /** Points from the top-left of the displayed page. */
+  rect: Rect;
+  tooltip: string | null;
+  /** Place in the signing order, from 1; null when the order does not matter. */
+  order: number | null;
+  lock: FieldLockArg | null;
+  /** Ask for adbe.pkcs7.detached with SHA-256 (seed values). */
+  seed: boolean;
 }
 
 /** Whether the handwritten signature image is shown, and where. */
@@ -102,6 +123,8 @@ export interface SignArgs {
   certify?: CertifyLevel | null;
   /** Folder for the signed copy; next to the original when null. */
   outDir?: string | null;
+  /** Empty signature fields to add first; `field` is one of them. */
+  newFields?: NewFieldArg[];
 }
 
 /** Several PDFs, one PIN entry. The box goes on the same page and spot of each. */
@@ -214,8 +237,8 @@ export async function pdfInfo(path: string, password?: string): Promise<PdfInfo>
     encrypted: false,
     signingAllowed: true,
     emptyFields: [
-      { name: "Director", page: 0, rect: { x: 340, y: 700, w: 200, h: 60 } },
-      { name: "approvals.cfo", page: 0, rect: { x: 60, y: 700, w: 200, h: 60 } },
+      { name: "Director", page: 0, rect: { x: 340, y: 700, w: 200, h: 60 }, tooltip: "Director — Rahul Dhileep Kumar", order: 2 },
+      { name: "approvals.cfo", page: 0, rect: { x: 60, y: 700, w: 200, h: 60 }, tooltip: null, order: 1 },
     ],
   };
 }
@@ -696,6 +719,29 @@ export async function assemblePages(sources: { path: string; password: string | 
   }
   const r: { output: string; notices: PageNotice[] } = await invoke("assemble_pages", { args: { sources, items, output } });
   return r.notices;
+}
+
+// ------------------------------------------------------ signature fields
+
+/** `contract.pdf` → `contract_fields.pdf`, next to it. */
+export function fieldsPath(path: string): string {
+  return path.replace(/\.pdf$/i, "") + "_fields.pdf";
+}
+
+/** Asks where to save the PDF with the new fields; null when cancelled. */
+export async function pickFieldsPath(path: string): Promise<string | null> {
+  if (!inTauri) return fieldsPath(path);
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return save({ defaultPath: fieldsPath(path), filters: [{ name: t("dialog.pdfs"), extensions: ["pdf"] }] });
+}
+
+/** Writes the PDF with `fields` added to `output`; the original is only read. */
+export async function addSignatureFields(path: string, password: string | null, fields: NewFieldArg[], output: string): Promise<string> {
+  if (!inTauri) {
+    await new Promise((r) => setTimeout(r, 400));
+    return output;
+  }
+  return invoke("add_fields", { args: { path, password, fields, output } });
 }
 
 // ---------------------------------------------------------- folder check

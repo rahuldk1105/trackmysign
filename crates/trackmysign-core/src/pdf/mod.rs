@@ -1,3 +1,4 @@
+pub mod addfields;
 pub mod appearance;
 pub mod assemble;
 pub mod crypt;

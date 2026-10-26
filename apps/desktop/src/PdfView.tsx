@@ -19,6 +19,21 @@ export interface PageSize {
   height: number;
 }
 
+/** A signature field being drawn for someone else to sign. */
+export interface DraftBox extends Placement {
+  id: number;
+  name: string;
+}
+
+/** Drawing new signature fields: a drag on a page draws one, a click puts a box of the usual size. */
+export interface DraftLayer {
+  boxes: DraftBox[];
+  selected: number | null;
+  onSelect: (id: number) => void;
+  onDraw: (p: Placement) => void;
+  onChange: (id: number, p: Placement) => void;
+}
+
 /** Loads a PDF and reports page sizes in points (as displayed, rotation applied). */
 export async function loadPdf(bytes: ArrayBuffer, password?: string): Promise<{ doc: PDFDocumentProxy; sizes: PageSize[] }> {
   const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), password }).promise;
@@ -73,11 +88,18 @@ interface Props {
   onPickField?: (f: EmptyField) => void;
   /** The box sits in this signature field: it cannot be moved or resized. */
   field?: string | null;
+  /** Signature fields being drawn; set instead of `placement`. */
+  drafts?: DraftLayer | null;
 }
 
 const MIN_W = 90;
 
 const MIN_H = 30;
+
+/** Smallest new signature field. */
+const DRAFT_MIN_W = 40;
+
+const DRAFT_MIN_H = 20;
 
 export function PdfView({
   doc,
@@ -95,6 +117,7 @@ export function PdfView({
   fields,
   onPickField,
   field,
+  drafts,
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -189,6 +212,7 @@ export function PdfView({
             fields={fields?.filter((f) => f.page === i && f.rect) ?? []}
             onPickField={onPickField}
             field={field ?? null}
+            drafts={drafts ?? null}
           />
         );
       })}
@@ -211,9 +235,10 @@ interface PageProps {
   fields: EmptyField[];
   onPickField?: (f: EmptyField) => void;
   field: string | null;
+  drafts: DraftLayer | null;
 }
 
-function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview, onPlace, fields, onPickField, field }: PageProps) {
+function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview, onPlace, fields, onPickField, field, drafts }: PageProps) {
   const holder = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
@@ -252,9 +277,12 @@ function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview,
     return { x: (clientX - r.left) / scale, y: (clientY - r.top) / scale };
   };
 
-  const clamp = (p: Placement): Placement => {
-    const w = Math.min(Math.max(p.w, MIN_W), size.width);
-    const h = Math.min(Math.max(p.h, MIN_H), size.height);
+  /** The box drawn as it is being drawn. */
+  const [drawing, setDrawing] = useState<Placement | null>(null);
+
+  const clamp = (p: Placement, minW = MIN_W, minH = MIN_H): Placement => {
+    const w = Math.min(Math.max(p.w, minW), size.width);
+    const h = Math.min(Math.max(p.h, minH), size.height);
     return {
       page: index,
       w,
@@ -265,7 +293,8 @@ function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview,
   };
 
   const onPageDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest(".sig-box, .sig-field")) return;
+    if ((e.target as HTMLElement).closest(".sig-box, .sig-field, .draft-field")) return;
+    if (drafts) return drawDraft(e);
     const pt = toPoints(e.clientX, e.clientY);
     const w = placement?.w ?? 170;
     const h = placement?.h ?? 55;
@@ -294,10 +323,59 @@ function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview,
     window.addEventListener("pointerup", up);
   };
 
+  const drawDraft = (e: React.PointerEvent) => {
+    if (!drafts || e.button !== 0) return;
+    e.preventDefault();
+    const start = toPoints(e.clientX, e.clientY);
+    const box = (pt: { x: number; y: number }): Placement => ({
+      page: index,
+      x: Math.min(start.x, pt.x),
+      y: Math.min(start.y, pt.y),
+      w: Math.abs(pt.x - start.x),
+      h: Math.abs(pt.y - start.y),
+    });
+    let last = box(start);
+    const move = (ev: PointerEvent) => {
+      last = box(toPoints(ev.clientX, ev.clientY));
+      setDrawing(last);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setDrawing(null);
+      // A click (or a tiny drag) puts a box of the usual size there.
+      const drawn = last.w >= 8 && last.h >= 8 ? last : { page: index, x: start.x - 85, y: start.y - 27.5, w: 170, h: 55 };
+      drafts.onDraw(clamp(drawn, DRAFT_MIN_W, DRAFT_MIN_H));
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const dragDraft = (b: DraftBox, mode: "move" | "resize") => (e: React.PointerEvent) => {
+    if (!drafts) return;
+    e.stopPropagation();
+    e.preventDefault();
+    drafts.onSelect(b.id);
+    const start = toPoints(e.clientX, e.clientY);
+    const move = (ev: PointerEvent) => {
+      const pt = toPoints(ev.clientX, ev.clientY);
+      const dx = pt.x - start.x;
+      const dy = pt.y - start.y;
+      const p = mode === "move" ? { ...b, x: b.x + dx, y: b.y + dy } : { ...b, w: b.w + dx, h: b.h + dy };
+      drafts.onChange(b.id, clamp(p, DRAFT_MIN_W, DRAFT_MIN_H));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   return (
     <div className="page-wrap" data-page={index}>
       <div
-        className="page"
+        className={drafts ? "page draw-fields" : "page"}
         ref={holder}
         style={{ width: size.width * scale, height: size.height * scale }}
         onPointerDown={onPageDown}
@@ -319,6 +397,23 @@ function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview,
                 <span>{f.name}</span>
               </div>
             ),
+        )}
+        {drafts?.boxes
+          .filter((b) => b.page === index)
+          .map((b) => (
+            <div
+              key={b.id}
+              className={`draft-field ${drafts.selected === b.id ? "on" : ""}`}
+              style={{ left: b.x * scale, top: b.y * scale, width: b.w * scale, height: b.h * scale }}
+              onPointerDown={dragDraft(b, "move")}
+              title={t("view.dragMove")}
+            >
+              <span>{b.name || t("newFields.unnamed")}</span>
+              <div className="sig-resize" onPointerDown={dragDraft(b, "resize")} title={t("view.dragResize")} />
+            </div>
+          ))}
+        {drawing && (
+          <div className="draft-field drawing" style={{ left: drawing.x * scale, top: drawing.y * scale, width: drawing.w * scale, height: drawing.h * scale }} />
         )}
         {placement && (
           <StampBox

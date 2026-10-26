@@ -152,6 +152,7 @@ Other options:
 .\trackmysign.exe watch C:\Scans                      # sign every PDF put into a folder (see Watch folder)
 .\trackmysign.exe history --since 2026-10-01          # what was signed on this computer (see Signing history)
 .\trackmysign.exe pages merge a.pdf b.pdf -o out.pdf  # merge, reorder, turn, delete pages (see Preparing pages)
+.\trackmysign.exe fields add in.pdf --field "Director:2:40,60,200,60" -o out.pdf  # empty fields for others (see Signature fields for others)
 .\trackmysign.exe doctor                              # support report for a bug report (see Reporting a problem)
 ```
 
@@ -230,6 +231,54 @@ Existing signatures cannot survive changes to the pages: the new file does not
 contain them. When a source is signed, the app warns before saving and asks
 again, and the command line asks (or needs `--yes`). Use the page tools to
 prepare a document for signing, not to edit one that is already signed.
+
+## Signature fields for others
+
+A board resolution or an audit report often needs the signatures of several
+people: co-directors, the auditor, the company secretary. **Add fields** in the
+toolbar prepares the PDF for them: drag on a page to draw a box for each
+person (or click to place one), name it (Director, Director 2, Company
+Secretary, Auditor, Chairman are offered, any name works), move or resize it,
+and optionally say who signs it (the tooltip, e.g. *Director — Rahul Dhileep
+Kumar*). **Save as…** writes a new PDF (by default `name_fields.pdf`), which
+then opens with the fields listed under *Signature fields*; the original is
+never changed. To sign one of the fields yourself straight away, choose it
+under *Your own field* and press **Save and sign … now**: the fields are added
+in one incremental update and your signature fills your field in the next, and
+the signed copy is saved as usual.
+
+Each field is an ordinary, unsigned PDF signature field with a light dashed box
+showing its name and tooltip, so it prints and shows in Acrobat as well; others
+sign it in TrackMy Sign (click the field, or `sign --field NAME`) or in Acrobat.
+Options:
+
+- *To be signed in this order*: the order of the list is kept in the PDF, and
+  TrackMy Sign shows whose signature it is waiting for (*Waiting for: Director 2*).
+- *What signing locks*: signing a field can lock all fields, or the ones named
+  (FieldMDP); a lock is carried into the signature that fills the field.
+- *Ask for SHA-256 signatures*: seed values asking for `adbe.pkcs7.detached`
+  with SHA-256, which Acrobat then uses for these fields.
+
+The fields are added as an incremental update, so signatures already in the
+PDF stay valid: adding empty signature fields is an allowed change (pyHanko
+reports it as form filling). Password-protected PDFs keep their password. A
+document certified with *no changes allowed* cannot take new fields; one
+certified for form filling and signing can, as Acrobat judges it (pyHanko's
+stricter default policy reports new visible fields after a certification as
+a change). On the command line:
+
+```powershell
+.\trackmysign.exe fields add minutes.pdf --field "Director:2:40,60,200,60" --field "Director 2:2:300,60,200,60" `
+    --field "Auditor:3:40,700,200,60" --tooltip "Director=Director — Rahul Dhileep Kumar" `
+    --in-order --lock "Auditor=all" --seed -o minutes_fields.pdf
+.\trackmysign.exe fields list minutes_fields.pdf     # each field: signed or empty, page, box, order, lock; who is next
+.\trackmysign.exe sign minutes_fields.pdf --field Director
+```
+
+`--field NAME:PAGE:x,y,width,height` is in points from the top-left of the page
+(as for `sign --rect`); repeat it for each field. Names must be new to the PDF
+and contain no dot. Without `-o` the result is `<name>_fields.pdf`; the input
+is never accepted as the output.
 
 ## Signature box design
 
