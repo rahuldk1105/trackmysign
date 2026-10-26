@@ -44,6 +44,45 @@ All notable changes to TrackMy Sign are listed here. The format follows
   the batch and the watch folder keep the stamp, and the signing history notes
   the stamped pages. Command line: `sign --ctc`, `--ctc-style stamp.json`,
   `--ctc-pages all|1-3` (also on `watch`).
+- Signature fields for others: **Add fields** in the toolbar draws empty, named
+  signature fields on the pages for co-directors, the auditor or the company
+  secretary to sign later (in TrackMy Sign or Acrobat), with presets for the
+  names, an optional tooltip (who signs), signing order (*Waiting for:
+  Director 2*), lock (all fields or the ones named) and seed values
+  (`adbe.pkcs7.detached`, SHA-256). **Save as…** writes a new PDF; **Save and
+  sign … now** adds the fields and signs your own one in the next update. The
+  fields are an incremental update, so earlier signatures stay valid; works on
+  password-protected PDFs and PDFs with object streams; refused on documents
+  certified with no changes allowed. Command line: `trackmysign fields add
+  in.pdf --field "Director:2:40,60,200,60" … -o out.pdf` and `trackmysign
+  fields list`.
+- `tests/manual/tsa_check.sh`: checks real timestamp servers over the
+  internet (raw RFC 3161 request, TSA certificate and chain, signing with
+  `--timestamp` and `--ltv`, validated with pyHanko). The README lists the
+  suggested servers and what they chain to, and why Indian CAs' timestamp
+  services are not among them (offered to subscribers, no free public
+  address).
+
+### Fixed
+
+- Long-term validity with a FreeTSA timestamp failed with "not a CRL": CRLs
+  and issuer certificates served as PEM instead of DER are now read too.
+
+- Automatic placement: when a PDF opens, the box goes where the document
+  asks for a signature, next to "Authorised Signatory", "For
+  <organisation>", the certificate holder's name, "Managing Director",
+  "Company Secretary", "Director", "Signature" or "Signed by", on free space
+  and away from existing signatures; the last pages and the lowest spot come
+  first. The side panel says where (*Placed at "Authorised Signatory"*) and
+  **Show other spots** offers the others; the box drags as usual. *Settings →
+  Automatic placement* turns it off (on by default) and edits the phrases.
+  Presets can place automatically, and batches and the watch folder have
+  *Auto (fallback: preset position)*. A scan without text keeps the usual
+  box. Command line: `sign --position auto`, `watch --auto-place` (or
+  `"auto": true` in the preset JSON) and `info --anchors file.pdf`, which
+  lists the phrases found with their boxes. The page text is read by a new
+  text reader in the core library (standard and embedded fonts, `/ToUnicode`
+  maps, Identity-H, rotated pages).
 
 ### Changed
 

@@ -1812,6 +1812,124 @@ mod tests {
         assert!(e.to_string().contains("existing signature field"), "{e}");
     }
 
+    fn new_field(name: &str, x: f64, order: u32) -> crate::NewField {
+        crate::NewField {
+            name: name.into(),
+            page: 0,
+            rect: crate::DisplayRect {
+                x,
+                y: 600.0,
+                w: 180.0,
+                h: 60.0,
+            },
+            tooltip: Some(format!("{name} — RAHUL DHILEEP KUMAR")),
+            order: Some(order),
+            lock: None,
+            seed: true,
+        }
+    }
+
+    #[test]
+    fn added_fields_keep_signatures_valid_and_can_be_signed() {
+        let once = signed(&plain_pdf(), &mut SoftSigner::rsa(), LATER);
+        let fields = [
+            new_field("Director 2", 40.0, 2),
+            new_field("Auditor", 300.0, 1),
+        ];
+        let prepared = crate::add_signature_fields(&once, None, &fields).unwrap();
+        assert!(prepared.starts_with(&once));
+        let r = verify(&prepared).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].status, Status::Valid, "{:?}", r[0].notes);
+        assert_eq!(r[0].changes, Changes::Signatures);
+
+        let info = crate::inspect(&prepared).unwrap();
+        let names: Vec<&str> = info.empty_fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["Director 2", "Auditor"]);
+        let f = &info.empty_fields[0];
+        assert_eq!(f.page, Some(0));
+        let r = f.rect.unwrap();
+        assert!(
+            (r.x - 40.0).abs() < 0.01 && (r.y - 600.0).abs() < 0.01,
+            "{r:?}"
+        );
+        assert_eq!(
+            f.tooltip.as_deref(),
+            Some("Director 2 — RAHUL DHILEEP KUMAR")
+        );
+        assert_eq!(f.order, Some(2));
+        assert_eq!(
+            crate::next_to_sign(&info.empty_fields).unwrap().name,
+            "Auditor"
+        );
+        // Both widgets on the page, after the first signature's.
+        let doc = Document::parse(&prepared).unwrap();
+        let page = doc.get(3).unwrap();
+        let annots = doc.resolve(page.as_dict().unwrap().get("Annots").unwrap());
+        assert_eq!(annots.unwrap().as_array().unwrap().len(), 3);
+
+        // Taken names, nested names and boxes off the page are refused.
+        for (bad, msg) in [
+            (new_field("Auditor", 40.0, 3), "already a field"),
+            (new_field("Signature1", 40.0, 3), "already a field"),
+            (new_field("board.director", 40.0, 3), "dot"),
+            (new_field("Far", 500.0, 3), "does not fit"),
+        ] {
+            let e = crate::add_signature_fields(&prepared, None, &[bad]).unwrap_err();
+            assert!(e.to_string().contains(msg), "{e}");
+        }
+
+        // Each in turn; the seed values ask for what TrackMy Sign makes.
+        let a = signed_into(&prepared, "Auditor", &mut SoftSigner::ec()).unwrap();
+        let b = signed_into(&a, "Director 2", &mut SoftSigner::rsa()).unwrap();
+        let r = verify(&b).unwrap();
+        assert_eq!(r.len(), 3);
+        for s in &r {
+            assert_eq!(s.status, Status::Valid, "{}: {:?}", s.field, s.notes);
+        }
+        assert_eq!(r[0].changes, Changes::Signatures);
+        assert_eq!(r[1].field, "Auditor");
+        assert_eq!(r[1].changes, Changes::Signatures);
+        assert!(r[2].covers_whole_file());
+        assert!(crate::inspect(&b).unwrap().empty_fields.is_empty());
+        let all = crate::signature_fields(&b, None).unwrap();
+        assert!(all.iter().all(|f| f.signed));
+        assert!(!all[0].seed_values && all[1].seed_values && all[2].seed_values);
+        assert_eq!(
+            all[2].field.tooltip.as_deref(),
+            Some("Auditor — RAHUL DHILEEP KUMAR")
+        );
+    }
+
+    #[test]
+    fn locked_field_carries_its_lock_into_the_signature() {
+        let mut f = new_field("Chairman", 40.0, 1);
+        f.lock = Some(crate::FieldLock::Fields(vec!["Director".into()]));
+        let pdf = crate::add_signature_fields(&plain_pdf(), None, &[f]).unwrap();
+        let listed = crate::signature_fields(&pdf, None).unwrap();
+        assert_eq!(
+            listed[0].lock,
+            Some(crate::FieldLock::Fields(vec!["Director".into()]))
+        );
+        let pdf = signed_into(&pdf, "Chairman", &mut SoftSigner::rsa()).unwrap();
+        assert!(find(&pdf, b"/TransformMethod /FieldMDP").is_some());
+        assert_eq!(verify(&pdf).unwrap()[0].status, Status::Valid);
+    }
+
+    #[test]
+    fn fields_after_a_certification() {
+        let forms = certified(&plain_pdf(), DocMdp::FormFilling).unwrap();
+        let pdf =
+            crate::add_signature_fields(&forms, None, &[new_field("Director", 40.0, 1)]).unwrap();
+        let r = &verify(&pdf).unwrap()[0];
+        assert_eq!(r.changes, Changes::Signatures);
+        assert!(r.notes.is_empty(), "{:?}", r.notes);
+        let none = certified(&plain_pdf(), DocMdp::NoChanges).unwrap();
+        let e = crate::add_signature_fields(&none, None, &[new_field("Director", 40.0, 1)])
+            .unwrap_err();
+        assert!(matches!(e, Error::NotPermitted(_)), "{e}");
+    }
+
     #[test]
     fn content_change_after_signing_is_reported() {
         let pdf = signed(&plain_pdf(), &mut SoftSigner::rsa(), LATER);

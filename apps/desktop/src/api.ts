@@ -72,6 +72,27 @@ export interface EmptyField {
   page: number | null;
   /** Points from the top-left of the displayed page; null when invisible. */
   rect: Rect | null;
+  /** Tooltip, often who is to sign it. */
+  tooltip: string | null;
+  /** Place in the intended signing order, from 1. */
+  order: number | null;
+}
+
+/** What signing a new field locks: every field, or the ones named. */
+export type FieldLockArg = { kind: "all" } | { kind: "fields"; fields: string[] };
+
+/** An empty signature field to add for someone else to sign. */
+export interface NewFieldArg {
+  name: string;
+  page: number;
+  /** Points from the top-left of the displayed page. */
+  rect: Rect;
+  tooltip: string | null;
+  /** Place in the signing order, from 1; null when the order does not matter. */
+  order: number | null;
+  lock: FieldLockArg | null;
+  /** Ask for adbe.pkcs7.detached with SHA-256 (seed values). */
+  seed: boolean;
 }
 
 /** Whether the handwritten signature image is shown, and where. */
@@ -102,6 +123,8 @@ export interface SignArgs {
   certify?: CertifyLevel | null;
   /** Folder for the signed copy; next to the original when null. */
   outDir?: string | null;
+  /** Empty signature fields to add first; `field` is one of them. */
+  newFields?: NewFieldArg[];
   /** "Certified true copy" stamps added with the signature (not into a field). Shows the saved seal when its style has `seal`. */
   ctc?: CtcArg | null;
 }
@@ -119,6 +142,19 @@ export interface BatchArgs extends Omit<SignArgs, "path" | "page" | "field"> {
   page: "first" | "last" | number;
   /** Box on every page of each file (otherwise on `pages` that a file has). */
   allPages: boolean;
+  /** Put the box where each file asks for a signature; `rect` where none is found. */
+  auto?: boolean;
+  /** Phrases to look for; the defaults when empty. */
+  anchors?: string[];
+}
+
+/** A place for the box where the PDF asks for a signature. */
+export interface Spot {
+  page: number;
+  /** Points from the top-left of the displayed page. */
+  rect: Rect;
+  /** The phrase as printed, e.g. "Authorised Signatory". */
+  text: string;
 }
 
 export type BatchProgress =
@@ -222,10 +258,30 @@ export async function pdfInfo(path: string, password?: string): Promise<PdfInfo>
     encrypted: false,
     signingAllowed: true,
     emptyFields: [
-      { name: "Director", page: 0, rect: { x: 340, y: 700, w: 200, h: 60 } },
-      { name: "approvals.cfo", page: 0, rect: { x: 60, y: 700, w: 200, h: 60 } },
+      { name: "Director", page: 0, rect: { x: 340, y: 700, w: 200, h: 60 }, tooltip: "Director — Rahul Dhileep Kumar", order: 2 },
+      { name: "approvals.cfo", page: 0, rect: { x: 60, y: 700, w: 200, h: 60 }, tooltip: null, order: 1 },
     ],
   };
+}
+
+/**
+ * Spots for a `w` × `h` box next to `anchors` in the PDF, the best first;
+ * `name` and `organisation` of the certificate fill in {name} and {organisation}.
+ */
+export async function findSpots(
+  path: string,
+  password: string | undefined,
+  anchors: string[],
+  name: string | null,
+  organisation: string | null,
+  w: number,
+  h: number,
+): Promise<Spot[]> {
+  if (inTauri) return invoke("find_spots", { path, password: password ?? null, anchors, name, organisation, w, h });
+  return [
+    { page: 0, rect: { x: 360, y: 640, w, h }, text: "Authorised Signatory" },
+    { page: 0, rect: { x: 60, y: 640, w, h }, text: "Director" },
+  ];
 }
 
 export async function readPdf(path: string): Promise<ArrayBuffer> {
@@ -706,6 +762,29 @@ export async function assemblePages(sources: { path: string; password: string | 
   return r.notices;
 }
 
+// ------------------------------------------------------ signature fields
+
+/** `contract.pdf` → `contract_fields.pdf`, next to it. */
+export function fieldsPath(path: string): string {
+  return path.replace(/\.pdf$/i, "") + "_fields.pdf";
+}
+
+/** Asks where to save the PDF with the new fields; null when cancelled. */
+export async function pickFieldsPath(path: string): Promise<string | null> {
+  if (!inTauri) return fieldsPath(path);
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return save({ defaultPath: fieldsPath(path), filters: [{ name: t("dialog.pdfs"), extensions: ["pdf"] }] });
+}
+
+/** Writes the PDF with `fields` added to `output`; the original is only read. */
+export async function addSignatureFields(path: string, password: string | null, fields: NewFieldArg[], output: string): Promise<string> {
+  if (!inTauri) {
+    await new Promise((r) => setTimeout(r, 400));
+    return output;
+  }
+  return invoke("add_fields", { args: { path, password, fields, output } });
+}
+
 // ---------------------------------------------------------- folder check
 
 export type FolderStatus = "allValid" | "invalid" | "changed" | "unsigned" | "unreadable" | "password";
@@ -932,6 +1011,10 @@ export interface WatchPreset {
   ctc: CtcStyle | null;
   /** Pages with a stamp: "all" or e.g. "1-3,5". */
   ctcPages: string;
+  /** Put the box where each file asks for a signature; `placement` where none is found. */
+  auto?: boolean;
+  /** Phrases to look for when `auto`; the defaults when empty. */
+  anchors?: string[];
 }
 
 export interface WatchConfig {

@@ -1,0 +1,94 @@
+/* Adding signature fields for others to sign (FieldTools.tsx, PdfView.tsx),
+   and whose signature an existing field is waiting for (App.tsx). */
+
+p.field-next {
+  margin: 8px 0 0;
+  font-weight: 600;
+}
+
+.page.draw-fields {
+  cursor: crosshair;
+}
+.draft-field {
+  position: absolute;
+  border: 1.5px dashed #1b3a8c;
+  background: rgb(27 58 140 / 0.06);
+  cursor: move;
+  overflow: hidden;
+}
+.draft-field.on {
+  border-style: solid;
+  background: rgb(27 58 140 / 0.12);
+}
+.draft-field.drawing {
+  pointer-events: none;
+}
+.draft-field span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: 100%;
+  padding: 1px 4px;
+  background: #1b3a8c;
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.new-fields {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+}
+.new-fields li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.new-fields li:last-child {
+  border-bottom: 0;
+}
+.new-fields li.on {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.new-fields .inline-error {
+  margin: 0;
+}
+.new-fields input.invalid {
+  border-color: var(--bad);
+}
+.new-field-head,
+.new-field-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.new-field-head input {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+.new-field-n {
+  flex: none;
+  width: 16px;
+  color: var(--muted);
+  text-align: right;
+}
+.new-field-row select {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.new-field-row .link {
+  flex: none;
+}
+.insp-foot .btn.block + .btn.block {
+  margin-top: 8px;
+}

@@ -300,6 +300,74 @@ ctc --password=user "$W/fx/presigned-enc-aes256.pdf" "$W/signed/ctc-enc256.pdf" 
 "$BIN" sign "$W/fx/enc-aes128.pdf" --ctc --ctc-pages 1 --pages all --out "$W/signed/ctc-enc-aes128.pdf" >/dev/null
 check "$W/fx/enc-aes128.pdf" "$W/signed/ctc-enc-aes128.pdf"
 ctc "$W/fx/enc-aes128.pdf" "$W/signed/ctc-enc-aes128.pdf" 1 1
+# Empty signature fields for others to sign later: added to a plain, a signed, an
+# encrypted and an object-stream PDF (earlier signatures stay valid, an allowed
+# change for pyHanko), then each field signed in turn and every signature checked.
+FL=$W/newfields
+mkdir -p "$FL"
+NEW=("Director:Director — Rahul Dhileep Kumar" "Director 2" "Auditor")
+# Name, password, then --seed for seed values (pyHanko 0.38 cannot read /SV arrays in
+# an encrypted PDF, so the encrypted one goes without).
+newfields() {
+  local f=$1 pw=$2 prev n=0
+  local arg=() parg=()
+  [ -n "$pw" ] && arg=(--password "$pw") && parg=(--password="$pw")
+  "$BIN" fields add "$W/fx/$f.pdf" "${arg[@]}" --field "Director:1:40,60,200,60" --field "Director 2:1:300,60,200,60" \
+    --field "Auditor:1:40,700,200,50" --tooltip "Director=Director — Rahul Dhileep Kumar" --in-order "${@:3}" \
+    -o "$FL/$f.pdf" >/dev/null || fail=1
+  python3 -W ignore "$ROOT/tests/check_newfields.py" --order "${@:3}" "${arg[@]}" "$W/fx/$f.pdf" "$FL/$f.pdf" "${ROOTS[@]}" \
+    -- "${NEW[@]}" || fail=1
+  prev=$FL/$f.pdf
+  for name in Director "Director 2" Auditor; do
+    n=$((n + 1))
+    "$BIN" sign "$prev" "${arg[@]}" --field "$name" --reason Approved --out "$FL/$f-$n.pdf" >/dev/null || fail=1
+    check "${parg[@]}" "$prev" "$FL/$f-$n.pdf"
+    prev=$FL/$f-$n.pdf
+  done
+  python3 -W ignore "$ROOT/tests/verify_check.py" "${parg[@]}" "$BIN" "$prev" valid "${ROOTS[@]}" || fail=1
+}
+newfields plain "" --seed
+newfields presigned "" --seed
+newfields enc-aes256 user
+newfields objstm "" --seed
+listed=$("$BIN" fields list "$FL/presigned.pdf")
+listed1=$("$BIN" fields list "$FL/presigned-1.pdf")
+listed3=$("$BIN" fields list "$FL/presigned-3.pdf")
+if grep -q "^Waiting for: Director 2$" <<<"$listed1" \
+   && grep -q "^  Director: empty; page 1, 40,60,200,60; signing order 1; seed values" <<<"$listed" \
+   && [ "$(grep -c ": signed;" <<<"$listed3")" = 4 ] && ! grep -q "Waiting for" <<<"$listed3"; then
+  echo "PASS fields list shows the fields and whose signature is next"
+else
+  echo "FAIL fields list: $listed $listed1 $listed3"; fail=1
+fi
+# Certified documents: form filling and signing allowed takes new fields (as
+# Acrobat judges it), no changes allowed refuses them; the original is never written.
+"$BIN" fields add "$W/signed/cert-forms.pdf" --field "Director:1:40,60,200,60" --lock "Director=all" \
+  -o "$FL/cert-forms.pdf" >/dev/null || fail=1
+python3 -W ignore "$ROOT/tests/check_newfields.py" --certify 2 "$W/signed/cert-forms.pdf" "$FL/cert-forms.pdf" "${ROOTS[@]}" \
+  -- Director || fail=1
+"$BIN" sign "$FL/cert-forms.pdf" --field Director --out "$FL/cert-forms-1.pdf" >/dev/null || fail=1
+check --certify=2 "$FL/cert-forms.pdf" "$FL/cert-forms-1.pdf"
+fields_refused() {
+  local what=$1 pattern=$2; shift 2
+  if "$BIN" fields add "$@" >/dev/null 2>"$W/err"; then
+    echo "FAIL fields added: $what"; fail=1
+  elif grep -q "$pattern" "$W/err" && [ ! -e "$FL/refused.pdf" ]; then
+    echo "PASS fields refused: $what"
+  else
+    echo "FAIL fields refusal ($what): $(cat "$W/err")"; fail=1
+  fi
+}
+fields_refused "certified, no changes allowed" "no changes allowed" \
+  "$W/signed/cert-none.pdf" --field "Director:1:40,60,200,60" -o "$FL/refused.pdf"
+fields_refused "name taken" "already a field" \
+  "$FL/plain.pdf" --field "Auditor:1:300,700,200,50" -o "$FL/refused.pdf"
+fields_refused "box off the page" "does not fit" \
+  "$W/fx/plain.pdf" --field "Director:1:500,60,200,60" -o "$FL/refused.pdf"
+cp "$W/fx/plain.pdf" "$FL/same.pdf"
+fields_refused "written over the input" "never changed" \
+  "$FL/same.pdf" --field "Director:1:40,60,200,60" -o "$FL/same.pdf"
+cmp -s "$W/fx/plain.pdf" "$FL/same.pdf" || { echo "FAIL the input was changed"; fail=1; }
 if TRACKMYSIGN_PIN=00000000 "$BIN" sign "$W/fx/plain.pdf" --out "$W/x.pdf" 2>"$W/err"; then
   echo "FAIL wrong PIN accepted"; fail=1
 else
@@ -509,6 +577,49 @@ ctc "$W/fx/plain.pdf" "$WC/in/signed/plain_signed.pdf" 1 1
 grep -q "allow only form filling and signing" "$WC/in/failed/cert-forms.txt" \
   && echo "PASS watch folder refuses stamps on a form-filling certification" \
   || { echo "FAIL watch ctc: $(cat "$WC/out" "$WC/err"; ls -R "$WC/in")"; fail=1; }
+# --position auto: the box goes where the PDF asks for a signature ("Authorised
+# Signatory" on page 2, on a rotated page, the signer's name) or, with no text
+# to read (a scan), bottom right; also in a batch and a watch folder.
+autoplace() { python3 -W ignore "$ROOT/tests/check_autoplace.py" "$1" "$W/fx/anchors.json" "$2" || fail=1; }
+for f in anchor-p2 anchor-rotated anchor-scan anchor-name; do
+  "$BIN" sign "$W/fx/$f.pdf" --position auto --reason Approved --out "$W/signed/$f.pdf" >"$W/$f.out"
+  check "$W/fx/$f.pdf" "$W/signed/$f.pdf"
+  vcheck "$W/signed/$f.pdf" valid
+  autoplace "$W/signed/$f.pdf" $f
+done
+"$BIN" info --anchors "$W/fx/anchor-p2.pdf" >"$W/anchors.out"
+if grep -q '^  page 2, 380,693,102,11: "Authorised Signatory"$' "$W/anchors.out" \
+   && grep -q '^Placed at "RAHUL TEST DIRECTOR" on page 1' "$W/anchor-name.out" \
+   && grep -q '^Placed at "Authorised Signatory" on page 2' "$W/anchor-p2.out" \
+   && grep -q '^No place to sign found; box at the bottom right of page 1' "$W/anchor-scan.out"; then
+  echo "PASS info --anchors and --position auto say where the box went"
+else
+  echo "FAIL --position auto: $(cat "$W/anchors.out" "$W"/anchor-*.out)"; fail=1
+fi
+mkdir -p "$W/batch-auto"
+for f in anchor-p2 anchor-scan; do cp "$W/fx/$f.pdf" "$W/batch-auto/"; done
+"$BIN" sign "$W/batch-auto/anchor-p2.pdf" "$W/batch-auto/anchor-scan.pdf" --position auto >/dev/null || fail=1
+for f in anchor-p2 anchor-scan; do
+  check "$W/fx/$f.pdf" "$W/batch-auto/${f}_signed.pdf"
+  autoplace "$W/batch-auto/${f}_signed.pdf" $f
+done
+expect_fail "--position auto with --pages refused" "places one box" \
+  "$BIN" sign "$W/fx/anchor-p2.pdf" --position auto --pages all
+WA=$W/watch-auto
+mkdir -p "$WA/in"
+"$BIN" watch "$WA/in" --auto-place --reason Approved >"$WA/out" 2>"$WA/err" &
+WATCH_PID=$!
+trap 'kill $SVC_PID $WATCH_PID 2>/dev/null' EXIT
+for _ in $(seq 100); do grep -q "^Anyone who can write" "$WA/out" && break; sleep 0.1; done
+cp "$W/fx/anchor-p2.pdf" "$W/fx/anchor-scan.pdf" "$WA/in/"
+for _ in $(seq 300); do [ "$(ls "$WA/in/done" 2>/dev/null | wc -l)" = 2 ] && break; sleep 0.1; done
+kill -INT $WATCH_PID
+wait $WATCH_PID || true
+trap 'kill $SVC_PID 2>/dev/null' EXIT
+for f in anchor-p2 anchor-scan; do
+  check "$W/fx/$f.pdf" "$WA/in/signed/${f}_signed.pdf"
+  autoplace "$WA/in/signed/${f}_signed.pdf" $f
+done
 # Signature styles (--style, --seal): the appearance's fonts, images and opacity,
 # and the rendered page (the box found as the pixels that changed).
 style() { python3 -W ignore "$ROOT/tests/check_style.py" "$@" || fail=1; }

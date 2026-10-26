@@ -136,6 +136,8 @@ Other options:
 .\trackmysign.exe sign-file bid.docx prices.xlsx      # bid.docx.p7s, prices.xlsx.p7s (see Signing other files)
 .\trackmysign.exe verify-file bid.docx               # check bid.docx.p7s
 .\trackmysign.exe sign file.pdf --page 1 --position top-right
+.\trackmysign.exe sign file.pdf --position auto        # where the PDF asks for a signature (see below)
+.\trackmysign.exe info --anchors file.pdf             # the phrases --position auto looks for, with their boxes
 .\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
 .\trackmysign.exe sign file.pdf --pages all            # one signature, box on every page
 .\trackmysign.exe sign file.pdf --pages 1-3,5          # ... or on some pages
@@ -153,6 +155,7 @@ Other options:
 .\trackmysign.exe watch C:\Scans                      # sign every PDF put into a folder (see Watch folder)
 .\trackmysign.exe history --since 2026-10-01          # what was signed on this computer (see Signing history)
 .\trackmysign.exe pages merge a.pdf b.pdf -o out.pdf  # merge, reorder, turn, delete pages (see Preparing pages)
+.\trackmysign.exe fields add in.pdf --field "Director:2:40,60,200,60" -o out.pdf  # empty fields for others (see Signature fields for others)
 .\trackmysign.exe doctor                              # support report for a bug report (see Reporting a problem)
 ```
 
@@ -162,6 +165,26 @@ only a hash of the signature is sent). `--ltv` embeds your CA's OCSP/CRL answers
 in the PDF so the signature can be validated after the certificate expires. The
 desktop app has the same options under *Settings → Long-term validity*. If a
 server cannot be reached, nothing is saved and you can sign again without it.
+
+Timestamp servers suggested in Settings (free, no account; checked with
+`tests/manual/tsa_check.sh`, timestamp and `--ltv` validated with pyHanko):
+
+| Server | Address | Chains to |
+|---|---|---|
+| DigiCert (default) | `http://timestamp.digicert.com` | DigiCert Trusted Root G4 |
+| Sectigo | `http://timestamp.sectigo.com` | USERTrust RSA Certification Authority |
+| SSL.com | `http://ts.ssl.com` | SSL.com Root Certification Authority RSA |
+| GlobalSign | `http://timestamp.globalsign.com/tsa/r6advanced1` | GlobalSign Root CA - R6 |
+| Certum | `http://time.certum.pl` | Certum Trusted Network CA |
+| FreeTSA | `https://freetsa.org/tsr` | FreeTSA's own root (not in Windows or Adobe trust lists) |
+
+Indian licensed CAs (eMudhra, (n)Code, Vsign, Sify SafeScrypt, Capricorn,
+Pantasign and others) run timestamp services under the CCA, but for their
+subscribers: none publishes a free address, and their timestamp hosts did not
+answer a test request. If your CA gives you a TSA address (with your
+subscription or for your network), enter it in Settings or pass it to
+`--timestamp`; `tests/manual/tsa_check.sh <address>` shows whether its
+certificate chains to the CCA India root.
 
 An expired certificate is refused, since a signature made with it is not valid
 (`--allow-expired` signs anyway, with a warning). The desktop app reminds you to
@@ -179,6 +202,38 @@ signature that says what may change afterwards: nothing, form filling and
 signing, or also comments. Only an unsigned document can be certified, and a
 document certified with `none` cannot be signed again. In the desktop app this
 is *Signature type → Certify* in the side panel.
+
+## Placing the box automatically
+
+When a PDF opens, the app reads its text and puts the box where the document
+asks for a signature: next to "Authorised Signatory" / "Authorized
+Signatory", "For <organisation>" (the O= of your certificate), your own name
+as on the certificate, "Managing Director", "Company Secretary", "Director",
+"Signature" or "Signed by" (capitals do not matter). The box goes just above
+the phrase (below "For <organisation>", beside a "Signature:" label), on free
+space where there is some, and keeps its size. When several are found, the
+last pages and the lowest on the page come first, the signer's name and
+"Authorised Signatory" before generic words, and a phrase on a line of its
+own before one inside a sentence; spots over existing signatures are avoided.
+The side panel says *Placed at "Authorised Signatory"*; **Show other spots**
+lists the rest, and the box can be dragged as usual. A scanned PDF (no text)
+or one without these phrases gets the box at its usual place.
+
+*Settings → Automatic placement* turns this off and edits the phrases (one per
+line; `{name}` and `{organisation}` stand for the certificate's name and
+organisation). A preset can place automatically (*Settings → Presets → Place
+automatically*, or save a preset while the box is placed automatically), as
+can a batch (*Find the place to sign in each document*, the box as placed
+falling back) and a watch folder (*Placement → Auto (fallback: preset
+position)*). Text is read from the page content (standard fonts in WinAnsi,
+Standard or MacRoman encoding, and embedded fonts with a `/ToUnicode` map,
+also on rotated pages); only the last 50 pages are read.
+
+On the command line, `sign --position auto` does the same for each PDF (on
+`--page` when given, bottom-right where nothing is found) and prints where the
+box went; `info --anchors file.pdf` lists the phrases found, with their boxes
+in points from the top-left of the page, and the box `--position auto` would
+use (without a token, your name and organisation are not looked for there).
 
 ## Preparing pages before signing
 
@@ -211,6 +266,54 @@ Existing signatures cannot survive changes to the pages: the new file does not
 contain them. When a source is signed, the app warns before saving and asks
 again, and the command line asks (or needs `--yes`). Use the page tools to
 prepare a document for signing, not to edit one that is already signed.
+
+## Signature fields for others
+
+A board resolution or an audit report often needs the signatures of several
+people: co-directors, the auditor, the company secretary. **Add fields** in the
+toolbar prepares the PDF for them: drag on a page to draw a box for each
+person (or click to place one), name it (Director, Director 2, Company
+Secretary, Auditor, Chairman are offered, any name works), move or resize it,
+and optionally say who signs it (the tooltip, e.g. *Director — Rahul Dhileep
+Kumar*). **Save as…** writes a new PDF (by default `name_fields.pdf`), which
+then opens with the fields listed under *Signature fields*; the original is
+never changed. To sign one of the fields yourself straight away, choose it
+under *Your own field* and press **Save and sign … now**: the fields are added
+in one incremental update and your signature fills your field in the next, and
+the signed copy is saved as usual.
+
+Each field is an ordinary, unsigned PDF signature field with a light dashed box
+showing its name and tooltip, so it prints and shows in Acrobat as well; others
+sign it in TrackMy Sign (click the field, or `sign --field NAME`) or in Acrobat.
+Options:
+
+- *To be signed in this order*: the order of the list is kept in the PDF, and
+  TrackMy Sign shows whose signature it is waiting for (*Waiting for: Director 2*).
+- *What signing locks*: signing a field can lock all fields, or the ones named
+  (FieldMDP); a lock is carried into the signature that fills the field.
+- *Ask for SHA-256 signatures*: seed values asking for `adbe.pkcs7.detached`
+  with SHA-256, which Acrobat then uses for these fields.
+
+The fields are added as an incremental update, so signatures already in the
+PDF stay valid: adding empty signature fields is an allowed change (pyHanko
+reports it as form filling). Password-protected PDFs keep their password. A
+document certified with *no changes allowed* cannot take new fields; one
+certified for form filling and signing can, as Acrobat judges it (pyHanko's
+stricter default policy reports new visible fields after a certification as
+a change). On the command line:
+
+```powershell
+.\trackmysign.exe fields add minutes.pdf --field "Director:2:40,60,200,60" --field "Director 2:2:300,60,200,60" `
+    --field "Auditor:3:40,700,200,60" --tooltip "Director=Director — Rahul Dhileep Kumar" `
+    --in-order --lock "Auditor=all" --seed -o minutes_fields.pdf
+.\trackmysign.exe fields list minutes_fields.pdf     # each field: signed or empty, page, box, order, lock; who is next
+.\trackmysign.exe sign minutes_fields.pdf --field Director
+```
+
+`--field NAME:PAGE:x,y,width,height` is in points from the top-left of the page
+(as for `sign --rect`); repeat it for each field. Names must be new to the PDF
+and contain no dot. Without `-o` the result is `<name>_fields.pdf`; the input
+is never accepted as the output.
 
 ## Signature box design
 
@@ -554,10 +657,13 @@ The command-line tool does the same, for a server or a scanner PC:
 It asks for the PIN once and runs until Ctrl+C. `--preset-json` takes a preset
 as JSON (`{"reason": "Approved", "location": "Chennai", "placement": {"page":
 "last", "x": 120, "y": 250, "w": 60, "h": 20}}`, millimetres from the top-left;
-also `pages`, `image` with `--image`, `invisible`, `timestamp`, `ltv`, and
-`style` as below, with `--seal` when it shows a seal; `--style` replaces it;
-`ctc` and `ctcPages` for certified true copy stamps, or `--ctc`,
-`--ctc-style` and `--ctc-pages`); `--keep-originals`, `--daily-limit N` (0 for none) and `--hours` work as in
+also `pages`, `image` with `--image`, `invisible`, `timestamp`, `ltv`,
+`"auto": true` to place the box automatically with `placement` as the fallback
+(`--auto-place` does the same; `anchors` replaces the phrases looked for),
+`style` as below, with `--seal` when it shows a seal (`--style` replaces it),
+and `ctc` and `ctcPages` for certified true copy stamps (or `--ctc`,
+`--ctc-style` and `--ctc-pages`); `--keep-originals`, `--daily-limit N` (0 for
+none) and `--hours` work as in
 the app.
 
 ## Sending the signed copy
@@ -757,6 +863,14 @@ tests/run.sh               # end-to-end: SoftHSM virtual token + generated PDFs,
 
 `tests/run.sh` needs `softhsm2`, `opensc`, `qpdf`, `poppler-utils` (pdftoppm), `openssl`, `curl`, Node.js and `pip install pyhanko reportlab`.
 The timestamp and LTV tests run a local TSA, OCSP responder and CRL server (`tests/services.py`), so no internet is needed.
+
+`tests/manual/tsa_check.sh [URL...]` checks real timestamp servers over the
+internet (by default the ones suggested in Settings plus the Indian CA hosts):
+a raw RFC 3161 request (status, time, TSA certificate, whether it chains to a
+public root or the CCA India root), then signing on the SoftHSM token with
+`--timestamp` and with `--ltv`, validated with pyHanko. It is not part of
+`tests/run.sh`. Roots that are in no system bundle (FreeTSA's, or DigiCert
+Assured ID Root CA for DigiCert's `--ltv` check) go in `EXTRA_ROOTS`.
 
 Layout:
 
