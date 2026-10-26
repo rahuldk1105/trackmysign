@@ -13,6 +13,7 @@ pub mod pdf;
 pub mod portal;
 pub mod report;
 pub mod stamp;
+pub mod support;
 pub mod token;
 pub mod tsa;
 pub mod verify;

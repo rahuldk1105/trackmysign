@@ -98,6 +98,35 @@ document, and it stays on your computer. *Settings → Recent files* clears the
 list; turning the setting off clears it and stops recording (the Open dialog
 then remembers the last folder only until you close the app).
 
+**Error log.** So that a support report can say what went wrong, the app and
+the command-line tool keep the last 200 errors in the app's data folder
+(`support-log.json`): for each, the time, what was being done (signing,
+listing certificates, opening a PDF, checking for updates and the like) and
+the error message. Before an error is written, the path and name of the
+document involved are replaced by `[document]`, your home folder by `~`, and
+email addresses, PAN-like codes and long hex strings are replaced too. It
+never holds a PIN, a password or anything from inside a document, and it is
+never sent anywhere. *Settings → Help & support → Clear* empties it; deleting
+the file does the same.
+
+**Support report (only when you make one).** *Settings → Help & support →
+Create support report…* (or *Report a problem* next to an error, or
+`trackmysign doctor` on the command line) puts together a text for a bug
+report: the app's version and build, your operating system, WebView version
+and language, the token drivers found and whether they loaded, the connected
+tokens (maker, model, label, PIN status), the certificates (the holder's
+initials, issuer, validity, key type and size, the first 8 characters of the
+fingerprint), a summary of your settings (timestamp and LTV on or off and the
+timestamp server's host name, GST portal signing, background mode, watch
+folder), the portal listener's status, the last update check and the recent
+errors from the log above. Your home folder is shown as `~`, and email
+addresses, PAN-like codes and long hex strings are replaced. Holder names and
+organisations, certificate and token serial numbers and folder paths are left
+out unless you tick them. You see the exact text before anything happens with
+it; the app never sends it. *Copy to clipboard* and *Save as…* are the only
+ways it leaves the app, and *Open GitHub issue* only opens the issue form in
+your browser with the version filled in, for you to paste the report into.
+
 ## The website (sign.rahuldk.in)
 
 The website is a static site hosted on GitHub Pages. It has no cookies, no

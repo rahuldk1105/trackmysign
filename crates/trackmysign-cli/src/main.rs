@@ -19,7 +19,10 @@ use trackmysign_core::folder::{self, FileResult, FileStatus, Options, Progress};
 use trackmysign_core::history::{self, Entry, Filter, History, WatchRecorder};
 use trackmysign_core::pdf::assemble::{self, Item, Notice};
 use trackmysign_core::report::Report;
-use trackmysign_core::token::{Driver, TokenCert, TokenSigner, Tokens, driver_name};
+use trackmysign_core::support::{self, Event, EventLog};
+use trackmysign_core::token::{
+    Driver, TokenCert, TokenSigner, Tokens, driver_name, installed_drivers,
+};
 use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
 use trackmysign_core::{
     DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, FillValue, ImagePosition, PdfError, PdfInfo,
@@ -309,6 +312,99 @@ enum Cmd {
         #[arg(long, value_name = "FILE")]
         report: Option<PathBuf>,
     },
+    /// Print a support report to attach to a bug report: versions, token
+    /// drivers, tokens, certificates, settings and recent errors. Your home
+    /// folder, email addresses, PANs and long hex strings are replaced, and
+    /// nothing is sent anywhere. Read it before you share it.
+    Doctor {
+        /// Print only the data, as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Include certificate holder names, organisations and serial
+        /// numbers (initials only by default).
+        #[arg(long)]
+        include_names: bool,
+        /// Include token serial numbers.
+        #[arg(long)]
+        include_serials: bool,
+        /// Include the watch folder's path.
+        #[arg(long)]
+        include_paths: bool,
+    },
+}
+
+impl Cmd {
+    /// For the support log when the command fails: what it was doing, the
+    /// files it worked on (never written there) and whether it was signing.
+    fn log_target(&self) -> Option<(&'static str, Vec<PathBuf>, bool)> {
+        let opt = |o: &Option<PathBuf>| o.iter().cloned().collect::<Vec<_>>();
+        Some(match self {
+            Cmd::Certs { out, .. } => ("certificates", opt(out), false),
+            Cmd::Info { pdf } => ("info", vec![pdf.clone()], false),
+            Cmd::Sign {
+                pdfs,
+                out,
+                image,
+                style,
+                seal,
+                ..
+            } => (
+                "sign",
+                [pdfs.clone(), opt(out), opt(image), opt(style), opt(seal)].concat(),
+                true,
+            ),
+            Cmd::SignFile { files, out, .. } => {
+                ("sign-file", [files.clone(), opt(out)].concat(), true)
+            }
+            Cmd::VerifyFile { file, sig, out, .. } => (
+                "verify-file",
+                [vec![file.clone()], opt(sig), opt(out)].concat(),
+                false,
+            ),
+            Cmd::Watch {
+                folder,
+                out,
+                preset_json,
+                image,
+                style,
+                seal,
+                ..
+            } => (
+                "watch",
+                [
+                    vec![folder.clone()],
+                    opt(out),
+                    opt(preset_json),
+                    opt(image),
+                    opt(style),
+                    opt(seal),
+                ]
+                .concat(),
+                true,
+            ),
+            Cmd::Pages { op } => {
+                let (pdfs, out) = match op {
+                    PagesCmd::Merge { pdfs, out } => (pdfs.clone(), out),
+                    PagesCmd::Select { pdf, out, .. }
+                    | PagesCmd::Rotate { pdf, out, .. }
+                    | PagesCmd::Delete { pdf, out, .. }
+                    | PagesCmd::InsertBlank { pdf, out, .. } => (vec![pdf.clone()], out),
+                };
+                ("pages", [pdfs, opt(&out.out)].concat(), false)
+            }
+            Cmd::Verify { pdf, report, .. } => {
+                ("verify", [vec![pdf.clone()], opt(report)].concat(), false)
+            }
+            Cmd::VerifyFolder {
+                dir, report, csv, ..
+            } => (
+                "verify-folder",
+                [vec![dir.clone()], opt(report), opt(csv)].concat(),
+                false,
+            ),
+            Cmd::History { .. } | Cmd::Doctor { .. } => return None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -332,7 +428,12 @@ const PROGRAM: &str = concat!("cli ", env!("CARGO_PKG_VERSION"));
 /// `app_data_dir` points: `%APPDATA%`, `~/Library/Application Support` or
 /// `$XDG_DATA_HOME`, then the app's identifier), so both keep one log.
 fn history_store() -> Option<History> {
-    dirs::data_dir().map(|d| History::in_app_data(&d.join(history::APP_ID)))
+    app_data().map(|d| History::in_app_data(&d))
+}
+
+/// The desktop app's data folder (see [`history_store`]).
+fn app_data() -> Option<PathBuf> {
+    dirs::data_dir().map(|d| d.join(history::APP_ID))
 }
 
 /// Adds `entry` to the history, unless it is turned off in the app.
@@ -1048,14 +1149,22 @@ fn signing_cert(certs: &[TokenCert], n: usize) -> Result<&TokenCert> {
 }
 
 fn main() {
-    if let Err(e) = run() {
+    let cli = Cli::parse();
+    let target = cli.cmd.log_target();
+    if let Err(e) = run(cli) {
+        // Kept for `trackmysign doctor` and the app's support report.
+        if let (Some((area, files, signing)), Some(dir)) = (target, app_data()) {
+            let chain: Vec<String> = e.chain().skip(1).map(|c| c.to_string()).collect();
+            let files: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
+            let event = Event::error(area, &e.to_string(), &chain, &files, signing);
+            let _ = EventLog::in_app_data(&dir).record(event);
+        }
         eprintln!("Error: {e:#}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<()> {
-    let cli = Cli::parse();
+fn run(cli: Cli) -> Result<()> {
     match cli.cmd {
         Cmd::Certs {
             details,
@@ -1838,6 +1947,58 @@ fn run() -> Result<()> {
             }
             if !integrity.ok() {
                 std::process::exit(2);
+            }
+        }
+        Cmd::Doctor {
+            json,
+            include_names,
+            include_serials,
+            include_paths,
+        } => {
+            let include = support::Include {
+                names: include_names,
+                serials: include_serials,
+                paths: include_paths,
+            };
+            let drivers = match &cli.module {
+                Some(m) => vec![Driver {
+                    name: driver_name(m),
+                    path: m.clone(),
+                }],
+                None => installed_drivers(),
+            };
+            let probes = support::probe(&drivers);
+            let data = app_data();
+            let ctx = support::Context {
+                app: support::AppInfo {
+                    version: env!("CARGO_PKG_VERSION").into(),
+                    build: "command line".into(),
+                },
+                system: support::SystemInfo::this_computer(),
+                settings: data
+                    .as_deref()
+                    .map(|d| support::SettingsInfo::from_app_data(d, include)),
+                portal: None,
+                updater: None,
+                events: data
+                    .map(|d| EventLog::in_app_data(&d).events())
+                    .unwrap_or_default(),
+            };
+            let report = support::build(
+                ctx,
+                &probes,
+                include,
+                &support::Redactor::for_user(),
+                chrono::Utc::now(),
+            );
+            if json {
+                println!("{}", report.to_json());
+            } else {
+                print!("{}", report.to_text());
+                eprintln!(
+                    "\nNothing was sent. Read the report, then paste it into a new issue:\n{}",
+                    support::issue_url(env!("CARGO_PKG_VERSION"))
+                );
             }
         }
     }

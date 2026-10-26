@@ -295,6 +295,11 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
     set_dock(app, false);
 }
 
+/// For the support report: keeps running in the background, starts at sign-in.
+pub fn summary(app: &AppHandle) -> (bool, bool) {
+    (keeps_running(app), signin::is_enabled(app))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusDto {
