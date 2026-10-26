@@ -136,6 +136,8 @@ Other options:
 .\trackmysign.exe sign-file bid.docx prices.xlsx      # bid.docx.p7s, prices.xlsx.p7s (see Signing other files)
 .\trackmysign.exe verify-file bid.docx               # check bid.docx.p7s
 .\trackmysign.exe sign file.pdf --page 1 --position top-right
+.\trackmysign.exe sign file.pdf --position auto        # where the PDF asks for a signature (see below)
+.\trackmysign.exe info --anchors file.pdf             # the phrases --position auto looks for, with their boxes
 .\trackmysign.exe sign file.pdf --rect 400,700,170,55  # x,y,width,height in points from top-left
 .\trackmysign.exe sign file.pdf --pages all            # one signature, box on every page
 .\trackmysign.exe sign file.pdf --pages 1-3,5          # ... or on some pages
@@ -177,6 +179,38 @@ signature that says what may change afterwards: nothing, form filling and
 signing, or also comments. Only an unsigned document can be certified, and a
 document certified with `none` cannot be signed again. In the desktop app this
 is *Signature type → Certify* in the side panel.
+
+## Placing the box automatically
+
+When a PDF opens, the app reads its text and puts the box where the document
+asks for a signature: next to "Authorised Signatory" / "Authorized
+Signatory", "For <organisation>" (the O= of your certificate), your own name
+as on the certificate, "Managing Director", "Company Secretary", "Director",
+"Signature" or "Signed by" (capitals do not matter). The box goes just above
+the phrase (below "For <organisation>", beside a "Signature:" label), on free
+space where there is some, and keeps its size. When several are found, the
+last pages and the lowest on the page come first, the signer's name and
+"Authorised Signatory" before generic words, and a phrase on a line of its
+own before one inside a sentence; spots over existing signatures are avoided.
+The side panel says *Placed at "Authorised Signatory"*; **Show other spots**
+lists the rest, and the box can be dragged as usual. A scanned PDF (no text)
+or one without these phrases gets the box at its usual place.
+
+*Settings → Automatic placement* turns this off and edits the phrases (one per
+line; `{name}` and `{organisation}` stand for the certificate's name and
+organisation). A preset can place automatically (*Settings → Presets → Place
+automatically*, or save a preset while the box is placed automatically), as
+can a batch (*Find the place to sign in each document*, the box as placed
+falling back) and a watch folder (*Placement → Auto (fallback: preset
+position)*). Text is read from the page content (standard fonts in WinAnsi,
+Standard or MacRoman encoding, and embedded fonts with a `/ToUnicode` map,
+also on rotated pages); only the last 50 pages are read.
+
+On the command line, `sign --position auto` does the same for each PDF (on
+`--page` when given, bottom-right where nothing is found) and prints where the
+box went; `info --anchors file.pdf` lists the phrases found, with their boxes
+in points from the top-left of the page, and the box `--position auto` would
+use (without a token, your name and organisation are not looked for there).
 
 ## Preparing pages before signing
 
@@ -501,7 +535,9 @@ The command-line tool does the same, for a server or a scanner PC:
 It asks for the PIN once and runs until Ctrl+C. `--preset-json` takes a preset
 as JSON (`{"reason": "Approved", "location": "Chennai", "placement": {"page":
 "last", "x": 120, "y": 250, "w": 60, "h": 20}}`, millimetres from the top-left;
-also `pages`, `image` with `--image`, `invisible`, `timestamp`, `ltv`, and
+also `pages`, `image` with `--image`, `invisible`, `timestamp`, `ltv`,
+`"auto": true` to place the box automatically with `placement` as the fallback
+(`--auto-place` does the same; `anchors` replaces the phrases looked for), and
 `style` as below, with `--seal` when it shows a seal; `--style` replaces it);
 `--keep-originals`, `--daily-limit N` (0 for none) and `--hours` work as in
 the app.

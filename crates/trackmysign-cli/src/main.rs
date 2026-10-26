@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Context, Result, bail};
 use chrono::{Local, NaiveDate, TimeZone};
 use clap::{Parser, Subcommand, ValueEnum};
+use trackmysign_core::autoplace::{self, Holder};
 use trackmysign_core::certdetails::{
     CertificateDetails, complete_chain, export_file_name, to_p7b, to_pem,
 };
@@ -71,7 +72,14 @@ enum Cmd {
         chain: bool,
     },
     /// Show page count, page sizes, existing signatures and empty signature fields.
-    Info { pdf: PathBuf },
+    Info {
+        pdf: PathBuf,
+        /// Also list the phrases `--position auto` places the box by
+        /// ("Authorised Signatory", "Director", …) with their boxes, in
+        /// points from the top-left of the page.
+        #[arg(long)]
+        anchors: bool,
+    },
     /// Sign one or more PDFs with one PIN entry. Writes <name>_signed.pdf
     /// next to each unless --out is given (single PDF only).
     Sign {
@@ -87,7 +95,10 @@ enum Cmd {
         /// of these) and repeated at the same distance from the nearest corner.
         #[arg(long)]
         pages: Option<String>,
-        /// Where on the page the box goes.
+        /// Where on the page the box goes. `auto` finds where each PDF asks
+        /// for a signature ("Authorised Signatory", "For <organisation>",
+        /// your name, …; see `trackmysign info --anchors`), on --page when
+        /// given, and uses the bottom right where it finds nothing.
         #[arg(long, value_enum, default_value_t = Corner::BottomRight)]
         position: Corner,
         /// Exact box in points from the top-left of the page: x,y,width,height.
@@ -208,6 +219,10 @@ enum Cmd {
         seal: Option<PathBuf>,
         #[arg(long)]
         invisible: bool,
+        /// Put the box where each PDF asks for a signature, as `sign
+        /// --position auto` does; the preset's position where nothing is found.
+        #[arg(long)]
+        auto_place: bool,
         /// Leave originals in FOLDER instead of moving them to FOLDER/done.
         #[arg(long)]
         keep_originals: bool,
@@ -444,12 +459,13 @@ enum BlankSize {
     Letter,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, PartialEq, ValueEnum)]
 enum Corner {
     BottomRight,
     BottomLeft,
     TopRight,
     TopLeft,
+    Auto,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -515,6 +531,11 @@ struct Job {
     pages: Vec<usize>,
     rect: Option<DisplayRect>,
     password: Option<String>,
+    /// Place the box by the document's text once the signer is known
+    /// (`--position auto`); `rect` is the fallback.
+    auto: bool,
+    /// The page --page asked for, which the automatic placement keeps to.
+    asked_page: Option<usize>,
 }
 
 /// Runs `f` on a PDF, asking for its password on the terminal when it has
@@ -587,10 +608,14 @@ fn read_and_place(
             pages: Vec::new(),
             rect: None,
             password,
+            auto: false,
+            asked_page: None,
         });
     }
+    let auto = position == Corner::Auto && rect.is_none() && !invisible;
     let pages = match pages {
         Some(_) if invisible => bail!("--pages needs a visible signature"),
+        Some(_) if auto => bail!("--position auto places one box; leave out --pages"),
         Some(spec) => parse_pages(spec, info.pages.len()).map_err(anyhow::Error::msg)?,
         None => Vec::new(),
     };
@@ -609,7 +634,7 @@ fn read_and_place(
         Some(rect.unwrap_or_else(|| {
             let (w, h, m) = (170.0, 55.0, 36.0);
             let (x, y) = match position {
-                Corner::BottomRight => (p.width - w - m, p.height - h - m),
+                Corner::BottomRight | Corner::Auto => (p.width - w - m, p.height - h - m),
                 Corner::BottomLeft => (m, p.height - h - m),
                 Corner::TopRight => (p.width - w - m, m),
                 Corner::TopLeft => (m, m),
@@ -623,7 +648,38 @@ fn read_and_place(
         pages,
         rect,
         password,
+        auto,
+        asked_page: page.map(|n| n - 1),
     })
+}
+
+/// Moves the box of a `--position auto` job to where the PDF asks for
+/// `holder`'s signature, and says where it went.
+fn auto_place(pdf: &Path, job: &mut Job, holder: &Holder) {
+    let Some(r) = job.rect.filter(|_| job.auto) else {
+        return;
+    };
+    let found = autoplace::spots(&job.data, job.password.as_deref(), &[], holder, r.w, r.h)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|s| job.asked_page.is_none_or(|p| s.anchor.page == p));
+    match found {
+        Some(s) => {
+            job.page = s.anchor.page;
+            job.rect = Some(s.rect);
+            println!(
+                "Placed at \"{}\" on page {}: {}",
+                s.anchor.text,
+                s.anchor.page + 1,
+                pdf.display()
+            );
+        }
+        None => println!(
+            "No place to sign found; box at the bottom right of page {}: {}",
+            job.page + 1,
+            pdf.display()
+        ),
+    }
 }
 
 fn open_tokens(module: &Option<PathBuf>) -> Result<Tokens> {
@@ -936,6 +992,7 @@ fn describe_file_check(c: &FileCheck, sig: &Path) -> String {
 /// The watch folder's side of the token: one session for the whole run.
 struct WatchHost {
     signer: TokenSigner,
+    holder: Holder,
     signed: usize,
     history: WatchRecorder,
 }
@@ -955,6 +1012,9 @@ impl watch::Host for WatchHost {
     }
     fn check(&mut self) -> Result<(), Error> {
         self.signer.check()
+    }
+    fn holder(&self) -> Holder {
+        self.holder.clone()
     }
     fn event(&mut self, event: watch::Event) {
         if let Some(entry) = self.history.event(&event) {
@@ -1071,9 +1131,9 @@ fn run() -> Result<()> {
                 }
             }
         }
-        Cmd::Info { pdf } => {
+        Cmd::Info { pdf, anchors } => {
             let data = std::fs::read(&pdf).with_context(|| format!("reading {}", pdf.display()))?;
-            let (info, _) = with_password(&pdf, cli.password.as_deref(), |pw| {
+            let (info, password) = with_password(&pdf, cli.password.as_deref(), |pw| {
                 inspect_with_password(&data, pw)
             })?;
             println!("Pages: {}", info.pages.len());
@@ -1125,6 +1185,29 @@ fn run() -> Result<()> {
                         "; signing not allowed without the owner password"
                     }
                 );
+            }
+            if anchors {
+                // No token here: the holder's name and organisation are
+                // looked for only when signing.
+                let holder = Holder::default();
+                let pw = password.as_deref();
+                let found = autoplace::anchors(&data, pw, &[], &holder)?;
+                if found.is_empty() {
+                    println!("Anchors: none");
+                } else {
+                    println!("Anchors: {}", found.len());
+                }
+                let rect = |r: DisplayRect| format!("{:.0},{:.0},{:.0},{:.0}", r.x, r.y, r.w, r.h);
+                for a in &found {
+                    println!("  page {}, {}: \"{}\"", a.page + 1, rect(a.rect), a.text);
+                }
+                if let Some(s) = autoplace::spots(&data, pw, &[], &holder, 170.0, 55.0)?.first() {
+                    println!(
+                        "Box for --position auto: page {}, {}",
+                        s.anchor.page + 1,
+                        rect(s.rect)
+                    );
+                }
             }
         }
         Cmd::Sign {
@@ -1236,6 +1319,10 @@ fn run() -> Result<()> {
                 Validity::Valid { .. } => {}
             }
             println!("Signing as: {}", chosen.summary.subject_cn);
+            let holder = Holder::of(&chosen.summary);
+            for (pdf, job) in &mut jobs {
+                auto_place(pdf, job, &holder);
+            }
             let pin = match pin {
                 Some(p) => p,
                 None => rpassword::prompt_password("Token PIN: ")?,
@@ -1498,6 +1585,7 @@ fn run() -> Result<()> {
             style,
             seal,
             invisible,
+            auto_place,
             keep_originals,
             daily_limit,
             hours,
@@ -1528,6 +1616,7 @@ fn run() -> Result<()> {
                 preset.location = v;
             }
             preset.invisible |= invisible;
+            preset.auto |= auto_place;
             if timestamp.is_some() {
                 preset.timestamp = timestamp;
             }
@@ -1592,6 +1681,7 @@ fn run() -> Result<()> {
             );
             let mut host = WatchHost {
                 signer,
+                holder: Holder::of(&chosen.summary),
                 signed: 0,
                 history: WatchRecorder::new(PROGRAM),
             };

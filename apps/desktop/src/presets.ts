@@ -27,7 +27,26 @@ export interface Preset {
   image?: ImageChoice;
   /** Null for the standard box; missing in presets saved before designs: leave as is. */
   style?: StampStyle | null;
+  /** Put the box where the document asks for a signature; `placement` where none is found. */
+  auto?: boolean;
 }
+
+/**
+ * Phrases the box is placed by when none are set (as in
+ * `trackmysign_core::autoplace::DEFAULT_PHRASES`). {name} and {organisation}
+ * are the certificate's CN= and O=.
+ */
+export const DEFAULT_ANCHORS = [
+  "Authorised Signatory",
+  "Authorized Signatory",
+  "For {organisation}",
+  "{name}",
+  "Managing Director",
+  "Company Secretary",
+  "Director",
+  "Signature",
+  "Signed by",
+];
 
 const PT_PER_MM = 72 / 25.4;
 const round = (v: number) => Math.round(v * 10) / 10;
@@ -83,12 +102,12 @@ function samePlacement(a: PresetPlacement | null, b: PresetPlacement | null): bo
  * The copy of a preset a watch folder signs with (the backend applies it, see
  * `trackmysign_core::watch::Preset`). `preset` null: the default reason and
  * location, bottom-right of the last page. Pages, timestamp and LTV are the
- * watch folder's own.
+ * watch folder's own, and so is automatic placement unless the preset has it.
  */
 export function toWatchPreset(
   preset: Preset | null,
-  defaults: { reason: string; location: string; image: ImageChoice; style: StampStyle | null },
-  own: Pick<WatchPreset, "pages" | "timestamp" | "ltv">,
+  defaults: { reason: string; location: string; image: ImageChoice; style: StampStyle | null; anchors: string[] },
+  own: Pick<WatchPreset, "pages" | "timestamp" | "ltv" | "auto">,
 ): WatchPreset {
   return {
     name: preset?.name ?? "",
@@ -98,11 +117,14 @@ export function toWatchPreset(
     image: preset?.image ?? defaults.image,
     style: preset?.style !== undefined ? preset.style : defaults.style,
     invisible: false,
+    anchors: defaults.anchors,
     ...own,
+    auto: preset?.auto || !!own.auto,
   };
 }
 
-/** The preset that matches the current settings exactly, if any. */
+/** The preset that matches the current settings exactly, if any. A preset
+ * that places the box automatically matches wherever the box is. */
 export function activePreset(presets: Preset[], current: Omit<Preset, "name">): Preset | undefined {
   return presets.find(
     (p) =>
@@ -110,6 +132,6 @@ export function activePreset(presets: Preset[], current: Omit<Preset, "name">): 
       p.location === current.location &&
       (p.image === undefined || p.image === current.image) &&
       (p.style === undefined || sameStyle(p.style, current.style)) &&
-      (!p.placement || samePlacement(p.placement, current.placement)),
+      (!p.placement || p.auto || samePlacement(p.placement, current.placement)),
   );
 }

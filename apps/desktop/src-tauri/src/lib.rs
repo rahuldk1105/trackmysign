@@ -26,6 +26,7 @@ use incoming::{Arrival, Incoming};
 use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter, Manager, State};
+use trackmysign_core::autoplace::{self, Holder};
 use trackmysign_core::certinfo::{Validity, days_until};
 use trackmysign_core::history::{Entry, Source};
 use trackmysign_core::stamp;
@@ -251,6 +252,55 @@ fn pdf_info(path: String, password: Option<String>) -> CmdResult<PdfDto> {
     })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpotDto {
+    page: usize,
+    /// The box, points from the top-left of the displayed page.
+    rect: RectDto,
+    /// The phrase as printed in the document.
+    text: String,
+}
+
+/// Spots for a `w` × `h` box where the PDF asks for a signature, the best
+/// first: next to `anchors` (the default phrases when empty), with the
+/// certificate holder's `name` and `organisation` filled in.
+#[tauri::command]
+async fn find_spots(
+    path: String,
+    password: Option<String>,
+    anchors: Vec<String>,
+    name: Option<String>,
+    organisation: Option<String>,
+    w: f64,
+    h: f64,
+) -> CmdResult<Vec<SpotDto>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = std::fs::read(&path)?;
+        let holder = Holder { name, organisation };
+        let spots = autoplace::spots(&data, password.as_deref(), &anchors, &holder, w, h)?;
+        Ok(spots
+            .into_iter()
+            .take(8)
+            .map(|s| SpotDto {
+                page: s.anchor.page,
+                rect: RectDto {
+                    x: s.rect.x,
+                    y: s.rect.y,
+                    w: s.rect.w,
+                    h: s.rect.h,
+                },
+                text: s.anchor.text,
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| CommandError {
+        kind: "other",
+        message: e.to_string(),
+    })?
+}
+
 /// Raw bytes for the PDF.js viewer.
 #[tauri::command]
 fn read_pdf(path: String) -> CmdResult<Response> {
@@ -465,6 +515,12 @@ struct BatchArgs {
     certify: Option<u8>,
     #[serde(default)]
     out_dir: Option<String>,
+    /// Find where each file asks for a signature; `rect` where none is found.
+    #[serde(default)]
+    auto: bool,
+    /// Phrases to look for; the defaults when empty.
+    #[serde(default)]
+    anchors: Vec<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -512,7 +568,8 @@ fn sign_one(
     signer: &mut dyn trackmysign_core::Signer,
 ) -> CmdResult<PathBuf> {
     let mut entry = batch_entry(path, args, Some(cert));
-    match sign_batch_file(path, args, image, seal, signer, &mut entry) {
+    let holder = Holder::of(&cert.summary);
+    match sign_batch_file(path, args, image, seal, &holder, signer, &mut entry) {
         Ok((out, signed)) => {
             history::record(app, entry.signed(&out, &signed));
             Ok(out)
@@ -531,6 +588,7 @@ fn sign_batch_file(
     args: &BatchArgs,
     image: &Option<StampImage>,
     seal: &Option<StampImage>,
+    holder: &Holder,
     signer: &mut dyn trackmysign_core::Signer,
     entry: &mut Entry,
 ) -> CmdResult<(PathBuf, Vec<u8>)> {
@@ -569,7 +627,7 @@ fn sign_batch_file(
     } else {
         args.pages.iter().copied().filter(|p| *p < pages).collect()
     };
-    let req = SignRequest {
+    let mut req = SignRequest {
         page,
         rect,
         pages,
@@ -585,6 +643,9 @@ fn sign_batch_file(
         certify: args.certify.map(|p| DocMdp::from_level(p.into())),
         ..Default::default()
     };
+    if args.auto && req.pages.is_empty() {
+        autoplace::place(&mut req, &data, &args.anchors, holder, None);
+    }
     let cert = entry.cert.take();
     *entry = Entry::signing(Source::Batch, history::PROGRAM, path, &req);
     entry.cert = cert;
@@ -972,6 +1033,7 @@ pub fn run() {
             recent::recent_clear,
             pdf_info,
             read_pdf,
+            find_spots,
             sign,
             sign_batch,
             pin_status,

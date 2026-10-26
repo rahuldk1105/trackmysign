@@ -97,7 +97,7 @@ pub fn base_fonts(family: FontFamily) -> [&'static str; 2] {
 }
 
 /// Width of a WinAnsi code, in thousandths of the font size.
-fn code_width(b: u8, family: FontFamily, bold: bool) -> f64 {
+pub(super) fn code_width(b: u8, family: FontFamily, bold: bool) -> f64 {
     let (low, high) = match (family, bold) {
         (FontFamily::Courier, _) => return 600.0,
         (FontFamily::Helvetica, false) => (&HELVETICA, &HELVETICA_HIGH),

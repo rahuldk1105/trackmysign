@@ -1057,6 +1057,56 @@ section > label:first-of-type {
   color: var(--text-2);
   user-select: text;
 }
+.spots-hint {
+  margin: 6px 0 0;
+}
+textarea.anchors {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+textarea.anchors:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -1px;
+  border-color: var(--focus);
+}
+.spot-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 1px solid var(--line);
+}
+.spot-list li + li {
+  border-top: 1px solid var(--line);
+}
+.spot-list button {
+  display: block;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spot-list button:hover {
+  background: var(--surface-2);
+}
+.spot-list button[aria-current="true"] {
+  color: var(--accent-text);
+  font-weight: 500;
+}
 .pages-spec {
   margin-top: 8px;
 }

@@ -15,6 +15,8 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
+use trackmysign_core::autoplace::Holder;
+use trackmysign_core::certinfo::CertSummary;
 use trackmysign_core::history::WatchRecorder;
 use trackmysign_core::token::{Token, TokenCert, TokenSigner};
 use trackmysign_core::watch::{self, Control, Event, Folders, ImageChoice, PinCheck, Preset, Stop};
@@ -423,6 +425,12 @@ impl watch::Host for AppHost {
     fn check(&mut self) -> Result<(), Error> {
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         self.signer.check()
+    }
+
+    fn holder(&self) -> Holder {
+        CertSummary::from_der(self.signer.certificate())
+            .map(|s| Holder::of(&s))
+            .unwrap_or_default()
     }
 
     fn event(&mut self, event: Event) {
