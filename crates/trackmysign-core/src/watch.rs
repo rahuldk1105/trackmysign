@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::pdf::reader::PdfError;
 use crate::{
-    DisplayRect, Error, ImagePosition, PdfInfo, SignRequest, StampImage, StampStyle,
+    Ctc, CtcStyle, DisplayRect, Error, ImagePosition, PdfInfo, SignRequest, StampImage, StampStyle,
     check_permitted, inspect, parse_pages, write_signed_in,
 };
 
@@ -267,6 +267,11 @@ pub struct Preset {
     pub ltv: bool,
     /// How the box looks; the usual box when unset.
     pub style: Option<StampStyle>,
+    /// "Certified true copy" stamps; none when unset.
+    pub ctc: Option<CtcStyle>,
+    /// Pages with a stamp: `all` (or empty) or a list such as `1-3,5`;
+    /// pages a file does not have are left out.
+    pub ctc_pages: String,
 }
 
 impl Preset {
@@ -292,11 +297,24 @@ impl Preset {
         if let Some(style) = &self.style {
             style.validate()?;
         }
+        if let Some(ctc) = &self.ctc {
+            ctc.validate()?;
+            let spec = self.ctc_pages.trim();
+            if !spec.is_empty() && !spec.eq_ignore_ascii_case("all") {
+                parse_pages(spec, usize::MAX)
+                    .map_err(|e| format!("Certified true copy pages: {e}"))?;
+            }
+        }
         Ok(())
     }
 
-    /// Whether the style shows a company seal, which must then be given.
+    /// Whether the style or the stamps show a company seal, which must then
+    /// be given.
     pub fn shows_seal(&self) -> bool {
+        self.box_seal() || self.ctc.as_ref().is_some_and(|c| c.style.seal.is_some())
+    }
+
+    fn box_seal(&self) -> bool {
         !self.invisible && self.style.as_ref().is_some_and(|s| s.seal.is_some())
     }
 
@@ -376,12 +394,29 @@ impl Preset {
                 ImageChoice::Above => ImagePosition::Above,
                 _ => ImagePosition::Left,
             },
-            seal: seal.filter(|_| self.shows_seal()).cloned(),
+            seal: seal.filter(|_| self.box_seal()).cloned(),
             style: self.style.clone().unwrap_or_default(),
             timestamp: self.timestamp.as_deref().and_then(text),
             ltv: self.ltv,
+            ctc: self.ctc.as_ref().map(|style| Ctc {
+                style: style.clone(),
+                pages: self.stamped_pages(count),
+                seal: seal.filter(|_| style.style.seal.is_some()).cloned(),
+            }),
             ..Default::default()
         }
+    }
+
+    /// Every page for `all`; otherwise the listed pages the file has, or
+    /// all of them when it has none (refused when signing).
+    fn stamped_pages(&self, count: usize) -> Vec<usize> {
+        let spec = self.ctc_pages.trim();
+        if spec.is_empty() || spec.eq_ignore_ascii_case("all") {
+            return (0..count).collect();
+        }
+        let listed = parse_pages(spec, usize::MAX).unwrap_or_default();
+        let have: Vec<usize> = listed.iter().copied().filter(|p| *p < count).collect();
+        if have.is_empty() { listed } else { have }
     }
 }
 
@@ -1069,6 +1104,50 @@ mod tests {
                 .is_none()
         );
         let bad: Preset = serde_json::from_str(r#"{"style":{"text_color":"blue"}}"#).unwrap();
+        assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn preset_with_ctc() {
+        let p: Preset = serde_json::from_str(
+            r#"{"name":"CTC","invisible":true,"ctc":{"corner":"bottom_left","style":{"role":"Company Secretary",
+                "seal":{"position":"right","opacity":1}}},"ctcPages":"2-5"}"#,
+        )
+        .unwrap();
+        assert!(p.validate().is_ok() && p.shows_seal());
+        let seal = StampImage::from_bytes(&[
+            0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 10, 0, 10, 1, 1, 0x11, 0, 0xff, 0xd9,
+        ])
+        .unwrap();
+        let req = p.request(&info(3), None, Some(&seal));
+        let ctc = req.ctc.unwrap();
+        assert_eq!(ctc.pages, vec![1, 2]);
+        assert_eq!(ctc.style.style.role, "Company Secretary");
+        assert_eq!(ctc.style.style.custom_1, crate::ctc::HEADING);
+        assert!(ctc.seal.is_some() && req.seal.is_none());
+        // Pages the file lacks entirely are kept, so signing refuses it.
+        assert_eq!(
+            p.request(&info(1), None, None).ctc.unwrap().pages,
+            vec![1, 2, 3, 4]
+        );
+        let all = Preset {
+            ctc: Some(CtcStyle::default()),
+            ..Default::default()
+        };
+        assert_eq!(
+            all.request(&info(2), None, None).ctc.unwrap().pages,
+            vec![0, 1]
+        );
+        assert!(
+            Preset::default()
+                .request(&info(2), None, None)
+                .ctc
+                .is_none()
+        );
+        let bad = Preset {
+            ctc_pages: "x".into(),
+            ..all
+        };
         assert!(bad.validate().is_err());
     }
 

@@ -22,7 +22,7 @@ use trackmysign_core::{Error, SignRequest, Signer, sign_pdf};
 use zeroize::Zeroize;
 
 use super::{
-    CmdResult, CommandError, TOKEN_LOCK, background, history, not_expired, saved_image, style_seal,
+    CmdResult, CommandError, TOKEN_LOCK, background, history, not_expired, saved_image, saved_seal,
 };
 
 /// Log entries kept; older ones drop off.
@@ -500,7 +500,7 @@ fn start(app: &AppHandle, args: &StartArgs, mut pin: String) -> CmdResult<()> {
         _ => Some(saved_image(app)?),
     };
     let seal = match config.preset.shows_seal() {
-        true => style_seal(app, &config.preset.style)?,
+        true => Some(saved_seal(app)?),
         false => None,
     };
     let now = SystemTime::now();

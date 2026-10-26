@@ -3,6 +3,7 @@
 pub mod certdetails;
 pub mod certinfo;
 pub mod cms;
+pub mod ctc;
 pub mod filesig;
 pub mod folder;
 pub mod history;
@@ -23,6 +24,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, FixedOffset, Local};
 use sha2::{Digest, Sha256};
 
+pub use ctc::{Ctc, CtcStyle};
 pub use image::{ImagePosition, StampImage};
 pub use pdf::docmdp::DocMdp;
 pub use pdf::reader::PdfError;
@@ -113,6 +115,9 @@ pub struct SignRequest {
     pub password: Option<String>,
     /// Certify the document (an author signature) instead of approving it.
     pub certify: Option<DocMdp>,
+    /// "Certified true copy" stamps on the pages, added with the signature
+    /// (not with `field`).
+    pub ctc: Option<ctc::Ctc>,
 }
 
 /// Whether `input` may get a signature: a certification only on a document
@@ -159,6 +164,10 @@ pub fn sign_pdf(
     let password = req.password.as_deref();
     check_permitted_with_password(input, password, req.certify)?;
     req.style.validate().map_err(Error::Style)?;
+    if let Some(c) = &req.ctc {
+        ctc::check_permitted(input, password)?;
+        c.style.validate().map_err(Error::Style)?;
+    }
     let summary = certinfo::CertSummary::from_der(signer.certificate())?;
     let time = req.time.unwrap_or_else(|| Local::now().fixed_offset());
     let fields = pdf::sign::SignatureFields {
@@ -173,6 +182,7 @@ pub fn sign_pdf(
         style: req.style.clone(),
         timestamp: req.timestamp.is_some(),
         certify: req.certify,
+        ctc: req.ctc.clone(),
     };
     let placement = Placement {
         page: req.page,

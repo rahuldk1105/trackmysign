@@ -12,6 +12,7 @@ use super::appearance::{self, ImageKind, ImageSlot, Images};
 use super::docmdp::DocMdp;
 use super::object::{Dict, Obj, write_obj};
 use super::reader::{Document, PageInfo, PdfError, Result, XrefEntry};
+use crate::ctc::Ctc;
 use crate::image::{ImagePosition, StampImage};
 use crate::stamp::{StampLine, StampStyle, StampValues, stamp_lines};
 
@@ -44,6 +45,8 @@ pub struct SignatureFields {
     pub timestamp: bool,
     /// Make this the certification signature, allowing only these changes.
     pub certify: Option<DocMdp>,
+    /// "Certified true copy" stamps, as more widgets of the signature field.
+    pub ctc: Option<Ctc>,
 }
 
 #[derive(Debug, Clone)]
@@ -181,12 +184,30 @@ struct Stamp {
 }
 
 fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp {
+    stamp_with(
+        fields,
+        &fields.style,
+        [fields.image.as_ref(), fields.seal.as_ref()],
+        objs,
+        next,
+    )
+}
+
+/// The box `style` draws for `fields`, with the signature image and seal
+/// given in `pictures` (either may be left out).
+fn stamp_with(
+    fields: &SignatureFields,
+    style: &StampStyle,
+    pictures: [Option<&StampImage>; 2],
+    objs: &mut Objects,
+    next: &mut u32,
+) -> Stamp {
     let f1 = take(next);
     let f2 = take(next);
     // English whatever the app's language: the standard fonts (WinAnsi)
     // have no Devanagari or Tamil glyphs, so such text is transliterated.
     let lines = stamp_lines(
-        &fields.style,
+        style,
         &StampValues {
             name: fields.signer_name.clone(),
             organisation: fields.organisation.clone(),
@@ -195,18 +216,16 @@ fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp 
             time: fields.time,
         },
     );
+    let [image, seal] = pictures;
     let images = Images {
-        signature: fields.image.as_ref().map(|img| ImageSlot {
+        signature: image.map(|img| ImageSlot {
             aspect: img.aspect(),
             position: fields.image_position,
         }),
-        seal: fields
-            .seal
-            .as_ref()
-            .map(|img| (img.aspect(), fields.style.seal.unwrap_or_default())),
+        seal: seal.map(|img| (img.aspect(), style.seal.unwrap_or_default())),
     };
     // Which images the style shows does not depend on the size of the box.
-    let probe = appearance::draw(&fields.style, &lines, images, 170.0, 55.0);
+    let probe = appearance::draw(style, &lines, images, 170.0, 55.0);
     let font = |base: &str| {
         Obj::Dict(
             Dict::new()
@@ -216,7 +235,7 @@ fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp 
                 .with("Encoding", Obj::name("WinAnsiEncoding")),
         )
     };
-    let [regular, bold] = appearance::base_fonts(fields.style.font);
+    let [regular, bold] = appearance::base_fonts(style.font);
     objs.insert(f1, (0, font(regular)));
     objs.insert(f2, (0, font(bold)));
     let mut resources = Dict::new().with(
@@ -230,10 +249,10 @@ fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp 
     // One object per image, shared by the appearances on every page.
     let mut xobjects = Dict::new();
     for (name, kind, img) in [
-        ("Im1", ImageKind::Signature, &fields.image),
-        ("Im2", ImageKind::Seal, &fields.seal),
+        ("Im1", ImageKind::Signature, image),
+        ("Im2", ImageKind::Seal, seal),
     ] {
-        let Some(img) = img.as_ref().filter(|_| probe.uses(kind)) else {
+        let Some(img) = img.filter(|_| probe.uses(kind)) else {
             continue;
         };
         let im = take(next);
@@ -259,7 +278,7 @@ fn stamp(fields: &SignatureFields, objs: &mut Objects, next: &mut u32) -> Stamp 
         );
     }
     Stamp {
-        style: fields.style.clone(),
+        style: style.clone(),
         lines,
         images,
         resources,
@@ -288,7 +307,7 @@ fn appearance_obj(stamp: &Stamp, w: f64, h: f64, rotate: i32) -> Obj {
 
 /// Lists each widget in its page's `/Annots`. An indirect `/Annots` array
 /// is updated in place and the page left alone; pages sharing one array get
-/// all their widgets added to it.
+/// all their widgets added to it, as does a page with several widgets.
 fn add_to_annots(
     doc: &Document,
     widgets: &[(&PageInfo, u32, u16)],
@@ -297,7 +316,10 @@ fn add_to_annots(
     let mut annot_arrays: BTreeMap<u32, (u16, Vec<Obj>)> = BTreeMap::new();
     for (target, id, gn) in widgets {
         let widget_ref = Obj::Ref(*id, *gn);
-        let mut page_dict = target.dict.clone();
+        let mut page_dict = match objs.get(&target.id.0) {
+            Some((_, Obj::Dict(d))) => d.clone(),
+            _ => target.dict.clone(),
+        };
         match page_dict.get("Annots").cloned() {
             Some(Obj::Ref(aid, agen)) => {
                 if let Some((_, a)) = annot_arrays.get_mut(&aid) {
@@ -352,6 +374,13 @@ pub fn prepare_with_password(
     }
     let pages = doc.pages()?;
     if let Some(name) = &placement.field {
+        if fields.ctc.is_some() {
+            return Err(PdfError::Field(
+                "Certified true copy stamps cannot be added when signing into an existing \
+                 signature field. Place a signature box instead."
+                    .into(),
+            ));
+        }
         return prepare_field(&doc, &pages, name, fields, reserved);
     }
     let page = pages
@@ -361,12 +390,26 @@ pub fn prepare_with_password(
     if targets.is_empty() || placement.rect.is_none() {
         targets = vec![placement.page];
     }
+    // An invisible signature with stamps shows only the stamps.
+    if placement.rect.is_none() && fields.ctc.is_some() {
+        targets.clear();
+    }
     targets.sort_unstable();
     targets.dedup();
     if let Some(&p) = targets.iter().find(|&&p| p >= pages.len()) {
         return Err(PdfError::NoSuchPage(p + 1));
     }
-    let single = targets.len() == 1;
+    let mut stamped = match &fields.ctc {
+        Some(c) if c.pages.is_empty() => (0..pages.len()).collect(),
+        Some(c) => c.pages.clone(),
+        None => Vec::new(),
+    };
+    stamped.sort_unstable();
+    stamped.dedup();
+    if let Some(&p) = stamped.iter().find(|&&p| p >= pages.len()) {
+        return Err(PdfError::NoSuchPage(p + 1));
+    }
+    let single = targets.len() == 1 && fields.ctc.is_none();
     let (cat_id, cat_gen) = doc.catalog_ref()?;
     let mut catalog = doc.catalog()?;
 
@@ -430,6 +473,33 @@ pub fn prepare_with_password(
             for (_, _, widget) in &mut widgets {
                 widget.set("Rect", Obj::Array(vec![Obj::int(0); 4]));
             }
+        }
+    }
+    // --- certified true copy stamps -------------------------------------
+    if let Some(ctc) = &fields.ctc {
+        let seal = ctc.seal.as_ref();
+        let stamp = stamp_with(fields, &ctc.style.style, [None, seal], &mut objs, &mut next);
+        for &p in &stamped {
+            let target = &pages[p];
+            let (w, h) = target.display_size();
+            let r = ctc.style.rect_on(w, h);
+            let user = display_to_user(target, r);
+            let ap_id = take(&mut next);
+            objs.insert(ap_id, (0, appearance_obj(&stamp, r.w, r.h, target.rotate)));
+            // Print, ReadOnly, Locked: printed, and not to be moved or edited.
+            let widget = Dict::new()
+                .with("Type", Obj::name("Annot"))
+                .with("Subtype", Obj::name("Widget"))
+                .with("Parent", field_ref.clone())
+                .with("F", Obj::int(196))
+                .with("P", Obj::Ref(target.id.0, target.id.1))
+                .with(
+                    "Rect",
+                    Obj::Array(user.iter().map(|v| Obj::real(*v)).collect()),
+                )
+                .with("AP", Obj::Dict(Dict::new().with("N", Obj::Ref(ap_id, 0))))
+                .with("Contents", text_string("Certified true copy"));
+            widgets.push((target, take(&mut next), widget));
         }
     }
     if !single {
@@ -1045,6 +1115,7 @@ mod tests {
             style: StampStyle::default(),
             timestamp: false,
             certify: None,
+            ctc: None,
         };
         let rect = DisplayRect {
             x: 380.0,
@@ -1123,6 +1194,7 @@ mod tests {
             style,
             timestamp: false,
             certify: None,
+            ctc: None,
         };
         let placement = Placement {
             page: 1,

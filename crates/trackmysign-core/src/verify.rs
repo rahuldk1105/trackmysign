@@ -1690,6 +1690,128 @@ mod tests {
         assert!(crate::check_permitted(&cert, None).is_ok());
     }
 
+    /// Two pages, the second turned a quarter and with an inline `/Annots`.
+    fn two_page_pdf() -> Vec<u8> {
+        write_pdf(&[
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R >>",
+            b"<< /Length 23 >>\nstream\nBT 72 760 Td (Hi) Tj ET\nendstream",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Rotate 90 /Contents 4 0 R /Annots [] >>",
+        ])
+    }
+
+    fn with_stamps(pdf: &[u8], rect: bool, pages: Vec<usize>) -> Result<Vec<u8>, Error> {
+        let req = SignRequest {
+            page: 1,
+            rect: rect.then_some(crate::DisplayRect {
+                x: 20.0,
+                y: 500.0,
+                w: 170.0,
+                h: 55.0,
+            }),
+            time: Some(DateTime::parse_from_rfc3339(LATER).unwrap()),
+            ctc: Some(crate::Ctc {
+                pages,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        sign_pdf(pdf, &req, &mut SoftSigner::ec())
+    }
+
+    /// The newest signature field's widgets: page and flags of each.
+    fn newest_widgets(pdf: &[u8]) -> Vec<(Option<usize>, i64)> {
+        let doc = Document::parse(pdf).unwrap();
+        let pages = doc.pages().unwrap();
+        let fields = crate::pdf::fields::signature_fields(&doc, &pages).unwrap();
+        let field = fields.iter().max_by_key(|f| f.id.0).unwrap();
+        for w in &field.widgets {
+            assert!(w.dict.get("AP").is_some());
+            // Listed in its page's /Annots.
+            let p = &pages[w.page.unwrap()];
+            let annots = doc.resolve(p.dict.get("Annots").unwrap()).unwrap();
+            assert!(
+                annots
+                    .as_array()
+                    .unwrap()
+                    .contains(&Obj::Ref(w.id.0, w.id.1))
+            );
+        }
+        field
+            .widgets
+            .iter()
+            .map(|w| (w.page, w.dict.get("F").and_then(Obj::as_i64).unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn certified_true_copy_stamps_are_signature_widgets() {
+        let once = signed(&two_page_pdf(), &mut SoftSigner::rsa(), LATER);
+        let stamped = with_stamps(&once, true, vec![]).unwrap();
+        let r = verify(&stamped).unwrap();
+        assert_eq!(r.len(), 2);
+        assert_eq!(r[0].status, Status::Valid, "{:?}", r[0].notes);
+        assert_eq!(r[0].changes, Changes::Signatures);
+        assert_eq!(r[1].status, Status::Valid, "{:?}", r[1].notes);
+        assert!(r[1].covers_whole_file());
+        // The box on page 2, then a stamp on each page (page 2 gets both).
+        assert_eq!(
+            newest_widgets(&stamped),
+            [(Some(1), 132), (Some(0), 196), (Some(1), 196)]
+        );
+        let text = String::from_utf8_lossy(&stamped[once.len()..]).into_owned();
+        assert!(text.contains("(CERTIFIED TRUE COPY) Tj"));
+
+        // Invisible signature: only the stamps show.
+        let stamped = with_stamps(&two_page_pdf(), false, vec![1]).unwrap();
+        assert_eq!(newest_widgets(&stamped), [(Some(1), 196)]);
+        assert_eq!(verify(&stamped).unwrap()[0].status, Status::Valid);
+        assert!(matches!(
+            with_stamps(&two_page_pdf(), true, vec![2]),
+            Err(Error::Pdf(crate::PdfError::NoSuchPage(3)))
+        ));
+    }
+
+    #[test]
+    fn certified_true_copy_needs_comments_allowed() {
+        for (level, ok) in [
+            (DocMdp::NoChanges, false),
+            (DocMdp::FormFilling, false),
+            (DocMdp::Annotations, true),
+        ] {
+            let cert = certified(&two_page_pdf(), level).unwrap();
+            match with_stamps(&cert, true, vec![]) {
+                Ok(pdf) => {
+                    assert!(ok);
+                    let r = verify(&pdf).unwrap();
+                    assert_eq!(r[0].changes, Changes::Signatures);
+                    assert!(r[0].notes.is_empty(), "{:?}", r[0].notes);
+                }
+                Err(e) => {
+                    assert!(!ok && matches!(e, Error::NotPermitted(_)), "{e}");
+                    assert!(level == DocMdp::NoChanges || e.to_string().contains("stamps"));
+                }
+            }
+        }
+        // Certifying with stamps in the same revision is fine.
+        let req = SignRequest {
+            certify: Some(DocMdp::FormFilling),
+            ctc: Some(crate::Ctc::default()),
+            ..Default::default()
+        };
+        let pdf = sign_pdf(&two_page_pdf(), &req, &mut SoftSigner::rsa()).unwrap();
+        assert_eq!(verify(&pdf).unwrap()[0].status, Status::Valid);
+        // Not into an existing field.
+        let req = SignRequest {
+            field: Some("approvals.director".into()),
+            ctc: Some(crate::Ctc::default()),
+            ..Default::default()
+        };
+        let e = sign_pdf(&empty_field_pdf(), &req, &mut SoftSigner::rsa()).unwrap_err();
+        assert!(e.to_string().contains("existing signature field"), "{e}");
+    }
+
     #[test]
     fn content_change_after_signing_is_reported() {
         let pdf = signed(&plain_pdf(), &mut SoftSigner::rsa(), LATER);

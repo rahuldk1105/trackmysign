@@ -149,3 +149,78 @@ export function useStampDrawing(content: StampContent | null, w: number, h: numb
   }, [key]);
   return drawing;
 }
+
+// ------------------------------------------------- certified true copy
+
+export type Corner = "top_right" | "top_left" | "bottom_right" | "bottom_left";
+
+/** A "certified true copy" stamp (`trackmysign_core::ctc::CtcStyle`): its lines and look, size and corner. */
+export interface CtcStyle {
+  version: number;
+  style: StampStyle;
+  corner: Corner;
+  /** Points from the corner's sides. */
+  margin_x: number;
+  margin_y: number;
+  /** Points. */
+  width: number;
+  height: number;
+}
+
+export const CTC_LINES: LineField[] = ["custom_1", "organisation", "name", "role", "custom_2"];
+
+/** What a new stamp looks like; mirrors `ctc_box_style` in the core. */
+export const DEFAULT_CTC_STYLE: StampStyle = {
+  ...DEFAULT_STYLE,
+  lines: CTC_LINES,
+  custom_1: "CERTIFIED TRUE COPY",
+  role: "Director",
+  bold_name: false,
+  bold_first_line: true,
+  align: "center",
+};
+
+export const DEFAULT_CTC: CtcStyle = {
+  version: 1,
+  style: DEFAULT_CTC_STYLE,
+  corner: "top_right",
+  margin_x: 36,
+  margin_y: 36,
+  width: 180,
+  height: 72,
+};
+
+/** A saved stamp with every field. */
+export function fullCtc(c: Partial<CtcStyle> | null | undefined): CtcStyle {
+  return { ...DEFAULT_CTC, ...c, style: { ...DEFAULT_CTC_STYLE, ...c?.style } };
+}
+
+export function sameCtc(a: Partial<CtcStyle> | null | undefined, b: Partial<CtcStyle> | null | undefined): boolean {
+  return JSON.stringify(fullCtc(a)) === JSON.stringify(fullCtc(b));
+}
+
+/** Where the stamp goes on a page displayed `w`×`h`; mirrors `CtcStyle::rect_on`. */
+export function ctcRect(c: CtcStyle, w: number, h: number): { x: number; y: number; w: number; h: number } {
+  const sw = Math.min(c.width, w);
+  const sh = Math.min(c.height, h);
+  const left = c.corner === "top_left" || c.corner === "bottom_left";
+  const top = c.corner === "top_left" || c.corner === "top_right";
+  const x = left ? c.margin_x : w - sw - c.margin_x;
+  const y = top ? c.margin_y : h - sh - c.margin_y;
+  return { x: Math.min(Math.max(x, 0), w - sw), y: Math.min(Math.max(y, 0), h - sh), w: sw, h: sh };
+}
+
+/** The stamp moved to `r` on a page displayed `w`×`h`: kept from the nearer corner. */
+export function ctcPlaced(c: CtcStyle, r: { x: number; y: number; w: number; h: number }, w: number, h: number): CtcStyle {
+  const left = r.x + r.w / 2 <= w / 2;
+  const top = r.y + r.h / 2 <= h / 2;
+  const round = (v: number) => Math.round(Math.max(v, 0) * 10) / 10;
+  return {
+    ...c,
+    corner: top ? (left ? "top_left" : "top_right") : left ? "bottom_left" : "bottom_right",
+    margin_x: round(left ? r.x : w - r.x - r.w),
+    margin_y: round(top ? r.y : h - r.y - r.h),
+    width: round(r.w),
+    height: round(r.h),
+  };
+}

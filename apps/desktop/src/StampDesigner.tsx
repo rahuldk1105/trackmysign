@@ -1,6 +1,8 @@
 // "Appearance → Design…": layout, text lines, typography, box and company
 // seal of the signature box, with a preview drawn from the core's layout of
 // the real box size. Saved into settings (and from there into presets).
+// The "certified true copy" stamp is designed with the same dialog
+// (`variant="ctc"`): text, typography, box and seal, no signature image.
 
 import { useEffect, useState } from "react";
 import * as api from "./api";
@@ -10,6 +12,7 @@ import { AlertIcon, ChevronDownIcon, ChevronUpIcon, CloseIcon } from "./icons";
 import {
   ALL_LINES,
   DARK_BLUE,
+  DEFAULT_CTC_STYLE,
   DEFAULT_STYLE,
   STANDARD_BORDER,
   STANDARD_LINES,
@@ -143,6 +146,8 @@ function ColorField(props: { id: string; value: string; onChange: (v: string) =>
 }
 
 export function StampDesigner(props: {
+  /** "ctc": the certified true copy stamp, saved as given (never null). */
+  variant?: "ctc";
   style: StampStyle | null;
   image: ImageChoice;
   signature: PictureInfo | null;
@@ -158,7 +163,9 @@ export function StampDesigner(props: {
   onClose: () => void;
 }) {
   const { onClose } = props;
-  const [style, setStyle] = useState<StampStyle>(() => fullStyle(props.style));
+  const ctc = props.variant === "ctc";
+  const standard = ctc ? DEFAULT_CTC_STYLE : DEFAULT_STYLE;
+  const [style, setStyle] = useState<StampStyle>(() => (ctc ? { ...DEFAULT_CTC_STYLE, ...props.style } : fullStyle(props.style)));
   const [image, setImage] = useState<ImageChoice>(props.image);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -193,7 +200,7 @@ export function StampDesigner(props: {
   const rows = lineRows(style);
   const setRows = (next: { field: LineField; on: boolean }[]) => {
     const lines = next.filter((r) => r.on).map((r) => r.field);
-    set({ lines: JSON.stringify(lines) === JSON.stringify(STANDARD_LINES) ? null : lines });
+    set({ lines: !ctc && JSON.stringify(lines) === JSON.stringify(STANDARD_LINES) ? null : lines });
   };
   const move = (i: number, by: -1 | 1) => {
     const next = [...rows];
@@ -208,15 +215,16 @@ export function StampDesigner(props: {
   const save = () => {
     if (!valid) return setError(t("design.invalidColor"));
     const s = { ...style, seal: props.seal ? style.seal : null };
-    props.onSave(JSON.stringify(s) === JSON.stringify(DEFAULT_STYLE) ? null : s, image);
+    props.onSave(!ctc && JSON.stringify(s) === JSON.stringify(DEFAULT_STYLE) ? null : s, image);
   };
 
   const textOn = layout !== "only";
+  const title = ctc ? t("ctc.designTitle") : t("design.title");
   return (
     <div className="backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog designer" role="dialog" aria-modal="true" aria-label={t("design.title")}>
+      <div className="dialog designer" role="dialog" aria-modal="true" aria-label={title}>
         <div className="dialog-title">
-          <h2>{t("design.title")}</h2>
+          <h2>{title}</h2>
           <div className="spacer" />
           <button className="tb-btn" onClick={onClose} title={t("common.close")} aria-label={t("common.close")}>
             <CloseIcon />
@@ -225,20 +233,22 @@ export function StampDesigner(props: {
         <div className="dialog-body">
           <div className="designer-cols">
             <div className="designer-controls">
-              <section>
-                <h3>{t("design.layout")}</h3>
-                <Segmented
-                  label={t("design.layout")}
-                  value={layout}
-                  onChange={setLayout}
-                  options={LAYOUTS.map((l) => ({
-                    value: l.value,
-                    label: t(l.label),
-                    disabled: (l.value === "left" || l.value === "above") && !props.signature ? true : l.value === "only" && !props.signature && !props.seal,
-                  }))}
-                />
-                {!props.signature && <p className="muted small">{t("design.noImage")}</p>}
-              </section>
+              {!ctc && (
+                <section>
+                  <h3>{t("design.layout")}</h3>
+                  <Segmented
+                    label={t("design.layout")}
+                    value={layout}
+                    onChange={setLayout}
+                    options={LAYOUTS.map((l) => ({
+                      value: l.value,
+                      label: t(l.label),
+                      disabled: (l.value === "left" || l.value === "above") && !props.signature ? true : l.value === "only" && !props.signature && !props.seal,
+                    }))}
+                  />
+                  {!props.signature && <p className="muted small">{t("design.noImage")}</p>}
+                </section>
+              )}
 
               <section>
                 <h3>{t("design.seal")}</h3>
@@ -265,7 +275,7 @@ export function StampDesigner(props: {
                         checked={!!style.seal}
                         onChange={(e) => set({ seal: e.target.checked ? { position: "right", opacity: 1 } : null })}
                       />
-                      {t("design.showSeal")}
+                      {ctc ? t("ctc.showSeal") : t("design.showSeal")}
                     </label>
                     {style.seal && (
                       <>
@@ -526,7 +536,7 @@ export function StampDesigner(props: {
 
             <div className="designer-preview">
               <div className="designer-sticky">
-                <h3>{t("appearance.preview")}</h3>
+                <h3>{ctc ? t("ctc.preview") : t("appearance.preview")}</h3>
                 <div className="designer-box" style={{ width: previewW, height: previewH }}>
                   {drawing ? (
                     <StampView drawing={drawing} urls={{ signature: props.signature?.url, seal: props.seal?.url }} />
@@ -548,11 +558,11 @@ export function StampDesigner(props: {
             <button
               className="btn ghost"
               onClick={() => {
-                setStyle(DEFAULT_STYLE);
+                setStyle(standard);
                 if (style.layout === "image_only") setImage(props.signature ? "left" : "off");
               }}
             >
-              {t("design.standard")}
+              {ctc ? t("ctc.standard") : t("design.standard")}
             </button>
             <div className="spacer" />
             <button className="btn" onClick={onClose}>

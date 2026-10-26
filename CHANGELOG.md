@@ -9,6 +9,19 @@ All notable changes to TrackMy Sign are listed here. The format follows
 ### Added
 
 - TrackMy Sign is on the [Microsoft Store](https://apps.microsoft.com/detail/9NV4G85VML2K). The website and README now point Windows users there first; the direct installer stays available.
+- Certified true copies: *Signature type → Certified true copy* adds a stamp
+  to every page (or chosen pages), signed with the document: "CERTIFIED TRUE
+  COPY", *For* the organisation, your name, your role (*Director* by default)
+  and optionally a line such as a DIN or membership number, the date and the
+  company seal. Its lines and look are edited with the signature box
+  designer; it keeps its distance from a corner of each page (top right by
+  default, rotation-aware), and dragging one stamp on the page moves them all.
+  The stamps are widgets of the new signature's field in the same incremental
+  update, so the signature covers them and earlier signatures stay valid; a
+  document certified for form filling and signing only is refused. Presets,
+  the batch and the watch folder keep the stamp, and the signing history notes
+  the stamped pages. Command line: `sign --ctc`, `--ctc-style stamp.json`,
+  `--ctc-pages all|1-3` (also on `watch`).
 
 ### Changed
 

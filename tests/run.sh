@@ -252,6 +252,54 @@ refused "$W/signed/cert-none.pdf" "no changes allowed"
 refused "$W/signed/cert-none.pdf" "no changes allowed" --invisible
 refused "$W/fx/presigned.pdf" "Only the first signature can certify" --certify forms
 refused "$W/signed/cert-forms.pdf" "Only the first signature can certify" --certify annotations
+# Certified true copy stamps: widgets of the new signature on each page, in the same
+# update, so earlier signatures stay valid; rendered upright on rotated and odd-sized pages.
+ctc() { python3 -W ignore "$ROOT/tests/check_ctc.py" "$@" || fail=1; }
+"$BIN" sign "$W/fx/rotated.pdf" --ctc --reason Certified --out "$W/signed/ctc-rotated.pdf" >/dev/null
+check "$W/fx/rotated.pdf" "$W/signed/ctc-rotated.pdf"
+ctc "$W/fx/rotated.pdf" "$W/signed/ctc-rotated.pdf" 1 1 2 3 4
+vcheck "$W/signed/ctc-rotated.pdf" valid
+cat >"$W/ctc.json" <<'EOF'
+{"corner": "bottom_left", "margin_x": 24, "margin_y": 30, "width": 200, "height": 80,
+ "style": {"font": "times", "custom_1": "TRUE COPY", "custom_2": "DIN: 01234567", "role": "निदेशक",
+           "lines": ["custom_1", "organisation", "name", "role", "custom_2", "date"], "date_format": "dd_mmm_yyyy",
+           "seal": {"position": "right", "opacity": 1}}}
+EOF
+"$BIN" sign "$W/fx/mixed.pdf" --ctc --ctc-style "$W/ctc.json" --ctc-pages 1-3,5 --seal "$W/fx/seal.png" \
+  --out "$W/signed/ctc-mixed.pdf" >/dev/null
+check "$W/fx/mixed.pdf" "$W/signed/ctc-mixed.pdf"
+ctc --seal --text="TRUE COPY" "$W/fx/mixed.pdf" "$W/signed/ctc-mixed.pdf" 1 1 2 3 5
+grep -aq "(Nideshaka) Tj" "$W/signed/ctc-mixed.pdf" && echo "PASS stamp text transliterated" \
+  || { echo "FAIL stamp text not transliterated"; fail=1; }
+"$BIN" sign "$W/fx/presigned.pdf" --ctc --invisible --out "$W/signed/ctc-presigned.pdf" >/dev/null
+check "$W/fx/presigned.pdf" "$W/signed/ctc-presigned.pdf"
+ctc "$W/fx/presigned.pdf" "$W/signed/ctc-presigned.pdf" 2 1 2
+vcheck "$W/signed/ctc-presigned.pdf" valid
+"$BIN" sign "$W/signed/ctc-presigned.pdf" --position top-left --out "$W/signed/ctc-then-signed.pdf" >/dev/null
+check "$W/signed/ctc-presigned.pdf" "$W/signed/ctc-then-signed.pdf"
+"$BIN" sign "$W/signed/cert-annotations.pdf" --ctc --ctc-pages 2 --out "$W/signed/ctc-cert3.pdf" >/dev/null
+check --certify=3 "$W/signed/cert-annotations.pdf" "$W/signed/ctc-cert3.pdf"
+ctc "$W/signed/cert-annotations.pdf" "$W/signed/ctc-cert3.pdf" 2 2
+"$BIN" sign "$W/fx/plain.pdf" --certify forms --ctc --out "$W/signed/ctc-certify.pdf" >/dev/null
+check --certify=2 "$W/fx/plain.pdf" "$W/signed/ctc-certify.pdf"
+ctc "$W/fx/plain.pdf" "$W/signed/ctc-certify.pdf" 1 1 2
+refused "$W/signed/cert-forms.pdf" "allow only form filling and signing" --ctc
+refused "$W/signed/cert-none.pdf" "no changes allowed" --ctc --invisible
+refused "$W/fx/rotated.pdf" "has only 4 page" --ctc --ctc-pages 5
+expect_fail "--ctc not with --field" "cannot be used with" "$BIN" sign "$W/fx/field-simple.pdf" --field ClientSignature --ctc
+# Encrypted: the stamps' appearances go into the encrypted update. (pyHanko misreads a
+# rewritten page dictionary of an encrypted file whose pages sit in an object stream,
+# with or without stamps, so the AES-256 one is stamped where it already has annotations.)
+"$BIN" sign "$W/fx/presigned-enc-rc128.pdf" --password user --ctc --out "$W/signed/ctc-enc.pdf" >/dev/null
+check --password=user "$W/fx/presigned-enc-rc128.pdf" "$W/signed/ctc-enc.pdf"
+ctc --password=user "$W/fx/presigned-enc-rc128.pdf" "$W/signed/ctc-enc.pdf" 2 1 2
+python3 -W ignore "$ROOT/tests/verify_check.py" --password=user "$BIN" "$W/signed/ctc-enc.pdf" valid "${ROOTS[@]}" || fail=1
+"$BIN" sign "$W/fx/presigned-enc-aes256.pdf" --password user --ctc --ctc-pages 2 --invisible --out "$W/signed/ctc-enc256.pdf" >/dev/null
+check --password=user "$W/fx/presigned-enc-aes256.pdf" "$W/signed/ctc-enc256.pdf"
+ctc --password=user "$W/fx/presigned-enc-aes256.pdf" "$W/signed/ctc-enc256.pdf" 2 2
+"$BIN" sign "$W/fx/enc-aes128.pdf" --ctc --ctc-pages 1 --pages all --out "$W/signed/ctc-enc-aes128.pdf" >/dev/null
+check "$W/fx/enc-aes128.pdf" "$W/signed/ctc-enc-aes128.pdf"
+ctc "$W/fx/enc-aes128.pdf" "$W/signed/ctc-enc-aes128.pdf" 1 1
 if TRACKMYSIGN_PIN=00000000 "$BIN" sign "$W/fx/plain.pdf" --out "$W/x.pdf" 2>"$W/err"; then
   echo "FAIL wrong PIN accepted"; fail=1
 else
@@ -440,6 +488,27 @@ else
   grep -q "can only go to its \"signed\" folder" "$W/err" && echo "PASS watch refuses an output folder inside the watched one" \
     || { echo "FAIL: $(cat "$W/err")"; fail=1; }
 fi
+# Watch folder with stamps: a document is stamped and signed; one certified for
+# form filling only goes to failed/ with the reason.
+WC=$W/watch-ctc
+mkdir -p "$WC/in"
+"$BIN" watch "$WC/in" --ctc --ctc-pages 1 --invisible >"$WC/out" 2>"$WC/err" &
+WATCH_PID=$!
+trap 'kill $SVC_PID $WATCH_PID 2>/dev/null' EXIT
+for _ in $(seq 100); do grep -q "^Anyone who can write" "$WC/out" && break; sleep 0.1; done
+cp "$W/fx/plain.pdf" "$W/signed/cert-forms.pdf" "$WC/in/"
+for _ in $(seq 300); do
+  [ "$(ls "$WC/in/done" 2>/dev/null | wc -l)" = 1 ] && [ "$(ls "$WC/in/failed" 2>/dev/null | wc -l)" = 2 ] && break
+  sleep 0.1
+done
+kill -INT $WATCH_PID
+wait $WATCH_PID || true
+trap 'kill $SVC_PID 2>/dev/null' EXIT
+check "$W/fx/plain.pdf" "$WC/in/signed/plain_signed.pdf"
+ctc "$W/fx/plain.pdf" "$WC/in/signed/plain_signed.pdf" 1 1
+grep -q "allow only form filling and signing" "$WC/in/failed/cert-forms.txt" \
+  && echo "PASS watch folder refuses stamps on a form-filling certification" \
+  || { echo "FAIL watch ctc: $(cat "$WC/out" "$WC/err"; ls -R "$WC/in")"; fail=1; }
 # Signature styles (--style, --seal): the appearance's fonts, images and opacity,
 # and the rendered page (the box found as the pixels that changed).
 style() { python3 -W ignore "$ROOT/tests/check_style.py" "$@" || fail=1; }

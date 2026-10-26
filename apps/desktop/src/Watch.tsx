@@ -8,7 +8,7 @@ import type { ApiError, Cert, ImageChoice, PinStatus, WatchConfig, WatchLogEntry
 import { Modal } from "./App";
 import { currentLang, t, type MessageKey } from "./i18n";
 import { errorText, translateMessage } from "./i18n/errors";
-import { describePage, toWatchPreset, type Preset } from "./presets";
+import { describePage, sameCtcChoice, toWatchPreset, type CtcChoice, type Preset } from "./presets";
 import { sameStyle, type StampStyle } from "./stamp";
 import { AlertIcon, FolderIcon } from "./icons";
 import "./watch.css";
@@ -91,12 +91,18 @@ function clock(unix: number, withDate = false): string {
   return withDate ? `${d.toLocaleDateString(currentLang(), { day: "2-digit", month: "short" })} ${time}` : time;
 }
 
+function ctcSummary(pages: string): string {
+  const spec = pages.trim();
+  return !spec || spec.toLowerCase() === "all" ? t("ctc.onAll") : t("ctc.onPages", { pages: spec });
+}
+
 function samePreset(a: api.WatchPreset, p: Preset): boolean {
   return (
     a.reason === p.reason &&
     a.location === p.location &&
     (p.image === undefined || a.image === p.image) &&
     (p.style === undefined || sameStyle(a.style, p.style)) &&
+    (p.ctc === undefined || sameCtcChoice(a.ctc ? { style: a.ctc, pages: a.ctcPages } : null, p.ctc)) &&
     JSON.stringify(a.placement) === JSON.stringify(p.placement)
   );
 }
@@ -105,7 +111,7 @@ export function WatchSettings(props: {
   status: WatchStatus | null;
   onStatus: (s: WatchStatus) => void;
   presets: Preset[];
-  defaults: { reason: string; location: string; image: ImageChoice; style: StampStyle | null; tsaUrl: string };
+  defaults: { reason: string; location: string; image: ImageChoice; style: StampStyle | null; ctc: CtcChoice | null; tsaUrl: string };
   /** The certificate a session would sign with. */
   cert?: Cert;
 }) {
@@ -235,7 +241,7 @@ export function WatchSettings(props: {
             ))}
           </select>
           <p className="muted small">
-            {[p.reason || t("watch.noReason"), p.location, box].filter(Boolean).join(" · ")}
+            {[p.reason || t("watch.noReason"), p.location, box, p.ctc && ctcSummary(p.ctcPages)].filter(Boolean).join(" · ")}
             {p.name && (!listed || !samePreset(p, listed)) && <> {t("watch.presetCopy", { name: p.name })}</>}
           </p>
 

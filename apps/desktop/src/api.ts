@@ -4,7 +4,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n";
 import type { PresetPlacement } from "./presets";
-import type { Drawing, StampContent, StampStyle } from "./stamp";
+import type { CtcStyle, Drawing, StampContent, StampStyle } from "./stamp";
 
 export interface Cert {
   /** SHA-256 fingerprint of the certificate. */
@@ -102,6 +102,14 @@ export interface SignArgs {
   certify?: CertifyLevel | null;
   /** Folder for the signed copy; next to the original when null. */
   outDir?: string | null;
+  /** "Certified true copy" stamps added with the signature (not into a field). Shows the saved seal when its style has `seal`. */
+  ctc?: CtcArg | null;
+}
+
+export interface CtcArg {
+  style: CtcStyle;
+  /** Zero-based pages with a stamp (those a file has, in a batch); every page when null. */
+  pages: number[] | null;
 }
 
 /** Several PDFs, one PIN entry. The box goes on the same page and spot of each. */
@@ -890,6 +898,10 @@ export interface WatchPreset {
   /** RFC 3161 server, or null for none. */
   timestamp: string | null;
   ltv: boolean;
+  /** "Certified true copy" stamps; null for none. */
+  ctc: CtcStyle | null;
+  /** Pages with a stamp: "all" or e.g. "1-3,5". */
+  ctcPages: string;
 }
 
 export interface WatchConfig {
@@ -934,7 +946,20 @@ let mockWatch: WatchStatus = {
     dailyLimit: 200,
     minutes: 60,
     stopOnSleep: true,
-    preset: { name: "", reason: "Approved", location: "", placement: null, pages: "", image: "off", invisible: false, style: null, timestamp: null, ltv: false },
+    preset: {
+      name: "",
+      reason: "Approved",
+      location: "",
+      placement: null,
+      pages: "",
+      image: "off",
+      invisible: false,
+      style: null,
+      timestamp: null,
+      ltv: false,
+      ctc: null,
+      ctcPages: "",
+    },
   },
   active: null,
   ended: null,
@@ -1010,6 +1035,8 @@ export interface HistoryEntry {
   cert?: { subject: string; organization?: string; issuer: string; serial: string; fingerprint: string };
   /** Numbered from 1. */
   pages?: number[];
+  /** Pages with a "certified true copy" stamp, numbered from 1; empty for every page. */
+  ctc?: number[];
   field?: string;
   reason?: string;
   location?: string;

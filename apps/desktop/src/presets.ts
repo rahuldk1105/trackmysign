@@ -4,7 +4,7 @@
 import type { ImageChoice, WatchPreset } from "./api";
 import { t } from "./i18n";
 import type { PageSize, Placement } from "./PdfView";
-import { sameStyle, type StampStyle } from "./stamp";
+import { sameCtc, sameStyle, type CtcStyle, type StampStyle } from "./stamp";
 
 /** Which page the box goes on: first, last, or a page number (1 = first). */
 export type PageChoice = "first" | "last" | number;
@@ -18,6 +18,18 @@ export interface PresetPlacement {
   h: number;
 }
 
+/** "Certified true copy" stamps as settings and presets keep them. */
+export interface CtcChoice {
+  style: CtcStyle;
+  /** "all" or e.g. "1-3,5". */
+  pages: string;
+}
+
+export function sameCtcChoice(a: CtcChoice | null, b: CtcChoice | null): boolean {
+  if (!a || !b) return a === b;
+  return a.pages.trim() === b.pages.trim() && sameCtc(a.style, b.style);
+}
+
 export interface Preset {
   name: string;
   reason: string;
@@ -27,6 +39,8 @@ export interface Preset {
   image?: ImageChoice;
   /** Null for the standard box; missing in presets saved before designs: leave as is. */
   style?: StampStyle | null;
+  /** Null for no stamps; missing in presets saved before stamps: leave as is. */
+  ctc?: CtcChoice | null;
 }
 
 const PT_PER_MM = 72 / 25.4;
@@ -87,9 +101,10 @@ function samePlacement(a: PresetPlacement | null, b: PresetPlacement | null): bo
  */
 export function toWatchPreset(
   preset: Preset | null,
-  defaults: { reason: string; location: string; image: ImageChoice; style: StampStyle | null },
+  defaults: { reason: string; location: string; image: ImageChoice; style: StampStyle | null; ctc: CtcChoice | null },
   own: Pick<WatchPreset, "pages" | "timestamp" | "ltv">,
 ): WatchPreset {
+  const ctc = preset?.ctc !== undefined ? preset.ctc : defaults.ctc;
   return {
     name: preset?.name ?? "",
     reason: preset?.reason ?? defaults.reason,
@@ -98,6 +113,8 @@ export function toWatchPreset(
     image: preset?.image ?? defaults.image,
     style: preset?.style !== undefined ? preset.style : defaults.style,
     invisible: false,
+    ctc: ctc?.style ?? null,
+    ctcPages: ctc?.pages ?? "",
     ...own,
   };
 }
@@ -110,6 +127,7 @@ export function activePreset(presets: Preset[], current: Omit<Preset, "name">): 
       p.location === current.location &&
       (p.image === undefined || p.image === current.image) &&
       (p.style === undefined || sameStyle(p.style, current.style)) &&
+      (p.ctc === undefined || sameCtcChoice(p.ctc, current.ctc ?? null)) &&
       (!p.placement || samePlacement(p.placement, current.placement)),
   );
 }

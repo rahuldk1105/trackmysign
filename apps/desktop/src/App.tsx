@@ -26,7 +26,8 @@ import { PagesDialog } from "./PageTools";
 import { loadPdf, PdfView, type PageSize, type Placement } from "./PdfView";
 import { StampDesigner, type PictureInfo } from "./StampDesigner";
 import { StampView, type StampUrls } from "./StampView";
-import { useStampDrawing, type StampContent, type StampStyle } from "./stamp";
+import { DEFAULT_CTC, fullCtc, useStampDrawing, type StampContent, type StampStyle } from "./stamp";
+import { allPages, ctcPreview, CtcSection } from "./Ctc";
 import { BackgroundSettings } from "./Background";
 import { PortalDialog, PortalSettings, PortalStatusItem, usePortal } from "./PortalSigning";
 import { SignaturesPanel } from "./SignaturesPanel";
@@ -34,7 +35,7 @@ import { UpdateBanner } from "./UpdateBanner";
 import { useWatch, WatchSettings, WatchStatusItem } from "./Watch";
 import { useUpdater, type UpdateState } from "./updater";
 import { useTheme, type ThemePref } from "./theme";
-import { activePreset, describePage, fromPresetPlacement, pageChoice, toPresetPlacement, type Preset } from "./presets";
+import { activePreset, describePage, fromPresetPlacement, pageChoice, toPresetPlacement, type CtcChoice, type Preset } from "./presets";
 import {
   AlertIcon,
   CheckIcon,
@@ -72,6 +73,10 @@ interface Saved {
   image: ImageChoice;
   /** How the box looks; null for the standard box. */
   style: StampStyle | null;
+  /** Add "certified true copy" stamps to the pages. */
+  ctcOn: boolean;
+  /** The stamp and its pages, kept while the stamps are off. */
+  ctc: CtcChoice;
   /** Remind this many days before the DSC expires; 0 for never. */
   expiryReminder: ReminderDays;
   /** Day the reminder for certificates not plugged in was dismissed. */
@@ -106,6 +111,8 @@ const defaults: Saved = {
   presets: [],
   image: "off",
   style: null,
+  ctcOn: false,
+  ctc: { style: DEFAULT_CTC, pages: "all" },
   expiryReminder: 30,
   reminderDismissed: "",
   autoUpdate: true,
@@ -118,6 +125,7 @@ function loadSaved(): Saved {
   try {
     const s: Saved = { ...defaults, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
     if (!Array.isArray(s.presets)) s.presets = [];
+    s.ctc = { style: fullCtc(s.ctc?.style), pages: typeof s.ctc?.pages === "string" ? s.ctc.pages : "all" };
     if (!REMINDER_CHOICES.includes(s.expiryReminder)) s.expiryReminder = defaults.expiryReminder;
     if (!isLangPref(s.language)) s.language = defaults.language;
     return s;
@@ -330,6 +338,7 @@ export default function App() {
   const [sealImage, setSealImage] = useState<PictureInfo | null>(null);
   const [sealError, setSealError] = useState<string | null>(null);
   const [designOpen, setDesignOpen] = useState(false);
+  const [ctcDesignOpen, setCtcDesignOpen] = useState(false);
   const [recent, setRecent] = useState<RecentFile[]>([]);
   /** Folder of the PDF opened last; also kept while the recent list is off. */
   const [lastFolder, setLastFolder] = useState<string | null>(null);
@@ -420,7 +429,11 @@ export default function App() {
   const removeSeal = async () => {
     await api.clearPicture("seal").catch(() => {});
     setSealImage(null);
-    if (saved.style?.seal) update({ style: { ...saved.style, seal: null } });
+    const ctcStyle = saved.ctc.style;
+    update({
+      ...(saved.style?.seal && { style: { ...saved.style, seal: null } }),
+      ...(ctcStyle.style.seal && { ctc: { ...saved.ctc, style: { ...ctcStyle, style: { ...ctcStyle.style, seal: null } } } }),
+    });
   };
 
   const chooseImage = async () => {
@@ -668,12 +681,19 @@ export default function App() {
     location: saved.location,
     image: saved.image,
     style: saved.style,
+    ctc: saved.ctcOn ? saved.ctc : null,
     placement: doc && placement ? toPresetPlacement(placement, doc.sizes.length) : null,
   };
   const active = activePreset(saved.presets, current);
 
   const applyPreset = (p: Preset) => {
-    update({ reason: p.reason, location: p.location, ...(p.image && { image: p.image }), ...(p.style !== undefined && { style: p.style }) });
+    update({
+      reason: p.reason,
+      location: p.location,
+      ...(p.image && { image: p.image }),
+      ...(p.style !== undefined && { style: p.style }),
+      ...(p.ctc !== undefined && (p.ctc ? { ctcOn: true, ctc: { style: fullCtc(p.ctc.style), pages: p.ctc.pages } } : { ctcOn: false })),
+    });
     if (doc && p.placement) {
       const pl = fromPresetPlacement(p.placement, doc.sizes);
       place(pl);
@@ -704,8 +724,22 @@ export default function App() {
   // Only the first signature certifies; "no changes" rules out any further one.
   const canCertify = !!doc && doc.info.signatures === 0 && doc.info.certified === null;
   const locked = doc?.info.certified === 1;
+  // Pages with a certified true copy stamp; null for every page.
+  const ctcSelection: number[] | string | null = !saved.ctcOn || allPages(saved.ctc.pages) ? null : parsePages(saved.ctc.pages, pages);
+  const ctcPagesError = typeof ctcSelection === "string" ? ctcSelection : null;
+  const ctcBlocked = saved.ctcOn && (!!field || doc?.info.certified === 2 || !!ctcPagesError);
+  const ctcArg = saved.ctcOn && !field ? { style: saved.ctc.style, pages: Array.isArray(ctcSelection) ? ctcSelection : null } : null;
   const canSign =
-    !!doc && doc.info.signingAllowed && !!placement && !!cert && !cert.expired && !loading && !pagesError && !locked && (!certify || canCertify);
+    !!doc &&
+    doc.info.signingAllowed &&
+    !!placement &&
+    !!cert &&
+    !cert.expired &&
+    !loading &&
+    !pagesError &&
+    !locked &&
+    (!certify || canCertify) &&
+    !ctcBlocked;
   const certTone = cert ? expiryTone(cert.daysLeft, saved.expiryReminder) : null;
   // Certificates to renew soon: those on the token, or those seen before while it is out.
   const reminders =
@@ -714,7 +748,7 @@ export default function App() {
       : [];
   const dismissReminders = () => update({ reminderDismissed: today() });
   const dialogOpen =
-    step.kind !== "idle" || settingsOpen || detailsOpen || designOpen || pagesOpen || !!folderOpen || !!unlock || !!portal.request || !!otherFiles;
+    step.kind !== "idle" || settingsOpen || detailsOpen || designOpen || ctcDesignOpen || pagesOpen || !!folderOpen || !!unlock || !!portal.request || !!otherFiles;
 
   /** Opens the folder check; a finished check of another folder makes way for `folder`. */
   const verifyFolder = (folder?: string) => {
@@ -778,6 +812,7 @@ export default function App() {
           password: doc.password ?? null,
           certify,
           outDir: saved.outDir || null,
+          ctc: ctcArg,
         },
         (p) => {
           if (!started) {
@@ -832,6 +867,7 @@ export default function App() {
         password: doc.password ?? null,
         certify,
         outDir: saved.outDir || null,
+        ctc: ctcArg,
       });
       update({ certName: cert.name });
       setStep({ kind: "done", result });
@@ -856,6 +892,14 @@ export default function App() {
     seal: saved.style?.seal && sealImage ? sealImage.aspect : null,
   };
   const stampUrls: StampUrls = { signature: sigImage?.url, seal: sealImage?.url };
+  const ctcContent: StampContent = {
+    ...stampContent,
+    style: saved.ctc.style.style,
+    image: null,
+    seal: saved.ctc.style.style.seal && sealImage ? sealImage.aspect : null,
+  };
+  const ctcLines = ctcPreview(saved.ctc.style, stampContent.name, stampContent.organisation);
+  const setCtc = (ctc: CtcChoice) => update({ ctc });
   const stampBox = placement ? { w: placement.w, h: placement.h } : { w: 170, h: 55 };
   // Only outside the app, where nothing lays the box out.
   const preview = [
@@ -960,6 +1004,16 @@ export default function App() {
                 fields={emptyFields.filter((f) => f.name !== field?.name)}
                 onPickField={pickField}
                 field={field?.name}
+                ctc={
+                  ctcArg && {
+                    style: ctcArg.style,
+                    pages: ctcArg.pages ?? doc.sizes.map((_, i) => i),
+                    content: ctcContent,
+                    urls: stampUrls,
+                    preview: ctcLines,
+                    onChange: (style) => setCtc({ ...saved.ctc, style }),
+                  }
+                }
               />
               {hover && <div className="drop-overlay">{t("empty.dropToOpen")}</div>}
             </>
@@ -1252,6 +1306,26 @@ export default function App() {
                 ) : (
                   !canCertify && <p className="muted small">{t("type.onlyFirst")}</p>
                 )}
+                <CtcSection
+                  on={saved.ctcOn}
+                  choice={saved.ctc}
+                  pagesError={ctcPagesError}
+                  currentPage={page}
+                  field={!!field}
+                  certified={doc.info.certified}
+                  onToggle={(ctcOn) => update({ ctcOn })}
+                  onChange={setCtc}
+                  onDesign={() => setCtcDesignOpen(true)}
+                >
+                  <StampPreview
+                    content={ctcContent}
+                    urls={stampUrls}
+                    box={{ w: saved.ctc.style.width, h: saved.ctc.style.height }}
+                    preview={ctcLines}
+                    label={t("ctc.preview")}
+                    bold={0}
+                  />
+                </CtcSection>
               </section>
 
               <section>
@@ -1453,6 +1527,26 @@ export default function App() {
             setDesignOpen(false);
           }}
           onClose={() => setDesignOpen(false)}
+        />
+      )}
+
+      {ctcDesignOpen && (
+        <StampDesigner
+          variant="ctc"
+          style={saved.ctc.style.style}
+          image="off"
+          signature={null}
+          seal={sealImage}
+          box={{ w: saved.ctc.style.width, h: saved.ctc.style.height }}
+          content={ctcContent}
+          onChooseSeal={chooseSeal}
+          onRemoveSeal={removeSeal}
+          sealError={sealError}
+          onSave={(style) => {
+            if (style) setCtc({ ...saved.ctc, style: { ...saved.ctc.style, style } });
+            setCtcDesignOpen(false);
+          }}
+          onClose={() => setCtcDesignOpen(false)}
         />
       )}
 
@@ -2326,7 +2420,7 @@ function Settings(props: {
             status={props.watch}
             onStatus={props.onWatch}
             presets={props.saved.presets}
-            defaults={props.saved}
+            defaults={{ ...props.saved, ctc: props.saved.ctcOn ? props.saved.ctc : null }}
             cert={cert?.canSign && !cert.expired ? cert : undefined}
           />
 
@@ -2541,14 +2635,15 @@ async function loadPicture(which: api.Picture): Promise<PictureInfo | null> {
 }
 
 /** The box in the side panel, at the proportions of the placed box. */
-function StampPreview(props: { content: StampContent; urls: StampUrls; box: { w: number; h: number }; preview: string[] }) {
+function StampPreview(props: { content: StampContent; urls: StampUrls; box: { w: number; h: number }; preview: string[]; label?: string; bold?: number }) {
   const { w, h } = props.box;
+  const label = props.label ?? t("appearance.preview");
   const drawing = useStampDrawing(props.content, w, h);
   if (!drawing) {
     return (
-      <div className="stamp-preview" aria-label={t("appearance.preview")}>
+      <div className="stamp-preview" aria-label={label}>
         {props.preview.map((l, i) => (
-          <div key={i} className={i === 1 ? "sig-name" : undefined}>
+          <div key={i} className={i === (props.bold ?? 1) ? "sig-name" : undefined}>
             {l}
           </div>
         ))}
@@ -2556,7 +2651,7 @@ function StampPreview(props: { content: StampContent; urls: StampUrls; box: { w:
     );
   }
   return (
-    <div className="stamp-preview drawn" aria-label={t("appearance.preview")} style={{ aspectRatio: `${w} / ${h}`, width: `min(100%, ${(150 * w) / h}px)` }}>
+    <div className="stamp-preview drawn" aria-label={label} style={{ aspectRatio: `${w} / ${h}`, width: `min(100%, ${(150 * w) / h}px)` }}>
       <StampView drawing={drawing} urls={props.urls} />
     </div>
   );

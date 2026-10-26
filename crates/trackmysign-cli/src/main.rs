@@ -20,9 +20,9 @@ use trackmysign_core::report::Report;
 use trackmysign_core::token::{Driver, TokenCert, TokenSigner, Tokens, driver_name};
 use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
 use trackmysign_core::{
-    DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, ImagePosition, PdfError, PdfInfo, SignRequest,
-    Signer, StampImage, StampStyle, check_permitted_with_password, inspect_with_password,
-    parse_pages, sign_pdf, signed_path, watch,
+    Ctc, CtcStyle, DEFAULT_TSA_URL, DisplayRect, DocMdp, Error, ImagePosition, PdfError, PdfInfo,
+    SignRequest, Signer, StampImage, StampStyle, check_permitted_with_password, ctc,
+    inspect_with_password, parse_pages, sign_pdf, signed_path, watch,
 };
 use zeroize::Zeroizing;
 
@@ -114,9 +114,22 @@ enum Cmd {
         #[arg(long, value_name = "FILE")]
         style: Option<PathBuf>,
         /// Company seal or logo (PNG or JPEG) to show in the box, placed as
-        /// the style says (right of the text by default).
+        /// the style says (right of the text by default). When the
+        /// --ctc-style shows a seal, it goes on the stamps instead, and in
+        /// the box only if --style shows one too.
         #[arg(long, value_name = "FILE")]
         seal: Option<PathBuf>,
+        /// Add a "certified true copy" stamp to every page (or --ctc-pages),
+        /// signed with the document: "CERTIFIED TRUE COPY", "For" your
+        /// organisation, your name and "Director", top right.
+        #[arg(long, conflicts_with = "field")]
+        ctc: bool,
+        /// The stamp's lines, look, size and corner, saved as JSON (see the README).
+        #[arg(long, value_name = "FILE", requires = "ctc")]
+        ctc_style: Option<PathBuf>,
+        /// Pages with a stamp: `all` (the default) or a list such as `1-3,5`.
+        #[arg(long, value_name = "PAGES", requires = "ctc")]
+        ctc_pages: Option<String>,
         /// Which certificate to use (number from `trackmysign certs`).
         #[arg(long, default_value_t = 1)]
         cert: usize,
@@ -203,9 +216,20 @@ enum Cmd {
         /// How the box looks, instead of the preset's style.
         #[arg(long, value_name = "FILE")]
         style: Option<PathBuf>,
-        /// Company seal or logo (PNG or JPEG); needed when the style shows one.
+        /// Company seal or logo (PNG or JPEG); needed when the style or the
+        /// stamps show one.
         #[arg(long, value_name = "FILE")]
         seal: Option<PathBuf>,
+        /// Add a "certified true copy" stamp to the pages, as `sign --ctc`.
+        #[arg(long)]
+        ctc: bool,
+        /// The stamp, instead of the preset's (implies --ctc).
+        #[arg(long, value_name = "FILE")]
+        ctc_style: Option<PathBuf>,
+        /// Pages with a stamp, instead of the preset's: `all` or a list such
+        /// as `1-3,5` (pages a file does not have are left out).
+        #[arg(long, value_name = "PAGES")]
+        ctc_pages: Option<String>,
         #[arg(long)]
         invisible: bool,
         /// Leave originals in FOLDER instead of moving them to FOLDER/done.
@@ -491,6 +515,14 @@ fn read_style(path: &Path) -> Result<StampStyle> {
         .with_context(|| format!("{} is not a signature style", path.display()))
 }
 
+/// A "certified true copy" stamp saved as JSON, checked.
+fn read_ctc_style(path: &Path) -> Result<CtcStyle> {
+    let data = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    CtcStyle::from_json(&data)
+        .map_err(anyhow::Error::msg)
+        .with_context(|| format!("{} is not a certified true copy stamp", path.display()))
+}
+
 fn parse_rect(s: &str) -> Result<DisplayRect, String> {
     let v: Vec<f64> = s
         .split(',')
@@ -515,6 +547,8 @@ struct Job {
     pages: Vec<usize>,
     rect: Option<DisplayRect>,
     password: Option<String>,
+    /// Pages with a certified true copy stamp, when stamped.
+    ctc_pages: Option<Vec<usize>>,
 }
 
 /// Runs `f` on a PDF, asking for its password on the terminal when it has
@@ -541,13 +575,21 @@ struct Opened {
     password: Option<String>,
 }
 
-fn open_for_signing(pdf: &Path, password: Option<&str>, certify: Option<DocMdp>) -> Result<Opened> {
+fn open_for_signing(
+    pdf: &Path,
+    password: Option<&str>,
+    certify: Option<DocMdp>,
+    ctc: bool,
+) -> Result<Opened> {
     let data = std::fs::read(pdf).with_context(|| format!("reading {}", pdf.display()))?;
     let (info, password) = with_password(pdf, password, |pw| inspect_with_password(&data, pw))?;
     if !info.signing_allowed {
         bail!("{} (--password)", PdfError::SigningNotAllowed);
     }
     check_permitted_with_password(&data, password.as_deref(), certify)?;
+    if ctc {
+        ctc::check_permitted(&data, password.as_deref())?;
+    }
     Ok(Opened {
         data,
         info,
@@ -555,7 +597,10 @@ fn open_for_signing(pdf: &Path, password: Option<&str>, certify: Option<DocMdp>)
     })
 }
 
-/// Works out the page index, the extra pages and the box for an opened PDF.
+/// Works out the page index, the extra pages and the box for an opened PDF,
+/// and the pages that get a certified true copy stamp (`ctc_pages`, `all`
+/// when empty) if stamped.
+#[allow(clippy::too_many_arguments)]
 fn read_and_place(
     opened: Opened,
     page: Option<usize>,
@@ -564,6 +609,7 @@ fn read_and_place(
     rect: Option<DisplayRect>,
     invisible: bool,
     field: Option<&str>,
+    ctc_pages: Option<&str>,
 ) -> Result<Job> {
     let Opened {
         data,
@@ -587,8 +633,16 @@ fn read_and_place(
             pages: Vec::new(),
             rect: None,
             password,
+            ctc_pages: None,
         });
     }
+    let ctc_pages = ctc_pages
+        .map(|spec| match spec.trim() {
+            "" => parse_pages("all", info.pages.len()),
+            spec => parse_pages(spec, info.pages.len()),
+        })
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--ctc-pages: {e}"))?;
     let pages = match pages {
         Some(_) if invisible => bail!("--pages needs a visible signature"),
         Some(spec) => parse_pages(spec, info.pages.len()).map_err(anyhow::Error::msg)?,
@@ -623,6 +677,7 @@ fn read_and_place(
         pages,
         rect,
         password,
+        ctc_pages,
     })
 }
 
@@ -1142,6 +1197,9 @@ fn run() -> Result<()> {
             image_position,
             style,
             seal,
+            ctc,
+            ctc_style,
+            ctc_pages,
             cert,
             timestamp,
             ltv,
@@ -1150,6 +1208,11 @@ fn run() -> Result<()> {
             pin,
         } => {
             let certify = certify.map(DocMdp::from);
+            let ctc_style = match (ctc, &ctc_style) {
+                (true, Some(p)) => Some(read_ctc_style(p)?),
+                (true, None) => Some(CtcStyle::default()),
+                (false, _) => None,
+            };
             if out.is_some() && pdfs.len() > 1 {
                 bail!("--out works with a single PDF; signed copies go next to each original");
             }
@@ -1170,9 +1233,13 @@ fn run() -> Result<()> {
             let seal = seal
                 .map(|p| StampImage::open(&p).with_context(|| format!("reading {}", p.display())))
                 .transpose()?;
+            let ctc_seal = ctc_style.as_ref().is_some_and(|c| c.style.seal.is_some());
             match (&seal, style.seal) {
-                (Some(_), None) => style.seal = Some(Default::default()),
+                (Some(_), None) if !ctc_seal => style.seal = Some(Default::default()),
                 (None, Some(_)) => bail!("the style shows a company seal; give it with --seal"),
+                (None, None) if ctc_seal => {
+                    bail!("the certified true copy stamp shows a company seal; give it with --seal")
+                }
                 _ => {}
             }
             let single = pdfs.len() == 1;
@@ -1191,7 +1258,7 @@ fn run() -> Result<()> {
             let mut jobs = Vec::new();
             for pdf in &pdfs {
                 let password = cli.password.as_deref();
-                match open_for_signing(pdf, password, certify).and_then(|opened| {
+                match open_for_signing(pdf, password, certify, ctc).and_then(|opened| {
                     read_and_place(
                         opened,
                         page,
@@ -1200,6 +1267,7 @@ fn run() -> Result<()> {
                         rect,
                         invisible,
                         field.as_deref(),
+                        ctc.then(|| ctc_pages.as_deref().unwrap_or("all")),
                     )
                 }) {
                     Ok(job) => jobs.push((pdf, job)),
@@ -1256,13 +1324,18 @@ fn run() -> Result<()> {
                     ImageSide::Left => ImagePosition::Left,
                     ImageSide::Above => ImagePosition::Above,
                 },
-                seal: seal.clone(),
+                seal: seal.clone().filter(|_| style.seal.is_some()),
                 style: style.clone(),
                 timestamp: timestamp.clone(),
                 ltv,
                 field: field.clone(),
                 password: job.password.clone(),
                 certify,
+                ctc: ctc_style.as_ref().map(|c| Ctc {
+                    style: c.clone(),
+                    pages: job.ctc_pages.clone().unwrap_or_default(),
+                    seal: seal.clone().filter(|_| ctc_seal),
+                }),
                 ..Default::default()
             };
             let entry = |pdf: &Path, job: &Job, req: &SignRequest| {
@@ -1497,6 +1570,9 @@ fn run() -> Result<()> {
             image,
             style,
             seal,
+            ctc,
+            ctc_style,
+            ctc_pages,
             invisible,
             keep_originals,
             daily_limit,
@@ -1532,6 +1608,14 @@ fn run() -> Result<()> {
                 preset.timestamp = timestamp;
             }
             preset.ltv |= ltv;
+            if let Some(p) = &ctc_style {
+                preset.ctc = Some(read_ctc_style(p)?);
+            } else if ctc && preset.ctc.is_none() {
+                preset.ctc = Some(CtcStyle::default());
+            }
+            if let Some(v) = ctc_pages {
+                preset.ctc_pages = v;
+            }
             preset.validate().map_err(anyhow::Error::msg)?;
             let image = match &image {
                 Some(p) => {
@@ -1548,12 +1632,14 @@ fn run() -> Result<()> {
             }
             let seal = match &seal {
                 Some(p) => {
-                    let style = preset.style.get_or_insert_with(Default::default);
-                    style.seal.get_or_insert_with(Default::default);
+                    if !preset.shows_seal() {
+                        let style = preset.style.get_or_insert_with(Default::default);
+                        style.seal.get_or_insert_with(Default::default);
+                    }
                     Some(StampImage::open(p).with_context(|| format!("reading {}", p.display()))?)
                 }
                 None if preset.shows_seal() => {
-                    bail!("the style shows a company seal; give it with --seal")
+                    bail!("the style or the stamp shows a company seal; give it with --seal")
                 }
                 None => None,
             };

@@ -255,6 +255,10 @@ pub struct Entry {
     /// Pages that show the box, numbered from 1; empty when invisible or in a field.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pages: Vec<usize>,
+    /// Pages with a "certified true copy" stamp, numbered from 1; empty for
+    /// every page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ctc: Option<Vec<usize>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub field: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -306,6 +310,7 @@ impl Entry {
             portal: None,
             cert: None,
             pages: Vec::new(),
+            ctc: None,
             field: None,
             reason: None,
             location: None,
@@ -343,6 +348,10 @@ impl Entry {
         } else {
             req.pages.iter().map(|p| p + 1).collect()
         };
+        e.ctc = req
+            .ctc
+            .as_ref()
+            .map(|c| c.pages.iter().map(|p| p + 1).collect());
         e.field = req.field.clone();
         e.reason = req.reason.clone();
         e.location = req.location.clone();

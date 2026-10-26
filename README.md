@@ -149,6 +149,7 @@ Other options:
 .\trackmysign.exe sign file.pdf --timestamp=http://timestamp.sectigo.com
 .\trackmysign.exe sign file.pdf --password "secret"  # password-protected PDF
 .\trackmysign.exe sign file.pdf --certify forms       # certify as the author (first signature only)
+.\trackmysign.exe sign file.pdf --ctc --invisible     # "certified true copy" stamp on every page (see below)
 .\trackmysign.exe watch C:\Scans                      # sign every PDF put into a folder (see Watch folder)
 .\trackmysign.exe history --since 2026-10-01          # what was signed on this computer (see Signing history)
 .\trackmysign.exe pages merge a.pdf b.pdf -o out.pdf  # merge, reorder, turn, delete pages (see Preparing pages)
@@ -258,6 +259,57 @@ optional, snake_case; the app saves them in this form in each preset's
 (`helvetica`, `times`, `courier`), `bold_name`, `font_size` (points, `null` to
 fit), `border`, `border_color`, `border_width`, `background` (`none`,
 `light`), `padding`, `tick`. A style with `seal` needs `--seal seal.png`.
+
+## Certified true copies
+
+Directors and company secretaries certify copies of documents by stamping
+every page and signing. *Signature type → Certified true copy* in the side
+panel adds a stamp to every page (or the pages you list), signed together with
+the document: **CERTIFIED TRUE COPY** in bold, *For* the organisation, your
+name and your role (*Director* until you change it), and optionally a line of
+your own such as `DIN: 01234567` or `Membership No. A12345`, the date and the
+company seal. *Design…* next to the stamp edits its lines and look with the
+signature box designer (fonts, colours, border, alignment; Indian scripts are
+transliterated). The stamp sits in a corner of each page, top right by default,
+the same distance from the edges on every page whatever its size or rotation:
+pick the corner, or drag a stamp on the page to move it (or its corner to
+resize it) and the others follow. The signature box itself can stay where it
+is, or be made invisible. Presets keep the stamp, and the batch and the watch
+folder use it.
+
+The stamps are not written into the pages' content: each is a widget of the
+new signature's field, with its own appearance, flagged print, read-only and
+locked, added in the same incremental update as the signature. The signature
+therefore covers them (removing or changing a stamp breaks it), and validators
+(TrackMy Sign, pyHanko) count them as a signature added, so earlier
+signatures stay valid. Free stamp annotations would count as comments instead,
+which pyHanko reports as unexplained changes after a signature. A document
+certified to allow only form filling and signing (or no changes) is refused
+with an explanation; one certified to allow comments can be stamped. Stamps
+cannot be added when signing into an existing empty signature field.
+
+```powershell
+.\trackmysign.exe sign file.pdf --ctc                          # stamps on every page, box on the last
+.\trackmysign.exe sign file.pdf --ctc --ctc-pages 1-3 --invisible
+.\trackmysign.exe sign file.pdf --ctc --ctc-style ctc.json --seal seal.png
+```
+
+`--ctc-style` takes the stamp as JSON (all optional; the app saves it in this
+form in each preset's `ctc`). `style` is a box style as above, laid over the
+stamp's own defaults (`lines` `custom_1`, `organisation`, `name`, `role`,
+`custom_2`; `custom_1` "CERTIFIED TRUE COPY", `role` "Director", first line
+bold, centred). `corner` is `top_right`, `top_left`, `bottom_right` or
+`bottom_left`; `margin_x` and `margin_y` are the points from that corner's
+sides (36 each), `width` and `height` the stamp's size in points (180 × 72).
+When the stamp's style shows a seal, `--seal` goes on the stamps, and on the
+signature box only if `--style` shows one too.
+
+```json
+{"corner": "bottom_left", "margin_x": 30, "margin_y": 30, "width": 200, "height": 80,
+ "style": {"role": "Company Secretary", "custom_2": "Membership No. A12345",
+           "lines": ["custom_1", "organisation", "name", "role", "custom_2", "date"],
+           "date_format": "dd_mmm_yyyy", "seal": {"position": "right", "opacity": 1}}}
+```
 
 ## Verification reports
 
@@ -502,8 +554,9 @@ It asks for the PIN once and runs until Ctrl+C. `--preset-json` takes a preset
 as JSON (`{"reason": "Approved", "location": "Chennai", "placement": {"page":
 "last", "x": 120, "y": 250, "w": 60, "h": 20}}`, millimetres from the top-left;
 also `pages`, `image` with `--image`, `invisible`, `timestamp`, `ltv`, and
-`style` as below, with `--seal` when it shows a seal; `--style` replaces it);
-`--keep-originals`, `--daily-limit N` (0 for none) and `--hours` work as in
+`style` as below, with `--seal` when it shows a seal; `--style` replaces it;
+`ctc` and `ctcPages` for certified true copy stamps, or `--ctc`,
+`--ctc-style` and `--ctc-pages`); `--keep-originals`, `--daily-limit N` (0 for none) and `--hours` work as in
 the app.
 
 ## Signing history

@@ -29,6 +29,10 @@ const SENTENCES: Record<string, MessageKey> = {
   "Every entry was deleted.": "error.historyAllDeleted",
   "Save the new PDF under another name: the original is never changed.": "error.pagesSameFile",
   "The signature is detached: the file is not inside it.": "error.notAttached",
+  "The document is certified to allow only form filling and signing. Certified true copy stamps add marks to its pages, which that certification does not allow. Sign it without the stamps.":
+    "error.ctcCertified",
+  "Certified true copy stamps cannot be added when signing into an existing signature field. Place a signature box instead.": "error.ctcField",
+  "None of the pages chosen for the certified true copy stamp are in this PDF.": "error.ctcPages",
 };
 
 /** Sentences that end in a detail from elsewhere (a server, the OS), kept as is. */

@@ -5,7 +5,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import type { EmptyField, Rect } from "./api";
 import { t } from "./i18n";
-import { useStampDrawing, type StampContent } from "./stamp";
+import { ctcPlaced, ctcRect, useStampDrawing, type CtcStyle, type StampContent } from "./stamp";
 import { StampView, type StampUrls } from "./StampView";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -73,6 +73,18 @@ interface Props {
   onPickField?: (f: EmptyField) => void;
   /** The box sits in this signature field: it cannot be moved or resized. */
   field?: string | null;
+  /** "Certified true copy" stamps on `pages`; moving or resizing one moves them all. */
+  ctc?: CtcView | null;
+}
+
+export interface CtcView {
+  style: CtcStyle;
+  pages: number[];
+  content: StampContent;
+  urls: StampUrls;
+  /** Shown outside the app, where nothing lays the stamp out. */
+  preview: string[];
+  onChange: (style: CtcStyle) => void;
 }
 
 const MIN_W = 90;
@@ -95,6 +107,7 @@ export function PdfView({
   fields,
   onPickField,
   field,
+  ctc,
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -189,6 +202,7 @@ export function PdfView({
             fields={fields?.filter((f) => f.page === i && f.rect) ?? []}
             onPickField={onPickField}
             field={field ?? null}
+            ctc={ctc?.pages.includes(i) ? ctc : null}
           />
         );
       })}
@@ -211,9 +225,10 @@ interface PageProps {
   fields: EmptyField[];
   onPickField?: (f: EmptyField) => void;
   field: string | null;
+  ctc: CtcView | null;
 }
 
-function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview, onPlace, fields, onPickField, field }: PageProps) {
+function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview, onPlace, fields, onPickField, field, ctc }: PageProps) {
   const holder = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
@@ -265,7 +280,7 @@ function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview,
   };
 
   const onPageDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest(".sig-box, .sig-field")) return;
+    if ((e.target as HTMLElement).closest(".sig-box, .sig-field, .ctc-box")) return;
     const pt = toPoints(e.clientX, e.clientY);
     const w = placement?.w ?? 170;
     const h = placement?.h ?? 55;
@@ -320,6 +335,7 @@ function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview,
               </div>
             ),
         )}
+        {ctc && <CtcBox ctc={ctc} size={size} scale={scale} toPoints={toPoints} />}
         {placement && (
           <StampBox
             placement={placement}
@@ -335,6 +351,58 @@ function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview,
         )}
       </div>
       <div className="page-num">{index + 1}</div>
+    </div>
+  );
+}
+
+const CTC_MIN_W = 40;
+const CTC_MIN_H = 20;
+
+/** One page's "certified true copy" stamp, placed by its corner rule. */
+function CtcBox(props: { ctc: CtcView; size: PageSize; scale: number; toPoints: (x: number, y: number) => { x: number; y: number } }) {
+  const { ctc, size, scale } = props;
+  const r = ctcRect(ctc.style, size.width, size.height);
+  const drawing = useStampDrawing(ctc.content, r.w, r.h);
+
+  const drag = (mode: "move" | "resize") => (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const start = props.toPoints(e.clientX, e.clientY);
+    const move = (ev: PointerEvent) => {
+      const pt = props.toPoints(ev.clientX, ev.clientY);
+      const dx = pt.x - start.x;
+      const dy = pt.y - start.y;
+      const w = Math.min(Math.max(mode === "resize" ? r.w + dx : r.w, CTC_MIN_W), size.width);
+      const h = Math.min(Math.max(mode === "resize" ? r.h + dy : r.h, CTC_MIN_H), size.height);
+      const x = Math.min(Math.max(mode === "move" ? r.x + dx : r.x, 0), size.width - w);
+      const y = Math.min(Math.max(mode === "move" ? r.y + dy : r.y, 0), size.height - h);
+      ctc.onChange(ctcPlaced(ctc.style, { x, y, w, h }, size.width, size.height));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  return (
+    <div
+      className={`sig-box ctc-box ${drawing ? "drawn" : ""}`}
+      style={{ left: r.x * scale, top: r.y * scale, width: r.w * scale, height: r.h * scale, fontSize: 8 * scale }}
+      onPointerDown={drag("move")}
+      title={t("view.ctcBox")}
+    >
+      {drawing ? (
+        <StampView drawing={drawing} urls={ctc.urls} />
+      ) : (
+        ctc.preview.map((l, i) => (
+          <div key={i} className={i === 0 ? "sig-name" : undefined}>
+            {l}
+          </div>
+        ))
+      )}
+      <div className="sig-resize" onPointerDown={drag("resize")} title={t("view.dragResize")} />
     </div>
   );
 }

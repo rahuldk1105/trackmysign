@@ -346,6 +346,7 @@ function EntryDetails({ entry: e, onOpen }: { entry: HistoryEntry; onOpen: (path
     rows.push([t("history.fingerprint"), <span className="mono hash">{e.cert.fingerprint}</span>]);
   }
   if (e.pages?.length) rows.push([t("common.pages"), e.pages.join(", ")]);
+  if (e.ctc) rows.push([t("ctc.title"), e.ctc.length ? e.ctc.join(", ") : t("placement.allPages")]);
   if (e.field) rows.push([t("common.field"), <span className="mono">{e.field}</span>]);
   if (e.reason) rows.push([t("common.reason"), e.reason]);
   if (e.location) rows.push([t("common.location"), e.location]);

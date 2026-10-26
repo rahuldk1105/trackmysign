@@ -31,8 +31,8 @@ use trackmysign_core::history::{Entry, Source};
 use trackmysign_core::stamp;
 use trackmysign_core::token::{Token, TokenCert, Tokens, installed_drivers};
 use trackmysign_core::{
-    DisplayRect, DocMdp, Error, ImagePosition, PdfError, SignRequest, StampImage, StampStyle,
-    inspect_with_password, sign_pdf,
+    Ctc, CtcStyle, DisplayRect, DocMdp, Error, ImagePosition, PdfError, SignRequest, StampImage,
+    StampStyle, inspect_with_password, sign_pdf,
 };
 
 /// PKCS#11 drivers are process-global; never let two commands use one at once.
@@ -305,6 +305,64 @@ struct SignArgs {
     /// Folder for the signed copy; next to the original when none.
     #[serde(default)]
     out_dir: Option<String>,
+    /// "Certified true copy" stamps to add with the signature.
+    #[serde(default)]
+    ctc: Option<CtcArg>,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct CtcArg {
+    style: CtcStyle,
+    /// Zero-based pages with a stamp; every page when none.
+    #[serde(default)]
+    pages: Option<Vec<usize>>,
+}
+
+impl CtcArg {
+    /// The stamps for a file of `count` pages (pages it lacks are left
+    /// out), with the saved seal when they show it.
+    fn stamps(&self, count: usize, seal: &Option<StampImage>) -> CmdResult<Ctc> {
+        let pages = match &self.pages {
+            None => (0..count).collect(),
+            Some(p) => {
+                let have: Vec<usize> = p.iter().copied().filter(|p| *p < count).collect();
+                if have.is_empty() {
+                    return Err(CommandError {
+                        kind: "pdf",
+                        message: "None of the pages chosen for the certified true copy stamp are in this PDF.".into(),
+                    });
+                }
+                have
+            }
+        };
+        Ok(Ctc {
+            style: self.style.clone(),
+            pages,
+            seal: seal.clone().filter(|_| self.style.style.seal.is_some()),
+        })
+    }
+
+    /// For the history before the file is read.
+    fn requested(&self) -> Ctc {
+        Ctc {
+            style: self.style.clone(),
+            pages: self.pages.clone().unwrap_or_default(),
+            seal: None,
+        }
+    }
+}
+
+/// The saved seal, when the box or the stamps show it.
+fn seal_for(
+    app: &AppHandle,
+    style: &Option<StampStyle>,
+    ctc: &Option<CtcArg>,
+) -> CmdResult<Option<StampImage>> {
+    match ctc {
+        Some(c) if c.style.style.seal.is_some() => Ok(Some(saved_seal(app)?)),
+        _ => style_seal(app, style),
+    }
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -329,7 +387,12 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             Some(_) => Some(saved_image(&app)?),
             None => None,
         };
-        let seal = style_seal(&app, &args.style)?;
+        let seal = seal_for(&app, &args.style, &args.ctc)?;
+        let ctc = args.ctc.as_ref().map(|c| Ctc {
+            seal: seal.clone().filter(|_| c.style.style.seal.is_some()),
+            ..c.requested()
+        });
+        let box_seal = args.style.as_ref().is_some_and(|s| s.seal.is_some());
         let req = SignRequest {
             page: args.page,
             rect: args.rect.map(|r| DisplayRect {
@@ -343,13 +406,14 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             location: args.location.filter(|s| !s.trim().is_empty()),
             image,
             image_position: image_position(args.image),
-            seal,
+            seal: seal.filter(|_| box_seal),
             style: args.style.unwrap_or_default(),
             timestamp: trimmed_url(args.timestamp),
             ltv: args.ltv,
             field: args.field,
             password: args.password,
             certify: args.certify.map(|p| DocMdp::from_level(p.into())),
+            ctc,
             ..Default::default()
         };
         let mut entry = Entry::signing(Source::Manual, history::PROGRAM, &input, &req);
@@ -465,6 +529,8 @@ struct BatchArgs {
     certify: Option<u8>,
     #[serde(default)]
     out_dir: Option<String>,
+    #[serde(default)]
+    ctc: Option<CtcArg>,
 }
 
 #[derive(Serialize, Clone)]
@@ -492,6 +558,7 @@ fn batch_entry(path: &Path, args: &BatchArgs, cert: Option<&TokenCert>) -> Entry
         timestamp: trimmed_url(args.timestamp.clone()),
         ltv: args.ltv,
         certify: args.certify.map(|p| DocMdp::from_level(p.into())),
+        ctc: args.ctc.as_ref().map(CtcArg::requested),
         ..Default::default()
     };
     let mut e = Entry::signing(Source::Batch, history::PROGRAM, path, &req);
@@ -564,11 +631,17 @@ fn sign_batch_file(
             h,
         }
     });
+    let ctc = args
+        .ctc
+        .as_ref()
+        .map(|c| c.stamps(pages, seal))
+        .transpose()?;
     let pages = if args.all_pages {
         (0..pages).collect()
     } else {
         args.pages.iter().copied().filter(|p| *p < pages).collect()
     };
+    let box_seal = args.style.as_ref().is_some_and(|s| s.seal.is_some());
     let req = SignRequest {
         page,
         rect,
@@ -577,12 +650,13 @@ fn sign_batch_file(
         location: args.location.clone().filter(|s| !s.trim().is_empty()),
         image: image.clone(),
         image_position: image_position(args.image),
-        seal: seal.clone(),
+        seal: seal.clone().filter(|_| box_seal),
         style: args.style.clone().unwrap_or_default(),
         timestamp: trimmed_url(args.timestamp.clone()),
         ltv: args.ltv,
         password,
         certify: args.certify.map(|p| DocMdp::from_level(p.into())),
+        ctc,
         ..Default::default()
     };
     let cert = entry.cert.take();
@@ -608,7 +682,7 @@ async fn sign_batch(
             Some(_) => Some(saved_image(&app)?),
             None => None,
         };
-        let seal = style_seal(&app, &args.style)?;
+        let seal = seal_for(&app, &args.style, &args.ctc)?;
         let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let token = Token::open(Path::new(&args.driver_path))?;
         let certs = token.signing_certificates()?;
@@ -714,9 +788,14 @@ fn saved_image(app: &AppHandle) -> CmdResult<StampImage> {
 /// The saved seal, when `style` shows one.
 fn style_seal(app: &AppHandle, style: &Option<StampStyle>) -> CmdResult<Option<StampImage>> {
     match style {
-        Some(s) if s.seal.is_some() => Ok(Some(saved_picture(app, Picture::Seal)?)),
+        Some(s) if s.seal.is_some() => Ok(Some(saved_seal(app)?)),
         _ => Ok(None),
     }
+}
+
+/// The saved company seal.
+fn saved_seal(app: &AppHandle) -> CmdResult<StampImage> {
+    saved_picture(app, Picture::Seal)
 }
 
 /// Bytes of the saved signature image for the preview; empty when there is none.
