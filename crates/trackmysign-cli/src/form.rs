@@ -41,6 +41,19 @@ pub enum FormCmd {
     },
 }
 
+impl FormCmd {
+    /// The files it reads and writes, for the support log.
+    pub fn files(&self) -> Vec<PathBuf> {
+        match self {
+            FormCmd::List { pdf, .. } => vec![pdf.clone()],
+            FormCmd::Fill { pdf, json, out, .. } => [Some(pdf.clone()), json.clone(), out.clone()]
+                .into_iter()
+                .flatten()
+                .collect(),
+        }
+    }
+}
+
 pub fn run(cmd: FormCmd, password: Option<&str>) -> Result<()> {
     match cmd {
         FormCmd::List { pdf, json } => {

@@ -341,16 +341,26 @@ impl Cmd {
         Some(match self {
             Cmd::Certs { out, .. } => ("certificates", opt(out), false),
             Cmd::Info { pdf } => ("info", vec![pdf.clone()], false),
+            Cmd::Form { cmd } => ("form", cmd.files(), false),
             Cmd::Sign {
                 pdfs,
                 out,
                 image,
                 style,
                 seal,
+                fill_json,
                 ..
             } => (
                 "sign",
-                [pdfs.clone(), opt(out), opt(image), opt(style), opt(seal)].concat(),
+                [
+                    pdfs.clone(),
+                    opt(out),
+                    opt(image),
+                    opt(style),
+                    opt(seal),
+                    opt(fill_json),
+                ]
+                .concat(),
                 true,
             ),
             Cmd::SignFile { files, out, .. } => {
