@@ -35,6 +35,9 @@ const SENTENCES: Record<string, MessageKey> = {
     "error.ctcCertified",
   "Certified true copy stamps cannot be added when signing into an existing signature field. Place a signature box instead.": "error.ctcField",
   "None of the pages chosen for the certified true copy stamp are in this PDF.": "error.ctcPages",
+  "XFA forms aren't supported: this PDF's form exists only as XFA, which TrackMy Sign cannot fill in.": "error.formXfa",
+  "The document is certified with no changes allowed. Filling in its form would invalidate the certification.": "error.formCertified",
+  "This PDF's security settings do not allow filling in its form; enter its owner (permissions) password.": "error.formProtected",
   "No file to share.": "error.shareNoFile",
   "The clipboard did not take the file.": "error.clipboard",
 };

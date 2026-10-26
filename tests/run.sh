@@ -884,6 +884,93 @@ for ip in $(hostname -I 2>/dev/null); do
   fi
 done
 kill $PORTAL_PID 2>/dev/null
+# Form filling: listing; filling (pypdf reads the values, pdftoppm shows them) alone, before a
+# signature and before a second one; encrypted; nested names and a font that cannot be reused; a
+# form certified allowing form filling (pyHanko rates the change FORM_FILLING); a field locked by
+# a signature (refused, or with --yes breaks it); XFA only, certified "no changes", read-only.
+FM=$W/forms
+mkdir -p "$FM"
+cat >"$FM/values.json" <<'EOF'
+{"Name": "Rahul DK", "Address": "12 Anna Salai\nTeynampet, Chennai 600018", "PAN": "ABCDE1234F",
+ "Agree": true, "Gender": "Female", "State": "Karnataka", "Languages": ["Tamil", "English"]}
+EOF
+# pyHanko cannot judge radio buttons (their widgets have no names), so none for the certified form.
+cat >"$FM/certified.json" <<'EOF'
+{"Name": "Rahul DK", "Address": "12 Anna Salai", "Agree": true, "State": "Kerala", "Languages": ["Hindi", "English"]}
+EOF
+printf '{"Address": "New address, Chennai"}' >"$FM/address.json"
+printf '{"Name": "Someone else"}' >"$FM/name.json"
+printf '{"applicant.name": "Rahul DK", "applicant.contact.phone": "+91 98400 12345"}' >"$FM/nested.json"
+formcheck() { python3 -W ignore "$ROOT/tests/check_form.py" "$@" "${ROOTS[@]}" || fail=1; }
+if "$BIN" form list "$W/fx/form-full.pdf" >"$FM/list" \
+   && grep -q '^  Name \[text, required, max 100 characters\] = (empty)' "$FM/list" \
+   && grep -q '^  PAN \[text, 10 boxes\]' "$FM/list" && grep -q '^  Gender \[radio button group\] = Off' "$FM/list" \
+   && grep -q 'Choices: "Male", "Female"' "$FM/list" && grep -q '^  Languages \[list, several choices\] = "Hindi"' "$FM/list" \
+   && grep -q '^  Reference \[text, read-only, max 100 characters\] = "REF-001"' "$FM/list" \
+   && "$BIN" form list "$W/fx/form-nested.pdf" | grep -q '^  applicant.contact.phone \[text\]' \
+   && "$BIN" form list "$W/fx/form-locked.pdf" | grep -q 'Locked by signature: "Approver"' \
+   && "$BIN" form list "$W/fx/form-full.pdf" --json | python3 -c 'import json, sys
+f = json.load(sys.stdin)["fields"]
+assert [x["kind"] for x in f] == ["text", "text", "text", "checkbox", "radio", "combo", "list", "text"], f' \
+   && "$BIN" info "$W/fx/form-full.pdf" | grep -q "^Form fields: 8"; then
+  echo "PASS form list"
+else
+  echo "FAIL form list: $(cat "$FM/list")"; fail=1
+fi
+"$BIN" form fill "$W/fx/form-full.pdf" --json "$FM/values.json" -o "$FM/filled.pdf" >/dev/null || fail=1
+formcheck "$W/fx/form-full.pdf" "$FM/filled.pdf" "$FM/values.json"
+cp "$W/fx/form-full.pdf" "$FM/copy.pdf"
+"$BIN" form fill "$FM/copy.pdf" --set "Name=Rahul DK" --set Languages=Hindi --set Languages=Tamil >/dev/null || fail=1
+[ -s "$FM/copy_filled.pdf" ] && cmp -s "$FM/copy.pdf" "$W/fx/form-full.pdf" && echo "PASS form fill writes name_filled.pdf" \
+  || { echo "FAIL form fill default output"; fail=1; }
+"$BIN" sign "$W/fx/form-full.pdf" --fill-json "$FM/values.json" --reason Approved --out "$FM/signed.pdf" >/dev/null
+check "$W/fx/form-full.pdf" "$FM/signed.pdf"
+formcheck "$W/fx/form-full.pdf" "$FM/signed.pdf" "$FM/values.json"
+vcheck "$FM/signed.pdf" valid
+"$BIN" sign "$FM/signed.pdf" --fill-json "$FM/address.json" --position top-left --out "$FM/signed-twice.pdf" >/dev/null
+check "$FM/signed.pdf" "$FM/signed-twice.pdf"
+formcheck --first-sig FORM_FILLING "$FM/signed.pdf" "$FM/signed-twice.pdf" "$FM/address.json"
+vcheck "$FM/signed-twice.pdf" valid
+"$BIN" sign "$W/fx/form-enc.pdf" --password user --fill-json "$FM/values.json" --out "$FM/enc.pdf" >/dev/null
+check --password=user "$W/fx/form-enc.pdf" "$FM/enc.pdf"
+formcheck --password user "$W/fx/form-enc.pdf" "$FM/enc.pdf" "$FM/values.json"
+"$BIN" form fill "$W/fx/form-nested.pdf" --set "applicant.name=Rahul DK" --set "applicant.contact.phone=+91 98400 12345" \
+  -o "$FM/nested.pdf" >/dev/null 2>"$FM/err" || fail=1
+grep -q 'applicant.contact.phone" uses a font .* shown in Helvetica' "$FM/err" || { echo "FAIL no font warning: $(cat "$FM/err")"; fail=1; }
+formcheck "$W/fx/form-nested.pdf" "$FM/nested.pdf" "$FM/nested.json"
+"$BIN" sign "$W/fx/form-certified.pdf" --fill-json "$FM/certified.json" --invisible --out "$FM/certified.pdf" >/dev/null
+check --certify=2 --strict "$W/fx/form-certified.pdf" "$FM/certified.pdf"
+formcheck --first-sig FORM_FILLING "$W/fx/form-certified.pdf" "$FM/certified.pdf" "$FM/certified.json"
+vcheck "$FM/certified.pdf" valid
+# A field the lock does not cover. (pyHanko rates any change after a locking signature as
+# OTHER, so only TrackMy Sign's own check here.)
+"$BIN" sign "$W/fx/form-locked.pdf" --fill-json "$FM/address.json" --position top-left --out "$FM/locked-other.pdf" >/dev/null
+if "$BIN" verify "$FM/locked-other.pdf" >"$FM/verify" && [ "$(grep -c ': VALID$' "$FM/verify")" = 2 ] \
+   && grep -q "Coverage: 2 later revision(s), .*: form filled in" "$FM/verify"; then
+  echo "PASS field the lock does not cover filled in and signed"
+else
+  echo "FAIL locked form: $(cat "$FM/verify")"; fail=1
+fi
+"$BIN" form fill "$W/fx/form-locked.pdf" --json "$FM/name.json" --yes -o "$FM/locked-broken.pdf" >/dev/null 2>&1 || fail=1
+formcheck --broken Approver "$W/fx/form-locked.pdf" "$FM/locked-broken.pdf" "$FM/name.json"
+form_refused() {
+  local pdf=$1 pattern=$2; shift 2
+  rm -f "$FM/refused.pdf"
+  if "$BIN" form fill "$W/fx/$pdf.pdf" "$@" -o "$FM/refused.pdf" >/dev/null 2>"$FM/err" </dev/null; then
+    echo "FAIL filled $pdf $*"; fail=1
+  elif grep -q "$pattern" "$FM/err" && [ ! -e "$FM/refused.pdf" ]; then
+    echo "PASS form fill refused: $pdf $*"
+  else
+    echo "FAIL refusal of $pdf: $(cat "$FM/err")"; fail=1
+  fi
+}
+form_refused form-locked "locked by a signature (--yes to go ahead)" --set "Name=Someone else"
+form_refused form-xfa "XFA forms aren't supported" --set a=b
+form_refused form-nochanges "certified with no changes allowed" --set Address=X
+form_refused form-full "is read-only" --set Reference=X
+form_refused form-full 'has no choice "Goa"' --set State=Goa
+form_refused form-full 'There is no form field "Nope"' --set Nope=X
+refused "$W/fx/form-locked.pdf" "locked by a signature (--yes to go ahead)" --fill-json "$FM/name.json"
 # Signing history: every signing above was recorded in the app's data folder
 # (named as Tauri names it); a few more, then the log is read back and tampered with.
 HIST=$XDG_DATA_HOME/in.trackmytech.trackmysign/history

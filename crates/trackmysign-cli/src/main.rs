@@ -1,5 +1,7 @@
 //! `trackmysign` command-line tool — the test-phase front end for the core library.
 
+mod form;
+
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -24,10 +26,10 @@ use trackmysign_core::token::{
 };
 use trackmysign_core::verify::{Changes, SignatureReport, Status, Trust};
 use trackmysign_core::{
-    Ctc, CtcStyle, DEFAULT_TSA_URL, DisplayRect, DocMdp, EmptyField, Error, FieldLock,
+    Ctc, CtcStyle, DEFAULT_TSA_URL, DisplayRect, DocMdp, EmptyField, Error, FieldLock, FillValue,
     ImagePosition, NewField, PdfError, PdfInfo, SignRequest, Signer, StampImage, StampStyle,
-    add_signature_fields, check_permitted_with_password, ctc, inspect_with_password, next_to_sign,
-    parse_pages, sign_pdf, signature_fields, signed_path, watch,
+    add_signature_fields, check_permitted_with_password, ctc, fill_form, inspect_with_password,
+    next_to_sign, parse_pages, read_form, sign_pdf, signature_fields, signed_path, watch,
 };
 use zeroize::Zeroizing;
 
@@ -83,6 +85,12 @@ enum Cmd {
         /// points from the top-left of the page.
         #[arg(long)]
         anchors: bool,
+    },
+    /// List or fill in a PDF's form fields (text boxes, check boxes, radio
+    /// buttons, drop-downs, lists).
+    Form {
+        #[command(subcommand)]
+        cmd: form::FormCmd,
     },
     /// Sign one or more PDFs with one PIN entry. Writes <name>_signed.pdf
     /// next to each unless --out is given (single PDF only).
@@ -162,6 +170,14 @@ enum Cmd {
         /// afterwards: nothing, form filling and signing, or also comments.
         #[arg(long, value_enum, value_name = "ALLOWED")]
         certify: Option<Certify>,
+        /// Fill in form fields before signing, from a JSON file such as
+        /// {"Name": "Rahul", "Agree": true}; the signature covers the values.
+        #[arg(long, value_name = "FILE")]
+        fill_json: Option<PathBuf>,
+        /// With --fill-json: go ahead without asking when a field is locked
+        /// by an existing signature (that signature will no longer be valid).
+        #[arg(long, requires = "fill_json")]
+        yes: bool,
         /// PIN (for scripted tests only; normally you are prompted).
         #[arg(long, env = "TRACKMYSIGN_PIN", hide = true)]
         pin: Option<String>,
@@ -371,16 +387,26 @@ impl Cmd {
         Some(match self {
             Cmd::Certs { out, .. } => ("certificates", opt(out), false),
             Cmd::Info { pdf, .. } => ("info", vec![pdf.clone()], false),
+            Cmd::Form { cmd } => ("form", cmd.files(), false),
             Cmd::Sign {
                 pdfs,
                 out,
                 image,
                 style,
                 seal,
+                fill_json,
                 ..
             } => (
                 "sign",
-                [pdfs.clone(), opt(out), opt(image), opt(style), opt(seal)].concat(),
+                [
+                    pdfs.clone(),
+                    opt(out),
+                    opt(image),
+                    opt(style),
+                    opt(seal),
+                    opt(fill_json),
+                ]
+                .concat(),
                 true,
             ),
             Cmd::SignFile { files, out, .. } => {
@@ -887,6 +913,8 @@ struct Job {
     password: Option<String>,
     /// Pages with a certified true copy stamp, when stamped.
     ctc_pages: Option<Vec<usize>>,
+    /// Fill in fields locked by a signature (the user agreed).
+    fill_force: bool,
     /// Place the box by the document's text once the signer is known
     /// (`--position auto`); `rect` is the fallback.
     auto: bool,
@@ -977,6 +1005,7 @@ fn read_and_place(
             rect: None,
             password,
             ctc_pages: None,
+            fill_force: false,
             auto: false,
             asked_page: None,
         });
@@ -1025,6 +1054,7 @@ fn read_and_place(
         rect,
         password,
         ctc_pages,
+        fill_force: false,
         auto,
         asked_page: page.map(|n| n - 1),
     })
@@ -1057,6 +1087,22 @@ fn auto_place(pdf: &Path, job: &mut Job, holder: &Holder) {
             pdf.display()
         ),
     }
+}
+
+/// Fills the form of a placed PDF as a trial, so a wrong field name or
+/// value shows before the PIN prompt; asks about fields locked by a
+/// signature.
+fn check_fill(mut job: Job, fill: &[FillValue], yes: bool) -> Result<Job> {
+    if fill.is_empty() {
+        return Ok(job);
+    }
+    let form = read_form(&job.data, job.password.as_deref())?;
+    job.fill_force = form::confirm_locks(&form, fill, yes)?;
+    let filled = fill_form(&job.data, job.password.as_deref(), fill, job.fill_force)?;
+    for w in &filled.warnings {
+        eprintln!("Warning: {w}");
+    }
+    Ok(job)
 }
 
 fn open_tokens(module: &Option<PathBuf>) -> Result<Tokens> {
@@ -1536,6 +1582,14 @@ fn run(cli: Cli) -> Result<()> {
                 );
             }
             println!("Existing signatures: {}", info.signatures);
+            if let Ok(form) = read_form(&data, password.as_deref())
+                && !form.fields.is_empty()
+            {
+                println!(
+                    "Form fields: {} (see `trackmysign form list`)",
+                    form.fields.len()
+                );
+            }
             if !info.empty_fields.is_empty() {
                 println!("Empty signature fields: {}", info.empty_fields.len());
             }
@@ -1595,6 +1649,7 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
         }
+        Cmd::Form { cmd } => form::run(cmd, cli.password.as_deref())?,
         Cmd::Sign {
             pdfs,
             out,
@@ -1618,6 +1673,8 @@ fn run(cli: Cli) -> Result<()> {
             ltv,
             allow_expired,
             certify,
+            fill_json,
+            yes,
             pin,
         } => {
             let certify = certify.map(DocMdp::from);
@@ -1625,6 +1682,10 @@ fn run(cli: Cli) -> Result<()> {
                 (true, Some(p)) => Some(read_ctc_style(p)?),
                 (true, None) => Some(CtcStyle::default()),
                 (false, _) => None,
+            };
+            let fill = match &fill_json {
+                Some(path) => form::read_values(path)?,
+                None => Vec::new(),
             };
             if out.is_some() && pdfs.len() > 1 {
                 bail!("--out works with a single PDF; signed copies go next to each original");
@@ -1682,6 +1743,7 @@ fn run(cli: Cli) -> Result<()> {
                         field.as_deref(),
                         ctc.then(|| ctc_pages.as_deref().unwrap_or("all")),
                     )
+                    .and_then(|job| check_fill(job, &fill, yes))
                 }) {
                     Ok(job) => jobs.push((pdf, job)),
                     Err(e) => report(pdf, e)?,
@@ -1753,6 +1815,8 @@ fn run(cli: Cli) -> Result<()> {
                     pages: job.ctc_pages.clone().unwrap_or_default(),
                     seal: seal.clone().filter(|_| ctc_seal),
                 }),
+                fill: fill.clone(),
+                fill_break_locks: job.fill_force,
                 ..Default::default()
             };
             let entry = |pdf: &Path, job: &Job, req: &SignRequest| {

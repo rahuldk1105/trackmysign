@@ -316,4 +316,75 @@ c.save()
 anchor("anchor-name", 1, "RAHUL TEST DIRECTOR", 72, A4[1] - 185)
 with open(P("anchors.json"), "w") as f:
     json.dump(anchors, f, indent=1)
+
+# 14. fillable forms: every field type (reportlab), nested names, a font
+# that cannot be reused and /NeedAppearances (hand-written), XFA only,
+# certified allowing form filling / no changes, a signature locking a field
+# (pyHanko), and encrypted
+c = canvas.Canvas(P("form-full.pdf"), pagesize=A4)
+c.setFont("Helvetica-Bold", 16)
+c.drawString(72, 780, "Application form")
+c.setFont("Helvetica", 10)
+f = c.acroForm
+for label, y in (("Name", 742), ("Address", 702), ("PAN", 622), ("Agree", 582), ("Gender", 552), ("State", 512),
+                 ("Languages", 470), ("Reference", 392)):
+    c.drawString(72, y, label)
+f.textfield(name="Name", tooltip="Full name", x=160, y=735, width=250, height=20, fieldFlags="required", fontSize=11)
+f.textfield(name="Address", x=160, y=650, width=250, height=60, fieldFlags="multiline", fontSize=10)
+f.textfield(name="PAN", x=160, y=615, width=200, height=20, fieldFlags="comb", maxlen=10, fontSize=12)
+f.checkbox(name="Agree", x=160, y=575, size=16, fieldFlags="")
+f.radio(name="Gender", value="Male", x=160, y=545, size=16, fieldFlags="radio")
+f.radio(name="Gender", value="Female", x=220, y=545, size=16, fieldFlags="radio")
+f.choice(name="State", value="Tamil Nadu", options=["Tamil Nadu", "Karnataka", "Kerala"], x=160, y=505, width=150,
+         height=20, fontSize=10)
+f.listbox(name="Languages", options=["Hindi", "Tamil", "English"], value="Hindi", fieldFlags="multiSelect", x=160,
+          y=420, width=150, height=60, fontSize=10)
+f.textfield(name="Reference", value="REF-001", x=160, y=385, width=150, height=20, fieldFlags="readOnly", fontSize=10)
+c.showPage()
+c.save()
+subprocess.run(["qpdf", "--encrypt", "user", "own", "256", "--", P("form-full.pdf"), P("form-enc.pdf")], check=True)
+
+# "applicant" > "name", "contact" > "phone"; /DR has a TrueType font that is
+# not one of the standard ones (shown in Helvetica instead); /Q 2.
+raw_pdf(P("form-nested.pdf"), {
+    1: b"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R] /NeedAppearances true /DA (/Helv 0 Tf 0 g) "
+       b"/DR << /Font << /Helv 8 0 R /Cal 11 0 R >> >> >> >>",
+    2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 595.2756 841.8898] >>",
+    3: b"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 8 0 R >> >> /Contents 4 0 R /Annots [7 0 R 10 0 R] >>",
+    4: (b"", b"BT /F1 14 Tf 72 760 Td (Nested form fields) Tj ET"),
+    5: b"<< /T (applicant) /Kids [7 0 R 6 0 R] >>",
+    6: b"<< /T (contact) /Parent 5 0 R /Kids [10 0 R] >>",
+    7: b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /Parent 5 0 R /Rect [72 700 322 722] /F 4 /P 3 0 R "
+       b"/MK << /BC [0 0 0] >> >>",
+    8: font,
+    10: b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (phone) /Parent 6 0 R /Q 2 /DA (/Cal 12 Tf 0 0 0.5 rg) "
+        b"/Rect [72 650 272 672] /F 4 /P 3 0 R >>",
+    11: b"<< /Type /Font /Subtype /TrueType /BaseFont /Calibri /Encoding /WinAnsiEncoding >>",
+})
+# XFA only: the AcroForm has no fields.
+raw_pdf(P("form-xfa.pdf"), {
+    1: b"<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [] /XFA 5 0 R >> >>",
+    2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 595.2756 841.8898] >>",
+    3: b"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 6 0 R >> >> /Contents 4 0 R >>",
+    4: (b"", b"BT /F1 14 Tf 72 760 Td (XFA form) Tj ET"),
+    5: (b"", b"<xdp:xdp xmlns:xdp=\"http://ns.adobe.com/xdp/\"></xdp:xdp>"),
+    6: font,
+})
+from pyhanko.sign.fields import MDPPerm
+
+for name, perm in (("form-certified.pdf", MDPPerm.FILL_FORMS), ("form-nochanges.pdf", MDPPerm.NO_CHANGES)):
+    with open(P("form-full.pdf"), "rb") as inf, open(P(name), "wb") as outf:
+        signers.sign_pdf(
+            IncrementalPdfFileWriter(inf),
+            signers.PdfSignatureMetadata(field_name="Author", certify=True, docmdp_permissions=perm),
+            signer=aud,
+            new_field_spec=fields.SigFieldSpec("Author", on_page=0, box=(360, 60, 540, 110)),
+            output=outf,
+        )
+with_fields("form-full.pdf", "form-lock-field.pdf",
+            fields.SigFieldSpec("Approver", box=(360, 60, 540, 110),
+                                field_mdp_spec=FieldMDPSpec(FieldMDPAction.INCLUDE, ["Name"])))
+with open(P("form-lock-field.pdf"), "rb") as inf, open(P("form-locked.pdf"), "wb") as outf:
+    signers.sign_pdf(IncrementalPdfFileWriter(inf), signers.PdfSignatureMetadata(field_name="Approver"),
+                     signer=aud, existing_fields_only=True, output=outf)
 print("fixtures written to", out)

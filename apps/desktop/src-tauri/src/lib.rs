@@ -5,6 +5,7 @@ mod certs;
 mod fields;
 mod filesign;
 mod folder;
+mod form;
 mod history;
 mod incoming;
 mod known;
@@ -35,8 +36,8 @@ use trackmysign_core::history::{Entry, Source};
 use trackmysign_core::stamp;
 use trackmysign_core::token::{Token, TokenCert, Tokens, installed_drivers};
 use trackmysign_core::{
-    Ctc, CtcStyle, DisplayRect, DocMdp, Error, ImagePosition, PdfError, SignRequest, StampImage,
-    StampStyle, add_signature_fields, inspect_with_password, sign_pdf,
+    Ctc, CtcStyle, DisplayRect, DocMdp, Error, FillValue, ImagePosition, PdfError, SignRequest,
+    StampImage, StampStyle, add_signature_fields, fill_form, inspect_with_password, sign_pdf,
 };
 
 /// PKCS#11 drivers are process-global; never let two commands use one at once.
@@ -368,6 +369,12 @@ struct SignArgs {
     /// Folder for the signed copy; next to the original when none.
     #[serde(default)]
     out_dir: Option<String>,
+    /// Form fields to fill in before signing.
+    #[serde(default)]
+    fill: Vec<FillValue>,
+    /// Also fill fields locked by an existing signature (the user agreed).
+    #[serde(default)]
+    fill_break_locks: bool,
     /// Empty signature fields to add first (one update), one of them
     /// `field`, which the signature then fills (the next update).
     #[serde(default)]
@@ -481,6 +488,8 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
             password: args.password,
             certify: args.certify.map(|p| DocMdp::from_level(p.into())),
             ctc,
+            fill: args.fill,
+            fill_break_locks: args.fill_break_locks,
             ..Default::default()
         };
         let mut entry = Entry::signing(Source::Manual, history::PROGRAM, &input, &req);
@@ -488,9 +497,19 @@ async fn sign(app: AppHandle, args: SignArgs) -> CmdResult<SignedDto> {
         let result = (|| -> CmdResult<(PathBuf, Vec<u8>)> {
             let mut data = std::fs::read(&input)?;
             entry.input_data(&data);
+            // One update each, in this order: the form filled in, the new
+            // fields, the signature (which covers both).
+            if !req.fill.is_empty() {
+                let pw = req.password.as_deref();
+                data = fill_form(&data, pw, &req.fill, req.fill_break_locks)?.data;
+            }
             if !new_fields.is_empty() {
                 data = add_signature_fields(&data, req.password.as_deref(), &new_fields)?;
             }
+            let req = SignRequest {
+                fill: Vec::new(),
+                ..req.clone()
+            };
             let _guard = TOKEN_LOCK.lock().unwrap_or_else(|p| p.into_inner());
             let token = Token::open(Path::new(&args.driver_path))?;
             let certs = token.signing_certificates()?;
@@ -1133,6 +1152,8 @@ pub fn run() {
             recent::recent_clear,
             pdf_info,
             read_pdf,
+            form::form_fields,
+            form::save_filled,
             find_spots,
             sign,
             sign_batch,

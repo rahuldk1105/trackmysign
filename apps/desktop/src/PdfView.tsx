@@ -4,6 +4,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 // Legacy build: polyfills newer JS so it also runs in older system web views.
 import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import type { EmptyField, Rect } from "./api";
+import { FormLayer, type FormState } from "./FormLayer";
 import { t } from "./i18n";
 import { ctcPlaced, ctcRect, useStampDrawing, type CtcStyle, type StampContent } from "./stamp";
 import { StampView, type StampUrls } from "./StampView";
@@ -88,6 +89,8 @@ interface Props {
   onPickField?: (f: EmptyField) => void;
   /** The box sits in this signature field: it cannot be moved or resized. */
   field?: string | null;
+  /** Form fields to fill in, shown as inputs over the pages. */
+  form?: FormState | null;
   /** Signature fields being drawn; set instead of `placement`. */
   drafts?: DraftLayer | null;
   /** "Certified true copy" stamps on `pages`; moving or resizing one moves them all. */
@@ -130,6 +133,7 @@ export function PdfView({
   onPickField,
   field,
   ctc,
+  form,
   drafts,
 }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -226,6 +230,7 @@ export function PdfView({
             onPickField={onPickField}
             field={field ?? null}
             ctc={ctc?.pages.includes(i) ? ctc : null}
+            form={form ?? null}
             drafts={drafts ?? null}
           />
         );
@@ -251,9 +256,10 @@ interface PageProps {
   field: string | null;
   drafts: DraftLayer | null;
   ctc: CtcView | null;
+  form: FormState | null;
 }
 
-function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview, onPlace, fields, onPickField, field, drafts, ctc }: PageProps) {
+function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview, onPlace, fields, onPickField, field, drafts, ctc, form }: PageProps) {
   const holder = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
@@ -308,7 +314,7 @@ function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview,
   };
 
   const onPageDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest(".sig-box, .sig-field, .draft-field, .ctc-box")) return;
+    if ((e.target as HTMLElement).closest(".sig-box, .sig-field, .draft-field, .ctc-box, .form-field")) return;
     if (drafts) return drawDraft(e);
     const pt = toPoints(e.clientX, e.clientY);
     const w = placement?.w ?? 170;
@@ -396,6 +402,7 @@ function Page({ doc, index, size, scale, placement, ghost, stamp, urls, preview,
         onPointerDown={onPageDown}
       >
         <canvas ref={canvas} style={{ width: "100%", height: "100%" }} />
+        {form && <FormLayer form={form} page={index} scale={scale} />}
         {fields.map(
           (f) =>
             f.rect && (

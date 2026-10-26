@@ -1,0 +1,105 @@
+/* Form fields over the page (FormLayer.tsx) and the form section of the
+   inspector (FormPanel.tsx). The page is paper in both themes, so the
+   inputs keep paper colours. */
+
+.form-field {
+  position: absolute;
+  margin: 0;
+  padding: 0 0.25em;
+  border: 1px solid rgb(27 58 140 / 0.35);
+  border-radius: 0;
+  background: rgb(27 58 140 / 0.07);
+  color: #101828;
+  font-family: Helvetica, Arial, sans-serif;
+  line-height: 1.15;
+  outline: none;
+  cursor: text;
+  color-scheme: light;
+}
+.form-field:hover {
+  border-color: #1b3a8c;
+}
+.form-field:focus {
+  border-color: #1b3a8c;
+  background: rgb(255 255 255 / 0.9);
+  box-shadow: 0 0 0 2px rgb(61 99 216 / 0.45);
+}
+.form-field:disabled {
+  border-color: transparent;
+  background: none;
+  color: #364152;
+  cursor: default;
+  opacity: 1;
+}
+.form-field.missing {
+  border-color: #b42318;
+  background: rgb(180 35 24 / 0.07);
+}
+.form-field.locked:not(:disabled) {
+  border-style: dashed;
+}
+textarea.form-field {
+  padding-top: 0.15em;
+  resize: none;
+  overflow: hidden;
+}
+.form-field.comb {
+  font-family: "Courier New", Courier, monospace;
+}
+.form-field.checkbox,
+.form-field.radio {
+  padding: 0;
+  accent-color: #1b3a8c;
+  cursor: pointer;
+}
+select.form-field {
+  padding: 0 0.15em;
+  cursor: pointer;
+}
+select.form-field.list {
+  overflow-y: auto;
+}
+
+/* Inspector */
+.form-list .field-name {
+  flex: 1 1 auto;
+}
+.form-list .form-value {
+  flex: 0 1 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.form-list .form-value.ro {
+  font-style: italic;
+}
+.form-list button.edited .form-value {
+  color: var(--accent-text);
+}
+.form-req {
+  color: var(--muted);
+}
+.form-req.bad,
+.inspector p.form-missing {
+  color: var(--bad);
+}
+.form-lock {
+  display: inline-flex;
+  color: var(--muted);
+}
+.form-list {
+  max-height: 240px;
+}
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.form-warnings {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}

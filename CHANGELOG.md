@@ -44,6 +44,21 @@ All notable changes to TrackMy Sign are listed here. The format follows
   the batch and the watch folder keep the stamp, and the signing history notes
   the stamped pages. Command line: `sign --ctc`, `--ctc-style stamp.json`,
   `--ctc-pages all|1-3` (also on `watch`).
+- Filling in PDF forms (AcroForm): text fields (also multi-line, comb and
+  limited length), check boxes, radio buttons, drop-downs (also with typing)
+  and lists, with nested field names. The app shows the fields on the page,
+  where the PDF puts them and scaled with the zoom, and lists them under
+  *Form* in the side panel in tab order, required fields still empty in red.
+  Signing fills the form in first and then signs, so the signature covers the
+  values; *Save filled copy* writes `name_filled.pdf` without signing. Each
+  field's appearance is drawn from its own font, size (also auto), colour and
+  alignment; fields stay fillable. Earlier signatures stay valid where the
+  certification allows form filling; a field locked by a signature is only
+  filled in after a warning, and documents certified with no changes allowed,
+  read-only fields and XFA-only forms are refused. Command line:
+  `trackmysign form list`, `trackmysign form fill --set NAME=VALUE --json FILE`
+  and `trackmysign sign --fill-json FILE`; `info` shows the number of form
+  fields.
 - Signature fields for others: **Add fields** in the toolbar draws empty, named
   signature fields on the pages for co-directors, the auditor or the company
   secretary to sign later (in TrackMy Sign or Acrobat), with presets for the

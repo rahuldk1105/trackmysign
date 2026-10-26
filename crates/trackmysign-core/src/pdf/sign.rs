@@ -19,7 +19,7 @@ use crate::stamp::{StampLine, StampStyle, StampValues, stamp_lines};
 /// Rectangle on the page as the user sees it: points, origin at the top-left
 /// of the displayed (cropped and rotated) page — the same space as a PDF.js
 /// viewport at scale 1.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
 pub struct DisplayRect {
     pub x: f64,
     pub y: f64,

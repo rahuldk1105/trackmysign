@@ -30,6 +30,7 @@ pub use ctc::{Ctc, CtcStyle};
 pub use image::{ImagePosition, StampImage};
 pub use pdf::addfields::{FieldLock, NewField};
 pub use pdf::docmdp::DocMdp;
+pub use pdf::form::{FieldKind, FillValue, Filled, Form, FormField};
 pub use pdf::reader::PdfError;
 pub use pdf::sign::{DisplayRect, Placement};
 pub use stamp::StampStyle;
@@ -121,6 +122,12 @@ pub struct SignRequest {
     /// "Certified true copy" stamps on the pages, added with the signature
     /// (not with `field`).
     pub ctc: Option<ctc::Ctc>,
+    /// Fill in these form fields first, in an update of their own, so the
+    /// signature covers the values.
+    pub fill: Vec<FillValue>,
+    /// Also fill fields locked by an existing signature, which will then
+    /// no longer be valid.
+    pub fill_break_locks: bool,
 }
 
 /// Whether `input` may get a signature: a certification only on a document
@@ -190,6 +197,13 @@ pub fn sign_pdf(
         ctc::check_permitted(input, password)?;
         c.style.validate().map_err(Error::Style)?;
     }
+    let filled;
+    let input = if req.fill.is_empty() {
+        input
+    } else {
+        filled = pdf::form::fill(input, password, &req.fill, req.fill_break_locks)?.data;
+        &filled[..]
+    };
     let summary = certinfo::CertSummary::from_der(signer.certificate())?;
     let time = req.time.unwrap_or_else(|| Local::now().fixed_offset());
     let fields = pdf::sign::SignatureFields {
@@ -245,6 +259,23 @@ pub fn sign_pdf(
             crls: &data.crls,
         },
     )?)
+}
+
+/// The fillable form fields of `input`, in tab order.
+pub fn read_form(input: &[u8], password: Option<&str>) -> Result<Form, Error> {
+    let doc = pdf::reader::Document::open(input, password)?;
+    Ok(pdf::form::read(&doc)?)
+}
+
+/// Fills in form fields as an incremental update, without signing; see
+/// [`pdf::form::fill`].
+pub fn fill_form(
+    input: &[u8],
+    password: Option<&str>,
+    values: &[FillValue],
+    break_locks: bool,
+) -> Result<Filled, Error> {
+    Ok(pdf::form::fill(input, password, values, break_locks)?)
 }
 
 #[derive(Debug, Clone)]
@@ -431,16 +462,22 @@ pub fn signed_path(input: &Path) -> PathBuf {
 
 /// [`signed_path`], but in `dir` instead of next to the original.
 pub fn signed_path_in(input: &Path, dir: &Path) -> PathBuf {
+    copy_path_in(input, dir, "signed")
+}
+
+/// `invoice.pdf` → `<dir>/invoice_<suffix>.pdf` (or `invoice_<suffix>_2.pdf`,
+/// … if taken).
+pub fn copy_path_in(input: &Path, dir: &Path, suffix: &str) -> PathBuf {
     let stem = input
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "document".into());
-    let first = dir.join(format!("{stem}_signed.pdf"));
+    let first = dir.join(format!("{stem}_{suffix}.pdf"));
     if !first.exists() {
         return first;
     }
     (2..)
-        .map(|n| dir.join(format!("{stem}_signed_{n}.pdf")))
+        .map(|n| dir.join(format!("{stem}_{suffix}_{n}.pdf")))
         .find(|p| !p.exists())
         .unwrap()
 }
@@ -449,9 +486,19 @@ pub fn signed_path_in(input: &Path, dir: &Path) -> PathBuf {
 /// file is created new, so one that appeared since the name was picked is
 /// kept and the next name tried.
 pub fn write_signed_in(input: &Path, dir: &Path, data: &[u8]) -> std::io::Result<PathBuf> {
+    write_copy_in(input, dir, "signed", data)
+}
+
+/// [`write_signed_in`] with another suffix, e.g. `filled`.
+pub fn write_copy_in(
+    input: &Path,
+    dir: &Path,
+    suffix: &str,
+    data: &[u8],
+) -> std::io::Result<PathBuf> {
     use std::io::Write;
     loop {
-        let out = signed_path_in(input, dir);
+        let out = copy_path_in(input, dir, suffix);
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
