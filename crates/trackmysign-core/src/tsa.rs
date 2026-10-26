@@ -189,9 +189,21 @@ mod tests {
 
     /// A response the way a TSA would build it (without the TSA signature).
     fn response(status: u8, digest: &[u8; 32], nonce: &[u8]) -> Vec<u8> {
+        let tail = [tlv(0x30, &tlv(0x02, &[1])), tlv(0x02, nonce)];
+        response_with(status, rfc5912::ID_SHA_256, digest, &tail)
+    }
+
+    /// Same, with the TSTInfo fields after genTime given in `tail`
+    /// (accuracy, ordering, nonce, tsa, extensions).
+    fn response_with(
+        status: u8,
+        hash: ObjectIdentifier,
+        digest: &[u8],
+        tail: &[Vec<u8>],
+    ) -> Vec<u8> {
         let imprint = MessageImprint {
             hash_algorithm: AlgorithmIdentifierOwned {
-                oid: rfc5912::ID_SHA_256,
+                oid: hash,
                 parameters: None,
             },
             hashed_message: OctetString::new(digest.to_vec()).unwrap(),
@@ -204,8 +216,7 @@ mod tests {
                 imprint.to_der().unwrap(),
                 tlv(0x02, &[0x42]),
                 tlv(0x18, b"20261023101112.345Z"),
-                tlv(0x30, &tlv(0x02, &[1])),
-                tlv(0x02, nonce),
+                tail.concat(),
             ]
             .concat(),
         );
@@ -227,7 +238,7 @@ mod tests {
         .to_der()
         .unwrap();
         let mut body = tlv(0x30, &tlv(0x02, &[status]));
-        if status == 0 {
+        if status <= 1 {
             body.extend_from_slice(&token);
         }
         tlv(0x30, &body)
@@ -297,5 +308,53 @@ mod tests {
             .contains("nonce")
         );
         assert!(msg(parse_response(b"<html>", &digest, &nonce)).contains("timestamp response"));
+    }
+
+    /// Shapes public TSAs send: no accuracy (DigiCert), the TSA's name after
+    /// the nonce (Sectigo, GlobalSign, Certum, FreeTSA), ordering TRUE
+    /// (FreeTSA), extensions, and grantedWithMods.
+    #[test]
+    fn accepts_optional_tst_fields() {
+        let digest = [7u8; 32];
+        let nonce = [0x11, 0x22, 0x33];
+        let accuracy = tlv(0x30, &tlv(0x02, &[1]));
+        let ordering = tlv(0x01, &[0xff]);
+        let cn = [&[0x06, 0x03, 0x55, 0x04, 0x03][..], &tlv(0x0c, b"TSA")].concat();
+        let tsa = tlv(0xa0, &tlv(0xa4, &tlv(0x30, &tlv(0x31, &tlv(0x30, &cn)))));
+        let ext = [
+            ObjectIdentifier::new_unwrap("1.2.3.5").to_der().unwrap(),
+            tlv(0x04, &[0]),
+        ]
+        .concat();
+        let extensions = tlv(0xa1, &tlv(0x30, &ext));
+        let n = tlv(0x02, &nonce);
+        for tail in [
+            vec![n.clone()],
+            vec![n.clone(), tsa.clone()],
+            vec![accuracy.clone(), ordering.clone(), n.clone(), tsa.clone()],
+            vec![accuracy, n, tsa, extensions],
+        ] {
+            for status in [0, 1] {
+                let resp = response_with(status, rfc5912::ID_SHA_256, &digest, &tail);
+                assert!(
+                    parse_response(&resp, &digest, &nonce).is_ok(),
+                    "{tail:02x?}"
+                );
+            }
+        }
+        // A token without the nonce we sent could be a replay.
+        let resp = response_with(0, rfc5912::ID_SHA_256, &digest, &[ordering]);
+        let e = parse_response(&resp, &digest, &nonce).unwrap_err();
+        assert!(e.to_string().contains("nonce"));
+    }
+
+    #[test]
+    fn rejects_other_hash_algorithm() {
+        // A TSA that stamps a SHA-1 hash instead of the SHA-256 one asked for.
+        let digest = [7u8; 32];
+        let nonce = [0x11];
+        let resp = response_with(0, rfc5912::ID_SHA_1, &[7u8; 20], &[tlv(0x02, &nonce)]);
+        let e = parse_response(&resp, &digest, &nonce).unwrap_err();
+        assert!(e.to_string().contains("different data"));
     }
 }

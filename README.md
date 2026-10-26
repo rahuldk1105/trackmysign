@@ -162,6 +162,26 @@ in the PDF so the signature can be validated after the certificate expires. The
 desktop app has the same options under *Settings → Long-term validity*. If a
 server cannot be reached, nothing is saved and you can sign again without it.
 
+Timestamp servers suggested in Settings (free, no account; checked with
+`tests/manual/tsa_check.sh`, timestamp and `--ltv` validated with pyHanko):
+
+| Server | Address | Chains to |
+|---|---|---|
+| DigiCert (default) | `http://timestamp.digicert.com` | DigiCert Trusted Root G4 |
+| Sectigo | `http://timestamp.sectigo.com` | USERTrust RSA Certification Authority |
+| SSL.com | `http://ts.ssl.com` | SSL.com Root Certification Authority RSA |
+| GlobalSign | `http://timestamp.globalsign.com/tsa/r6advanced1` | GlobalSign Root CA - R6 |
+| Certum | `http://time.certum.pl` | Certum Trusted Network CA |
+| FreeTSA | `https://freetsa.org/tsr` | FreeTSA's own root (not in Windows or Adobe trust lists) |
+
+Indian licensed CAs (eMudhra, (n)Code, Vsign, Sify SafeScrypt, Capricorn,
+Pantasign and others) run timestamp services under the CCA, but for their
+subscribers: none publishes a free address, and their timestamp hosts did not
+answer a test request. If your CA gives you a TSA address (with your
+subscription or for your network), enter it in Settings or pass it to
+`--timestamp`; `tests/manual/tsa_check.sh <address>` shows whether its
+certificate chains to the CCA India root.
+
 An expired certificate is refused, since a signature made with it is not valid
 (`--allow-expired` signs anyway, with a warning). The desktop app reminds you to
 renew 30 days ahead (15, 60 or off under *Settings → Expiry reminder*), also
@@ -704,6 +724,14 @@ tests/run.sh               # end-to-end: SoftHSM virtual token + generated PDFs,
 
 `tests/run.sh` needs `softhsm2`, `opensc`, `qpdf`, `poppler-utils` (pdftoppm), `openssl`, `curl`, Node.js and `pip install pyhanko reportlab`.
 The timestamp and LTV tests run a local TSA, OCSP responder and CRL server (`tests/services.py`), so no internet is needed.
+
+`tests/manual/tsa_check.sh [URL...]` checks real timestamp servers over the
+internet (by default the ones suggested in Settings plus the Indian CA hosts):
+a raw RFC 3161 request (status, time, TSA certificate, whether it chains to a
+public root or the CCA India root), then signing on the SoftHSM token with
+`--timestamp` and with `--ltv`, validated with pyHanko. It is not part of
+`tests/run.sh`. Roots that are in no system bundle (FreeTSA's, or DigiCert
+Assured ID Root CA for DigiCert's `--ltv` check) go in `EXTRA_ROOTS`.
 
 Layout:
 
