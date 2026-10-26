@@ -29,6 +29,8 @@ const SENTENCES: Record<string, MessageKey> = {
   "Every entry was deleted.": "error.historyAllDeleted",
   "Save the new PDF under another name: the original is never changed.": "error.pagesSameFile",
   "The signature is detached: the file is not inside it.": "error.notAttached",
+  "No file to share.": "error.shareNoFile",
+  "The clipboard did not take the file.": "error.clipboard",
 };
 
 /** Sentences that end in a detail from elsewhere (a server, the OS), kept as is. */
@@ -38,6 +40,7 @@ const PREFIXES: [string, MessageKey][] = [
   ["Could not load the token driver: ", "error.driverLoad"],
   ["Entries are missing before this one: ", "error.historyMissing"],
   ["The newest entries were changed or deleted. Last entry recorded: ", "error.historyNewest"],
+  ["The signed copy is no longer at ", "error.shareGone"],
 ];
 
 /** `message` in the UI language where the wording is known. */

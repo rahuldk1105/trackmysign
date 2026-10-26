@@ -8,6 +8,14 @@ All notable changes to TrackMy Sign are listed here. The format follows
 
 ### Added
 
+- Sending the signed copy in one click, from the *Document signed* dialog,
+  the batch results, History and the Recent list: **Email…** opens a new
+  message in the default mail app with the PDF(s) attached (Simple MAPI on
+  Windows, the Compose Email service or Mail on macOS, `xdg-email` on Linux;
+  when the mail app cannot take attachments, the folder opens next to a new
+  message), **Share…** opens the Windows 10/11 Share window or the macOS
+  share menu, and **Copy file** puts the file on the clipboard to paste into
+  WhatsApp Desktop, Teams or an email. Works in the Microsoft Store build.
 - TrackMy Sign is on the [Microsoft Store](https://apps.microsoft.com/detail/9NV4G85VML2K). The website and README now point Windows users there first; the direct installer stays available.
 
 ### Changed

@@ -142,7 +142,7 @@ export interface PinStatus {
 }
 
 export interface ApiError {
-  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "password" | "permission" | "io" | "timestamp" | "ltv" | "expired" | "other";
+  kind: "wrongPin" | "pinLocked" | "token" | "pdf" | "password" | "permission" | "io" | "timestamp" | "ltv" | "expired" | "share" | "other";
   message: string;
 }
 
@@ -389,6 +389,36 @@ export async function openFile(path: string): Promise<void> {
 
 export async function revealFile(path: string): Promise<void> {
   if (inTauri) await invoke("reveal_file", { path });
+}
+
+/** Ways to pass a signed copy on that this computer has. */
+export interface ShareAbilities {
+  email: boolean;
+  share: boolean;
+  copy: boolean;
+}
+
+export async function shareAbilities(): Promise<ShareAbilities> {
+  return inTauri ? invoke("share_abilities") : { email: true, share: true, copy: true };
+}
+
+/**
+ * A new email in the default mail app with the files attached; "attachByHand"
+ * when the mail app cannot take them and the folder opened instead.
+ */
+export async function shareEmail(paths: string[]): Promise<"composed" | "attachByHand"> {
+  return inTauri ? invoke("share_email", { paths }) : "composed";
+}
+
+/** The system share sheet; on macOS it points at `anchor` (the button). */
+export async function shareSheet(paths: string[], anchor?: DOMRect): Promise<void> {
+  const a = anchor && { x: anchor.x, y: anchor.y, width: anchor.width, height: anchor.height };
+  if (inTauri) await invoke("share_sheet", { paths, anchor: a });
+}
+
+/** The files on the clipboard, to paste into a chat or an email. */
+export async function shareCopy(paths: string[]): Promise<void> {
+  if (inTauri) await invoke("share_copy", { paths });
 }
 
 /** PKCS#11 drivers installed on this computer, preferred first. */

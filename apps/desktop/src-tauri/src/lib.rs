@@ -11,6 +11,7 @@ mod output;
 mod pages;
 mod portal;
 mod recent;
+mod share;
 #[cfg(all(windows, feature = "store"))]
 mod store;
 mod verify;
@@ -988,6 +989,10 @@ pub fn run() {
             token_drivers,
             open_file,
             reveal_file,
+            share::share_abilities,
+            share::share_email,
+            share::share_sheet,
+            share::share_copy,
             open_website,
             pages::pages_source,
             pages::assemble_pages,

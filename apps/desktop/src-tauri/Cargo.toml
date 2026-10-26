@@ -11,7 +11,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [features]
 # Microsoft Store (MSIX) build, see packaging/msstore: no in-app updater, and
 # the start at sign-in is the package's StartupTask.
-store = ["dep:windows"]
+store = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -33,5 +33,27 @@ tauri-plugin-updater = { version = "2", default-features = false, features = ["r
 tauri-plugin-process = "2"
 tauri-plugin-autostart = "2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSGeometry", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSResponder", "NSSharingService", "NSView"] }
+
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", optional = true, features = ["ApplicationModel", "ApplicationModel_Activation", "Win32_System_Com"] }
+windows = { version = "0.62", features = [
+    "ApplicationModel",
+    "ApplicationModel_Activation",
+    "ApplicationModel_DataTransfer",
+    "Storage",
+    "Storage_Streams",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Mapi",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_UI_Shell",
+] }
+windows-collections = "0.3"

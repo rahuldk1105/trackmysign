@@ -10,6 +10,7 @@ import type { HistoryEntry, HistoryIntegrity, HistoryOutcome, HistorySettings, H
 import { currentLang, t, tx, type MessageKey } from "./i18n";
 import { errorText, translateMessage } from "./i18n/errors";
 import { AlertIcon, CheckIcon, CloseIcon } from "./icons";
+import { ShareActions } from "./Share";
 import "./history.css";
 
 const IST = "Asia/Kolkata";
@@ -373,6 +374,7 @@ function EntryDetails({ entry: e, onOpen }: { entry: HistoryEntry; onOpen: (path
           </button>
         </div>
       )}
+      {output && e.outcome === "signed" && <ShareActions key={output} paths={[output]} ghost />}
     </div>
   );
 }

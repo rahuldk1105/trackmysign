@@ -28,6 +28,7 @@ import { StampDesigner, type PictureInfo } from "./StampDesigner";
 import { StampView, type StampUrls } from "./StampView";
 import { useStampDrawing, type StampContent, type StampStyle } from "./stamp";
 import { BackgroundSettings } from "./Background";
+import { ShareActions, ShareMenu } from "./Share";
 import { PortalDialog, PortalSettings, PortalStatusItem, usePortal } from "./PortalSigning";
 import { SignaturesPanel } from "./SignaturesPanel";
 import { UpdateBanner } from "./UpdateBanner";
@@ -1616,6 +1617,7 @@ export default function App() {
             <FileIcon size={14} />
             <span>{step.result.name}</span>
           </div>
+          <ShareActions paths={[step.result.output]} />
           <div className="dialog-actions">
             <button
               className="btn ghost"
@@ -1788,6 +1790,7 @@ function RecentList(props: { files: RecentFile[]; disabled: boolean; onOpen: (pa
                 {t("recent.signed")}
               </button>
             )}
+            {f.signed && <ShareMenu path={f.signed} name={f.name} disabled={props.disabled} />}
           </li>
         ))}
       </ul>
@@ -2413,6 +2416,7 @@ function BatchDialog(props: { files: BatchItem[]; running: boolean; error?: stri
           <AlertIcon size={14} /> {props.error}
         </p>
       )}
+      {!props.running && <ShareActions paths={done.flatMap((f) => (f.output ? [f.output] : []))} />}
       <div className="dialog-actions">
         <div className="spacer" />
         {done[0]?.output && (
